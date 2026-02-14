@@ -3,7 +3,7 @@
 ```markdown
 # Contributing to Traqora
 
-We welcome contributions from everyone interested in building a decentralized travel future with StarkNet!
+We welcome contributions from everyone interested in building a decentralized travel future with Stellar!
 
 Please take a moment to review this guide to understand how you can contribute effectively.
 
@@ -32,7 +32,7 @@ Please take a moment to review this guide to understand how you can contribute e
 ## 📋 Code Guidelines
 
 - Use clear, concise, and readable code.
-- Follow Cairo best practices for StarkNet development.
+- Follow Soroban best practices for Stellar development.
 - Include comments where necessary.
 - Ensure all functions have tests.
 - Lint and format your code before submitting.
@@ -42,7 +42,7 @@ Please take a moment to review this guide to understand how you can contribute e
 All contributions should be accompanied by unit or integration tests. Run tests locally before submitting a PR:
 
 ```bash
-scarb test
+soroban test
 ```
 
 For frontend contributions:

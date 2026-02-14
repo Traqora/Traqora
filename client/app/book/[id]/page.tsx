@@ -76,7 +76,7 @@ export default function BookFlightPage() {
     setProcessingStage("Preparing transaction...")
 
     setTimeout(() => {
-      setProcessingStage("Submitting to Starknet...")
+      setProcessingStage("Submitting to Stellar...")
     }, 1000)
 
     setTimeout(() => {
@@ -366,9 +366,9 @@ export default function BookFlightPage() {
           <div className="space-y-6 animate-slide-up">
             <Card className="glass-card">
               <CardHeader>
-                <CardTitle>Connect Your Starknet Wallet</CardTitle>
+                <CardTitle>Connect Your Stellar Wallet</CardTitle>
                 <p className="text-muted-foreground">
-                  Choose your preferred Starknet wallet to complete the booking transaction.
+                  Choose your preferred Stellar wallet to complete the booking transaction.
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -377,17 +377,17 @@ export default function BookFlightPage() {
                     variant="outline"
                     size="lg"
                     className="h-16 justify-start gap-4 bg-transparent hover-lift-3d transition-all duration-300"
-                    onClick={() => handleConnectWallet("ArgentX")}
+                    onClick={() => handleConnectWallet("Freighter")}
                     disabled={isProcessing}
                   >
                     <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
                       <Wallet className="h-6 w-6 text-primary" />
                     </div>
                     <div className="text-left">
-                      <p className="font-medium">ArgentX</p>
-                      <p className="text-sm text-muted-foreground">Most popular Starknet wallet</p>
+                      <p className="font-medium">Freighter</p>
+                      <p className="text-sm text-muted-foreground">Most popular Stellar wallet</p>
                     </div>
-                    {isProcessing && selectedWallet === "ArgentX" && (
+                    {isProcessing && selectedWallet === "Freighter" && (
                       <div className="ml-auto">
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
                       </div>
@@ -398,17 +398,17 @@ export default function BookFlightPage() {
                     variant="outline"
                     size="lg"
                     className="h-16 justify-start gap-4 bg-transparent hover-lift-3d transition-all duration-300"
-                    onClick={() => handleConnectWallet("Braavos")}
+                    onClick={() => handleConnectWallet("Albedo")}
                     disabled={isProcessing}
                   >
                     <div className="w-10 h-10 bg-secondary/10 rounded-lg flex items-center justify-center">
                       <Shield className="h-6 w-6 text-secondary" />
                     </div>
                     <div className="text-left">
-                      <p className="font-medium">Braavos</p>
+                      <p className="font-medium">Albedo</p>
                       <p className="text-sm text-muted-foreground">Advanced security features</p>
                     </div>
-                    {isProcessing && selectedWallet === "Braavos" && (
+                    {isProcessing && selectedWallet === "Albedo" && (
                       <div className="ml-auto">
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-secondary"></div>
                       </div>
@@ -478,7 +478,7 @@ export default function BookFlightPage() {
             <Alert>
               <Shield className="h-4 w-4" />
               <AlertDescription>
-                Your booking will be secured by a smart contract on Starknet. The transaction is irreversible once
+                Your booking will be secured by a smart contract on Stellar. The transaction is irreversible once
                 confirmed, but refunds are automatically processed according to airline policies.
               </AlertDescription>
             </Alert>
@@ -648,7 +648,7 @@ export default function BookFlightPage() {
 
                     <Button variant="outline" className="gap-2 bg-transparent hover-lift-3d">
                       <ExternalLink className="h-4 w-4" />
-                      View on Blockscout
+                      View on Stellar Explorer
                     </Button>
 
                     <Button asChild className="hover-lift-3d">
@@ -662,7 +662,7 @@ export default function BookFlightPage() {
             <Alert className="animate-fade-in-slow delay-500">
               <CheckCircle className="h-4 w-4" />
               <AlertDescription>
-                Your booking is now immutable and stored on Starknet. Automatic refunds will be processed if eligible
+                Your booking is now immutable and stored on Stellar. Automatic refunds will be processed if eligible
                 according to the airline's policy. A confirmation email has been sent to your registered address.
               </AlertDescription>
             </Alert>

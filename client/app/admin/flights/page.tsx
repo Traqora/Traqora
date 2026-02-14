@@ -340,7 +340,7 @@ export default function AdminFlightManagement() {
                       <SelectContent>
                         <SelectItem value="USDC">USDC</SelectItem>
                         <SelectItem value="ETH">ETH</SelectItem>
-                        <SelectItem value="STRK">STRK</SelectItem>
+                        <SelectItem value="XLM">XLM</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

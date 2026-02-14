@@ -96,7 +96,7 @@ export default function HomePage() {
                 className="inline-flex items-center px-6 py-3 text-sm font-medium animate-fade-in-slow bg-card glass-card border-primary/20"
               >
                 <Sparkles className="h-4 w-4 mr-2 text-primary" />
-                Powered by Starknet Blockchain
+                Powered by Stellar Blockchain
               </Badge>
 
               <div className="space-y-6">
@@ -562,7 +562,7 @@ export default function HomePage() {
                     <CheckCircle className="h-8 w-8 text-primary-foreground" />
                   </div>
                   <h4 className="font-serif font-bold text-xl">Blockchain Security</h4>
-                  <p className="text-muted-foreground">Immutable booking records secured on Starknet blockchain.</p>
+                  <p className="text-muted-foreground">Immutable booking records secured on Stellar blockchain.</p>
                 </CardContent>
               </Card>
             </div>
@@ -588,7 +588,7 @@ export default function HomePage() {
               <div>
                 <h3 className="font-serif font-bold text-xl mb-2">2. Connect Wallet</h3>
                 <p className="text-muted-foreground">
-                  Secure authentication with your Starknet wallet (ArgentX/Braavos)
+                  Secure authentication with your Stellar wallet (Freighter/Albedo)
                 </p>
               </div>
             </div>
@@ -599,7 +599,7 @@ export default function HomePage() {
               </div>
               <div>
                 <h3 className="font-serif font-bold text-xl mb-2">3. Smart Payment</h3>
-                <p className="text-muted-foreground">Pay directly to airlines with USDC, ETH, or STRK tokens</p>
+                <p className="text-muted-foreground">Pay directly to airlines with USDC or XLM tokens</p>
               </div>
             </div>
 
@@ -701,7 +701,7 @@ export default function HomePage() {
                 <span className="font-serif font-bold text-2xl">Traqora</span>
               </div>
               <p className="text-muted-foreground text-lg leading-relaxed">
-                Decentralized flight booking powered by Starknet blockchain technology.
+                Decentralized flight booking powered by Stellar blockchain technology.
               </p>
             </div>
 
@@ -770,7 +770,7 @@ export default function HomePage() {
           </div>
 
           <div className="border-t border-border mt-12 pt-12 text-center text-muted-foreground text-lg">
-            <p>&copy; 2024 Traqora. Built on Starknet with ❤️</p>
+            <p>&copy; 2024 Traqora. Built on Stellar with ❤️</p>
           </div>
         </div>
       </footer>

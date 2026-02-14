@@ -42,7 +42,7 @@ export default function PaymentPage() {
   const cryptoOptions = [
     { symbol: "USDC", name: "USD Coin", price: flight.price, icon: "💰" },
     { symbol: "ETH", name: "Ethereum", price: "0.18", icon: "⟠" },
-    { symbol: "STRK", name: "Starknet Token", price: "850", icon: "🔷" },
+    { symbol: "XLM", name: "Stellar Lumens", price: "850", icon: "⭐" },
   ]
 
   const handleConnectWallet = async () => {
@@ -109,7 +109,7 @@ export default function PaymentPage() {
                         <Wallet className="h-5 w-5 text-primary" />
                         <div>
                           <p className="font-medium">Cryptocurrency</p>
-                          <p className="text-sm text-muted-foreground">Pay with USDC, ETH, or STRK</p>
+                          <p className="text-sm text-muted-foreground">Pay with USDC, ETH, or XLM</p>
                         </div>
                         <Badge variant="secondary" className="ml-auto">
                           <Zap className="h-3 w-3 mr-1" />
@@ -182,7 +182,7 @@ export default function PaymentPage() {
                 <CardContent>
                   {!walletConnected ? (
                     <div className="space-y-4">
-                      <p className="text-muted-foreground">Connect your Starknet wallet to proceed with payment.</p>
+                      <p className="text-muted-foreground">Connect your Stellar wallet to proceed with payment.</p>
                       <div className="grid gap-3">
                         <Button
                           variant="outline"
@@ -192,7 +192,7 @@ export default function PaymentPage() {
                           disabled={isProcessing}
                         >
                           <Wallet className="h-5 w-5" />
-                          Connect ArgentX
+                          Connect Freighter
                           {isProcessing && (
                             <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
                           )}
@@ -205,7 +205,7 @@ export default function PaymentPage() {
                           disabled={isProcessing}
                         >
                           <Shield className="h-5 w-5" />
-                          Connect Braavos
+                          Connect Albedo
                           {isProcessing && (
                             <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
                           )}
@@ -221,14 +221,14 @@ export default function PaymentPage() {
                           <p className="text-sm text-muted-foreground">0x1234...5678</p>
                         </div>
                         <Badge variant="secondary" className="ml-auto">
-                          ArgentX
+                          Freighter
                         </Badge>
                       </div>
 
                       <Alert>
                         <Shield className="h-4 w-4" />
                         <AlertDescription>
-                          Your payment will be processed securely through a smart contract on Starknet.
+                          Your payment will be processed securely through a smart contract on Stellar.
                         </AlertDescription>
                       </Alert>
 

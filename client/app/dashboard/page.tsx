@@ -173,7 +173,7 @@ export default function DashboardPage() {
               </a>
               <Badge variant="secondary" className="px-3 py-1">
                 <CheckCircle className="h-4 w-4 mr-2 text-secondary" />
-                ArgentX Connected
+                Freighter Connected
               </Badge>
             </div>
           </div>
@@ -325,7 +325,7 @@ export default function DashboardPage() {
                         </Button>
                         <Button variant="outline" size="sm" className="justify-start bg-transparent">
                           <ExternalLink className="h-4 w-4 mr-2" />
-                          View on Blockscout
+                          View on Stellar Expert
                         </Button>
                         {booking.refundEligible && (
                           <Button variant="outline" size="sm" className="justify-start text-secondary bg-transparent">
@@ -448,7 +448,7 @@ export default function DashboardPage() {
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
                     <div>
-                      <p className="font-medium">ArgentX Wallet</p>
+                      <p className="font-medium">Freighter Wallet</p>
                       <p className="text-sm text-muted-foreground font-mono">{formatAddress(mockUser.address)}</p>
                     </div>
                     <Button variant="ghost" size="sm" onClick={() => copyToClipboard(mockUser.address)}>
@@ -459,7 +459,7 @@ export default function DashboardPage() {
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Network</span>
-                      <Badge variant="secondary">Starknet Mainnet</Badge>
+                      <Badge variant="secondary">Stellar Mainnet</Badge>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Status</span>
