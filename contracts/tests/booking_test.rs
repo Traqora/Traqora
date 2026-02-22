@@ -1,4 +1,4 @@
-use soroban_sdk::{Env, Address, Symbol};
+use soroban_sdk::{testutils::Events, vec, Env, Address, Symbol, IntoVal};
 use crate::booking::{BookingContract, Booking};
 
 #[test]
@@ -27,6 +27,18 @@ fn test_create_booking() {
     assert_eq!(booking.passenger, passenger);
     assert_eq!(booking.airline, airline);
     assert_eq!(booking.status, Symbol::short(&env, "confirmed"));
+
+    // Verify Booking Created Event
+    let events = env.events().all();
+    assert_eq!(events.len(), 1);
+    let (contract, topics, data) = events.last().unwrap();
+    
+    assert_eq!(contract, &contract_id);
+    assert_eq!(
+        topics,
+        &vec![&env, Symbol::short(&env, "Booking"), Symbol::short(&env, "create")]
+    );
+    assert_eq!(data, &booking_id.into_val(&env));
 }
 
 #[test]
@@ -58,4 +70,17 @@ fn test_cancel_booking() {
     
     let booking = client.get_booking(&booking_id).unwrap();
     assert_eq!(booking.status, Symbol::short(&env, "cancelled"));
+
+    // Verify Booking Cancelled Event
+    // Note: create_booking also emits an event, so we expect 2 events total
+    let events = env.events().all();
+    assert_eq!(events.len(), 2);
+    
+    let (contract, topics, data) = events.last().unwrap();
+    assert_eq!(contract, &contract_id);
+    assert_eq!(
+        topics,
+        &vec![&env, Symbol::short(&env, "Booking"), Symbol::short(&env, "cancel")]
+    );
+    assert_eq!(data, &booking_id.into_val(&env));
 }
