@@ -1,5 +1,4 @@
-#![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, token};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 #[contracttype]
 #[derive(Clone)]
@@ -23,10 +22,9 @@ pub struct RefundPolicy {
     pub no_refund_window: u64,
 }
 
-#[contracttype]
-pub struct RefundStorage;
+pub struct RefundStorageKey;
 
-impl RefundStorage {
+impl RefundStorageKey {
     pub fn get_request(env: &Env, request_id: u64) -> Option<RefundRequest> {
         env.storage().persistent().get(&(symbol_short!("refund"), request_id))
     }
@@ -67,7 +65,7 @@ impl RefundContract {
             no_refund_window,
         };
         
-        RefundStorage::set_policy(&env, &airline, &policy);
+        RefundStorageKey::set_policy(&env, &airline, &policy);
         
         env.events().publish(
             (symbol_short!("policy"), symbol_short!("set")),
@@ -100,7 +98,7 @@ impl RefundContract {
             processed_at: None,
         };
         
-        RefundStorage::set_request(&env, request_id, &request);
+        RefundStorageKey::set_request(&env, request_id, &request);
         
         env.events().publish(
             (symbol_short!("refund"), symbol_short!("requested")),
@@ -111,10 +109,10 @@ impl RefundContract {
     }
     
     // Process refund (trigger token transfer)
-    pub fn process_refund(env: Env, admin: Address, request_id: u64) {
+    pub fn process_refund(env: Env, _admin: Address, request_id: u64) {
         // TODO: Check admin authorization
         
-        let mut request = RefundStorage::get_request(&env, request_id)
+        let mut request = RefundStorageKey::get_request(&env, request_id)
             .expect("Refund request not found");
         
         assert!(
@@ -125,7 +123,7 @@ impl RefundContract {
         request.status = symbol_short!("approved");
         request.processed_at = Some(env.ledger().timestamp());
         
-        RefundStorage::set_request(&env, request_id, &request);
+        RefundStorageKey::set_request(&env, request_id, &request);
         
         // Emit event for backend to trigger actual token transfer
         env.events().publish(
@@ -135,11 +133,11 @@ impl RefundContract {
     }
     
     pub fn get_refund_request(env: Env, request_id: u64) -> Option<RefundRequest> {
-        RefundStorage::get_request(&env, request_id)
+        RefundStorageKey::get_request(&env, request_id)
     }
     
     pub fn get_refund_policy(env: Env, airline: Address) -> Option<RefundPolicy> {
-        RefundStorage::get_policy(&env, &airline)
+        RefundStorageKey::get_policy(&env, &airline)
     }
     
     // Calculate refund amount based on policy and timing
@@ -149,7 +147,7 @@ impl RefundContract {
         original_price: i128,
         departure_time: u64,
     ) -> i128 {
-        let policy = RefundStorage::get_policy(&env, &airline)
+        let policy = RefundStorageKey::get_policy(&env, &airline)
             .expect("No refund policy found");
         
         let current_time = env.ledger().timestamp();

@@ -1,4 +1,3 @@
-#![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol};
 
 // TRQ Token - Traqora Governance and Loyalty Token
@@ -19,7 +18,6 @@ pub struct Allowance {
     pub expiration_ledger: u32,
 }
 
-#[contracttype]
 pub struct TokenStorage;
 
 impl TokenStorage {
@@ -70,7 +68,7 @@ impl TRQTokenContract {
         
         let metadata = TokenMetadata {
             name,
-            symbol,
+            symbol: symbol.clone(),
             decimals,
             total_supply: 0,
         };
@@ -78,7 +76,7 @@ impl TRQTokenContract {
         
         env.events().publish(
             (symbol_short!("token"), symbol_short!("init")),
-            (admin, symbol),
+            (admin, symbol.clone()),
         );
     }
     
@@ -168,7 +166,7 @@ impl TRQTokenContract {
         TokenStorage::set_balance(&env, &to, to_balance + amount);
         
         env.events().publish(
-            (symbol_short!("transfer_from"), symbol_short!("success")),
+            (symbol_short!("tr_from"), symbol_short!("success")),
             (from, to, amount),
         );
     }

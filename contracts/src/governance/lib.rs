@@ -1,5 +1,4 @@
-#![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 #[contracttype]
 #[derive(Clone)]
@@ -33,10 +32,9 @@ pub struct GovernanceConfig {
     pub proposal_threshold: i128,
 }
 
-#[contracttype]
-pub struct GovernanceStorage;
+pub struct GovernanceStorageKey;
 
-impl GovernanceStorage {
+impl GovernanceStorageKey {
     pub fn get_proposal(env: &Env, proposal_id: u64) -> Option<Proposal> {
         env.storage().persistent().get(&(symbol_short!("proposal"), proposal_id))
     }
@@ -78,7 +76,7 @@ impl GovernanceContract {
             quorum,
             proposal_threshold,
         };
-        GovernanceStorage::set_config(&env, &config);
+        GovernanceStorageKey::set_config(&env, &config);
     }
     
     pub fn create_proposal(
@@ -91,7 +89,7 @@ impl GovernanceContract {
     ) -> u64 {
         proposer.require_auth();
         
-        let config = GovernanceStorage::get_config(&env)
+        let config = GovernanceStorageKey::get_config(&env)
             .expect("Not initialized");
         
         assert!(
@@ -116,7 +114,7 @@ impl GovernanceContract {
             executed: false,
         };
         
-        GovernanceStorage::set_proposal(&env, proposal_id, &proposal);
+        GovernanceStorageKey::set_proposal(&env, proposal_id, &proposal);
         
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("created")),
@@ -136,11 +134,11 @@ impl GovernanceContract {
         voter.require_auth();
         
         assert!(
-            !GovernanceStorage::has_voted(&env, &voter, proposal_id),
+            !GovernanceStorageKey::has_voted(&env, &voter, proposal_id),
             "Already voted"
         );
         
-        let mut proposal = GovernanceStorage::get_proposal(&env, proposal_id)
+        let mut proposal = GovernanceStorageKey::get_proposal(&env, proposal_id)
             .expect("Proposal not found");
         
         let current_time = env.ledger().timestamp();
@@ -156,8 +154,8 @@ impl GovernanceContract {
             proposal.no_votes += voting_power;
         }
         
-        GovernanceStorage::set_proposal(&env, proposal_id, &proposal);
-        GovernanceStorage::record_vote(&env, &voter, proposal_id);
+        GovernanceStorageKey::set_proposal(&env, proposal_id, &proposal);
+        GovernanceStorageKey::record_vote(&env, &voter, proposal_id);
         
         env.events().publish(
             (symbol_short!("vote"), symbol_short!("cast")),
@@ -166,7 +164,7 @@ impl GovernanceContract {
     }
     
     pub fn finalize_proposal(env: Env, proposal_id: u64) {
-        let mut proposal = GovernanceStorage::get_proposal(&env, proposal_id)
+        let mut proposal = GovernanceStorageKey::get_proposal(&env, proposal_id)
             .expect("Proposal not found");
         
         let current_time = env.ledger().timestamp();
@@ -176,7 +174,7 @@ impl GovernanceContract {
             "Already finalized"
         );
         
-        let config = GovernanceStorage::get_config(&env).expect("Not initialized");
+        let config = GovernanceStorageKey::get_config(&env).expect("Not initialized");
         let total_votes = proposal.yes_votes + proposal.no_votes;
         
         // Check quorum
@@ -190,7 +188,7 @@ impl GovernanceContract {
             proposal.status = symbol_short!("rejected");
         }
         
-        GovernanceStorage::set_proposal(&env, proposal_id, &proposal);
+        GovernanceStorageKey::set_proposal(&env, proposal_id, &proposal);
         
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("finalized")),
@@ -199,10 +197,10 @@ impl GovernanceContract {
     }
     
     pub fn get_proposal(env: Env, proposal_id: u64) -> Option<Proposal> {
-        GovernanceStorage::get_proposal(&env, proposal_id)
+        GovernanceStorageKey::get_proposal(&env, proposal_id)
     }
     
     pub fn has_voted(env: Env, voter: Address, proposal_id: u64) -> bool {
-        GovernanceStorage::has_voted(&env, &voter, proposal_id)
+        GovernanceStorageKey::has_voted(&env, &voter, proposal_id)
     }
 }

@@ -1,4 +1,3 @@
-#![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 #[contracttype]
@@ -33,10 +32,9 @@ pub struct PointsTransaction {
     pub created_at: u64,
 }
 
-#[contracttype]
-pub struct LoyaltyStorage;
+pub struct LoyaltyStorageKey;
 
-impl LoyaltyStorage {
+impl LoyaltyStorageKey {
     pub fn get_account(env: &Env, user: &Address) -> Option<LoyaltyAccount> {
         env.storage().persistent().get(&(symbol_short!("account"), user))
     }
@@ -93,13 +91,13 @@ impl LoyaltyContract {
         ];
         
         for config in tiers.iter() {
-            LoyaltyStorage::set_tier_config(&env, &config.tier, config);
+            LoyaltyStorageKey::set_tier_config(&env, &config.tier, config);
         }
     }
     
     // Get or create loyalty account
     pub fn get_or_create_account(env: Env, user: Address) -> LoyaltyAccount {
-        if let Some(account) = LoyaltyStorage::get_account(&env, &user) {
+        if let Some(account) = LoyaltyStorageKey::get_account(&env, &user) {
             account
         } else {
             let new_account = LoyaltyAccount {
@@ -110,7 +108,7 @@ impl LoyaltyContract {
                 lifetime_spent: 0,
                 tier_updated_at: env.ledger().timestamp(),
             };
-            LoyaltyStorage::set_account(&env, &user, &new_account);
+            LoyaltyStorageKey::set_account(&env, &user, &new_account);
             new_account
         }
     }
@@ -124,7 +122,7 @@ impl LoyaltyContract {
     ) -> i128 {
         let mut account = Self::get_or_create_account(env.clone(), user.clone());
         
-        let tier_config = LoyaltyStorage::get_tier_config(&env, &account.tier)
+        let tier_config = LoyaltyStorageKey::get_tier_config(&env, &account.tier)
             .expect("Tier config not found");
         
         // Base points: 1 point per $1 spent
@@ -141,7 +139,7 @@ impl LoyaltyContract {
         // Check for tier upgrade
         Self::check_tier_upgrade(&env, &mut account);
         
-        LoyaltyStorage::set_account(&env, &user, &account);
+        LoyaltyStorageKey::set_account(&env, &user, &account);
         
         env.events().publish(
             (symbol_short!("points"), symbol_short!("earned")),
@@ -155,7 +153,7 @@ impl LoyaltyContract {
     pub fn redeem_points(env: Env, user: Address, points: i128) -> i128 {
         user.require_auth();
         
-        let mut account = LoyaltyStorage::get_account(&env, &user)
+        let mut account = LoyaltyStorageKey::get_account(&env, &user)
             .expect("Account not found");
         
         assert!(account.total_points >= points, "Insufficient points");
@@ -165,7 +163,7 @@ impl LoyaltyContract {
         let discount = points / 100;
         
         account.total_points -= points;
-        LoyaltyStorage::set_account(&env, &user, &account);
+        LoyaltyStorageKey::set_account(&env, &user, &account);
         
         env.events().publish(
             (symbol_short!("points"), symbol_short!("redeemed")),
@@ -184,13 +182,13 @@ impl LoyaltyContract {
         ];
         
         for tier in tiers.iter() {
-            let config = LoyaltyStorage::get_tier_config(env, tier)
+            let config = LoyaltyStorageKey::get_tier_config(env, tier)
                 .expect("Tier config not found");
             
             if account.total_points >= config.min_points 
                 && account.lifetime_bookings >= config.min_bookings {
                 if account.tier != *tier {
-                    account.tier = *tier;
+                    account.tier = tier.clone();
                     account.tier_updated_at = env.ledger().timestamp();
                     
                     env.events().publish(
@@ -204,10 +202,10 @@ impl LoyaltyContract {
     }
     
     pub fn get_account(env: Env, user: Address) -> Option<LoyaltyAccount> {
-        LoyaltyStorage::get_account(&env, &user)
+        LoyaltyStorageKey::get_account(&env, &user)
     }
     
     pub fn get_tier_benefits(env: Env, tier: Symbol) -> Option<TierConfig> {
-        LoyaltyStorage::get_tier_config(&env, &tier)
+        LoyaltyStorageKey::get_tier_config(&env, &tier)
     }
 }
