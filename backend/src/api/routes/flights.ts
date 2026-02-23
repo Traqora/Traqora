@@ -19,5 +19,3 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
   const saved = await repo.save(flight);
   res.status(201).json({ success: true, data: saved });
 }));
-
-export const flightRoutes = router;
