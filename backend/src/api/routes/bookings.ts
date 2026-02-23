@@ -8,7 +8,7 @@ import { Booking } from '../../db/entities/Booking';
 import { IdempotencyKey } from '../../db/entities/IdempotencyKey';
 import { getOrCreateIdempotencyKey, hashObject } from '../../services/idempotency';
 import { stripe, stripeWebhookSecret } from '../../services/stripe';
-import { buildCreateBookingUnsignedXdr, submitSignedSorobanXdr } from '../../services/soroban';
+import { buildCreateBookingUnsignedXdr, submitSignedSorobanXdr, getTransactionStatus } from '../../services/soroban';
 import { withRetries } from '../../services/retry';
 import { config } from '../../config';
 
@@ -222,6 +222,48 @@ router.post('/webhook/stripe', asyncHandler(async (req: Request, res: Response) 
   }
 
   res.json({ received: true });
+}));
+
+router.get('/:id/transaction-status', asyncHandler(async (req: Request, res: Response) => {
+  await initDataSource();
+  const bookingRepo = AppDataSource.getRepository(Booking);
+  const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
+  
+  if (!booking) {
+    return res.status(404).json({ success: false, error: { message: 'Booking not found', code: 'BOOKING_NOT_FOUND' } });
+  }
+
+  if (!booking.sorobanTxHash) {
+    return res.json({
+      success: true,
+      data: {
+        bookingStatus: booking.status,
+        transactionStatus: null,
+      },
+    });
+  }
+
+  const txStatus = await getTransactionStatus(booking.sorobanTxHash);
+
+  if (txStatus.status === 'success' && booking.status !== 'confirmed') {
+    booking.status = 'confirmed';
+    if (txStatus.result) {
+      booking.sorobanBookingId = txStatus.result.bookingId || null;
+    }
+    await bookingRepo.save(booking);
+  } else if (txStatus.status === 'failed' && booking.status !== 'failed') {
+    booking.status = 'failed';
+    booking.lastError = txStatus.error || 'Transaction failed';
+    await bookingRepo.save(booking);
+  }
+
+  res.json({
+    success: true,
+    data: {
+      bookingStatus: booking.status,
+      transactionStatus: txStatus,
+    },
+  });
 }));
 
 export const bookingRoutes = router;
