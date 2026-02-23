@@ -8,6 +8,7 @@ import { config } from './config';
 import { logger } from './utils/logger';
 import { errorHandler } from './utils/errorHandler';
 import { rateLimiter } from './utils/rateLimiter';
+import { initDataSource } from './db/dataSource';
 
 // Route imports
 import { flightRoutes } from './api/routes/flights';
@@ -37,6 +38,8 @@ app.use(rateLimiter);
 app.use(morgan('combined', { stream: { write: (msg) => logger.info(msg.trim()) } }));
 
 // Body parsing
+// Stripe webhooks require raw body for signature verification.
+app.use('/api/v1/bookings/webhook/stripe', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -69,10 +72,19 @@ app.use((req, res) => {
 
 const PORT = config.port || 3001;
 
-app.listen(PORT, () => {
-  logger.info(`🚀 Traqora API server running on port ${PORT}`);
-  logger.info(`📡 Environment: ${config.environment}`);
-  logger.info(`🔗 Stellar Network: ${config.stellarNetwork}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  initDataSource()
+    .then(() => {
+      app.listen(PORT, () => {
+        logger.info(`🚀 Traqora API server running on port ${PORT}`);
+        logger.info(`📡 Environment: ${config.environment}`);
+        logger.info(`🔗 Stellar Network: ${config.stellarNetwork}`);
+      });
+    })
+    .catch((err) => {
+      logger.error({ error: 'Failed to initialize datasource', details: err?.message || err });
+      process.exit(1);
+    });
+}
 
 export default app;
