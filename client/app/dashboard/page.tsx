@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -171,6 +172,9 @@ export default function DashboardPage() {
               <a href="/search" className="text-muted-foreground hover:text-foreground transition-colors">
                 Search Flights
               </a>
+              <Link href="/governance" className="text-muted-foreground hover:text-foreground transition-colors">
+                Governance
+              </Link>
               <Badge variant="secondary" className="px-3 py-1">
                 <CheckCircle className="h-4 w-4 mr-2 text-secondary" />
                 Freighter Connected
@@ -591,7 +595,9 @@ export default function DashboardPage() {
                     <p className="font-medium">Voting Power</p>
                     <p className="text-sm text-muted-foreground">{mockUser.balance.trq} TRQ tokens</p>
                   </div>
-                  <Button variant="outline">View Proposals</Button>
+                  <Link href="/governance">
+                    <Button variant="outline">View Proposals</Button>
+                  </Link>
                 </div>
               </CardContent>
             </Card>
