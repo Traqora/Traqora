@@ -60,6 +60,16 @@ Monitoring & Analytics:
 - Stellar Expert for on-chain data tracking
 - Dune Analytics for advanced analytics dashboards
 
+## Local Development with Docker
+
+For a quick and easy setup of the entire development environment (including PostgreSQL, Redis, and a local Stellar node), we recommend using Docker Compose.
+
+Refer to the [DOCKER_SETUP.md](./DOCKER_SETUP.md) for detailed instructions.
+
+```bash
+docker-compose up -d
+```
+
 ## Installation & Setup
 
 Before you begin, ensure the following tools are installed on your machine:
