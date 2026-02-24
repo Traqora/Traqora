@@ -23,3 +23,5 @@ if (config.environment === 'production') {
   logger.add(new winston.transports.File({ filename: 'logs/error.log', level: 'error' }));
   logger.add(new winston.transports.File({ filename: 'logs/combined.log' }));
 }
+// Provide default export for convenience
+export default logger;

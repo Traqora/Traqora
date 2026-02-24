@@ -5,6 +5,8 @@ import { Flight } from '../../db/entities/Flight';
 
 const router = Router();
 
+export const flightRoutes = router;
+
 router.get('/', asyncHandler(async (_req: Request, res: Response) => {
   await initDataSource();
   const repo = AppDataSource.getRepository(Flight);

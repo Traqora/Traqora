@@ -11,6 +11,8 @@ import { stripe, stripeWebhookSecret } from '../../services/stripe';
 import { buildCreateBookingUnsignedXdr, submitSignedSorobanXdr, getTransactionStatus } from '../../services/soroban';
 import { withRetries } from '../../services/retry';
 import { config } from '../../config';
+import { getWebSocketServer } from '../../websockets/server';
+import { logger } from '../../utils/logger';
 
 const router = Router();
 
@@ -134,7 +136,7 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
   idem.resourceId = saved.id;
   await idempotencyRepo.save(idem);
 
-  res.status(201).json({
+  return res.status(201).json({
     success: true,
     data: saved,
     payment: { paymentIntentId: paymentIntent.id, clientSecret: paymentIntent.client_secret },
@@ -149,7 +151,7 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   if (!booking) {
     return res.status(404).json({ success: false, error: { message: 'Booking not found', code: 'BOOKING_NOT_FOUND' } });
   }
-  res.json({ success: true, data: booking });
+  return res.json({ success: true, data: booking });
 }));
 
 router.post('/:id/submit-onchain', asyncHandler(async (req: Request, res: Response) => {
@@ -189,7 +191,7 @@ router.post('/:id/submit-onchain', asyncHandler(async (req: Request, res: Respon
   booking.contractSubmitAttempts = (booking.contractSubmitAttempts || 0) + 1;
   await bookingRepo.save(booking);
 
-  res.status(202).json({ success: true, data: booking, soroban: result });
+  return res.status(202).json({ success: true, data: booking, soroban: result });
 }));
 
 router.post('/webhook/stripe', asyncHandler(async (req: Request, res: Response) => {
@@ -218,10 +220,16 @@ router.post('/webhook/stripe', asyncHandler(async (req: Request, res: Response) 
     if (booking) {
       booking.status = 'paid';
       await bookingRepo.save(booking);
+        try {
+          const ws = getWebSocketServer();
+          ws.broadcastBookingStatus(booking.id, booking.status);
+        } catch (e) {
+          logger.warn('WebSocket server not ready - skipping booking status broadcast');
+        }
     }
   }
 
-  res.json({ received: true });
+  return res.json({ received: true });
 }));
 
 router.get('/:id/transaction-status', asyncHandler(async (req: Request, res: Response) => {
@@ -251,13 +259,25 @@ router.get('/:id/transaction-status', asyncHandler(async (req: Request, res: Res
       booking.sorobanBookingId = txStatus.result.bookingId || null;
     }
     await bookingRepo.save(booking);
+      try {
+        const ws = getWebSocketServer();
+        ws.broadcastBookingStatus(booking.id, booking.status);
+      } catch (e) {
+        logger.warn('WebSocket server not ready - skipping booking status broadcast');
+      }
   } else if (txStatus.status === 'failed' && booking.status !== 'failed') {
     booking.status = 'failed';
     booking.lastError = txStatus.error || 'Transaction failed';
     await bookingRepo.save(booking);
+      try {
+        const ws = getWebSocketServer();
+        ws.broadcastBookingStatus(booking.id, booking.status);
+      } catch (e) {
+        logger.warn('WebSocket server not ready - skipping booking status broadcast');
+      }
   }
 
-  res.json({
+return res.json({
     success: true,
     data: {
       bookingStatus: booking.status,

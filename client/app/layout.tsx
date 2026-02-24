@@ -2,6 +2,9 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google"
 import "./globals.css"
+import { SocketProvider } from '@/components/socket/SocketProvider'
+import { Toaster } from '@/components/ui/toaster'
+import { ConnectionIndicator } from '@/components/connection-indicator'
 
 const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
@@ -31,7 +34,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${playfairDisplay.variable} ${sourceSansPro.variable} antialiased`}>
-      <body className="font-sans">{children}</body>
+      <body className="font-sans">
+        <SocketProvider>
+          <ConnectionIndicator />
+          <Toaster />
+          {children}
+        </SocketProvider>
+      </body>
     </html>
   )
 }
