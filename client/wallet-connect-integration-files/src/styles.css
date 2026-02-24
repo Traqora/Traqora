@@ -1,0 +1,406 @@
+/**
+ * Stellar Wallet Connect - Default Styles
+ *
+ * All classes are prefixed with `swc-` to avoid collisions.
+ * Import this file in your project's global CSS, or copy/adapt
+ * the rules to match your own design system.
+ *
+ *   import '@pacto-p2p/stellar-wallet-connect/styles.css';
+ */
+
+/* ------------------------------------------------------------------ */
+/* Variables (override these in your own :root to retheme)            */
+/* ------------------------------------------------------------------ */
+:root {
+  --swc-accent: #10b981;          /* emerald-500 */
+  --swc-accent-hover: #059669;    /* emerald-600 */
+  --swc-bg: #0a0a0a;
+  --swc-card-bg: rgba(16, 185, 129, 0.06);
+  --swc-card-border: rgba(16, 185, 129, 0.2);
+  --swc-text: #f1f4f6;
+  --swc-text-muted: #70927a;
+  --swc-danger: #ef4444;
+  --swc-warn: #f59e0b;
+  --swc-radius: 0.75rem;
+  --swc-radius-sm: 0.5rem;
+  --swc-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+}
+
+/* ------------------------------------------------------------------ */
+/* Card                                                               */
+/* ------------------------------------------------------------------ */
+.swc-card {
+  background: var(--swc-card-bg);
+  border: 1px solid var(--swc-card-border);
+  border-radius: var(--swc-radius);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  backdrop-filter: blur(16px);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.swc-card:hover {
+  border-color: rgba(16, 185, 129, 0.35);
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.08);
+}
+
+.swc-card__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.swc-card__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--swc-text);
+  margin: 0;
+}
+
+.swc-card__description {
+  font-size: 0.875rem;
+  color: var(--swc-text-muted);
+  margin: 0;
+}
+
+.swc-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.swc-card__footer {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--swc-card-border);
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ------------------------------------------------------------------ */
+/* Row (label + value)                                                */
+/* ------------------------------------------------------------------ */
+.swc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.swc-row__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--swc-text-muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Status indicator                                                   */
+/* ------------------------------------------------------------------ */
+.swc-status {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.swc-status__icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.swc-status__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.swc-status--connected .swc-status__icon,
+.swc-status--connected .swc-status__label {
+  color: var(--swc-accent);
+}
+
+.swc-status--disconnected .swc-status__icon,
+.swc-status--disconnected .swc-status__label {
+  color: var(--swc-danger);
+}
+
+/* ------------------------------------------------------------------ */
+/* Badge                                                              */
+/* ------------------------------------------------------------------ */
+.swc-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 9999px;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--swc-accent);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.swc-badge--warn {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--swc-warn);
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+.swc-badge--success {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--swc-accent);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+/* ------------------------------------------------------------------ */
+/* Address box                                                        */
+/* ------------------------------------------------------------------ */
+.swc-address {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.swc-address__box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--swc-card-border);
+  border-radius: var(--swc-radius-sm);
+}
+
+.swc-address__value {
+  flex: 1;
+  font-family: var(--swc-font-mono);
+  font-size: 0.8125rem;
+  color: var(--swc-text);
+  word-break: break-all;
+}
+
+.swc-address__actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.swc-feedback {
+  font-size: 0.75rem;
+  color: var(--swc-accent);
+}
+
+.swc-hint {
+  font-size: 0.75rem;
+  color: var(--swc-text-muted);
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Icons                                                              */
+/* ------------------------------------------------------------------ */
+.swc-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+}
+
+.swc-icon--accent {
+  color: var(--swc-accent);
+}
+
+.swc-icon--sm {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Buttons                                                            */
+/* ------------------------------------------------------------------ */
+.swc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: var(--swc-radius-sm);
+  padding: 0.625rem 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.swc-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.swc-btn--primary {
+  background: linear-gradient(135deg, var(--swc-accent), var(--swc-accent-hover));
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+}
+
+.swc-btn--primary:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
+  transform: translateY(-1px);
+}
+
+.swc-btn--outline {
+  background: transparent;
+  color: var(--swc-text);
+  border: 1px solid var(--swc-card-border);
+}
+
+.swc-btn--outline:hover:not(:disabled) {
+  border-color: var(--swc-accent);
+  color: var(--swc-accent);
+}
+
+.swc-btn--ghost {
+  background: transparent;
+  color: var(--swc-text-muted);
+}
+
+.swc-btn--ghost:hover:not(:disabled) {
+  color: var(--swc-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.swc-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--swc-radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--swc-text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.swc-btn-icon:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--swc-text);
+}
+
+/* ------------------------------------------------------------------ */
+/* Dialog (native <dialog>)                                           */
+/* ------------------------------------------------------------------ */
+.swc-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  max-width: 28rem;
+  width: calc(100% - 2rem);
+  background: var(--swc-bg);
+  border: 1px solid var(--swc-card-border);
+  border-radius: var(--swc-radius);
+  padding: 0;
+  color: var(--swc-text);
+  z-index: 99999;
+}
+
+.swc-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.swc-dialog__content {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+.swc-dialog__icon-wrapper {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, var(--swc-accent), var(--swc-accent-hover));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.swc-dialog__icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: #fff;
+}
+
+.swc-dialog__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.swc-dialog__description {
+  font-size: 0.875rem;
+  color: var(--swc-text-muted);
+  margin: 0;
+  max-width: 22rem;
+}
+
+.swc-dialog__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+/* ------------------------------------------------------------------ */
+/* StellarWalletsKit modal z-index overrides                          */
+/* ------------------------------------------------------------------ */
+div[role="dialog"]:not([data-slot]),
+div[class*="modal"]:not([data-slot]),
+div[class*="Modal"]:not([data-slot]),
+div[id*="stellar"],
+div[id*="wallet"],
+body > div[role="dialog"],
+body > div[class*="modal"],
+#root > div[role="dialog"],
+#__next > div[role="dialog"],
+body > div:last-child[role="dialog"] {
+  z-index: 99999 !important;
+  position: fixed !important;
+  isolation: isolate !important;
+}
+
+div[role="dialog"]:not([data-slot]) > div,
+div[class*="modal"]:not([data-slot]) > div {
+  max-height: 90vh !important;
+  overflow-y: auto !important;
+  z-index: 99999 !important;
+}
+
+div[role="dialog"]:not([data-slot]) button,
+div[class*="modal"]:not([data-slot]) button {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  z-index: 100000 !important;
+  position: relative !important;
+}
+
+div[class*="overlay"]:not([data-slot]),
+div[class*="backdrop"]:not([data-slot]),
+body > div[class*="overlay"],
+body > div[class*="backdrop"] {
+  z-index: 99998 !important;
+  position: fixed !important;
+}
+
+body.stellar-wallets-kit-modal-open {
+  overflow: hidden !important;
+  position: fixed !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+@media (max-width: 768px) {
+  .swc-dialog {
+    max-width: calc(100% - 1rem);
+  }
+}
