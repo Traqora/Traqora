@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # Database
+  db:
+    image: postgres:15-alpine
+    container_name: traqora-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-traqora}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:alpine
+    container_name: traqora-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Stellar Local Node
+  stellar:
+    image: stellar/quickstart:latest
+    container_name: traqora-stellar
+    restart: always
+    ports:
+      - "8000:8000" # Horizon
+      - "8001:8001" # Soroban RPC
+      - "11625:11625" # Core
+      - "11626:11626" # Core HTTP
+    command: [ "--local", "--enable-soroban-rpc" ]
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8000/ || exit 1" ]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      target: development
+    container_name: traqora-backend
+    restart: always
+    volumes:
+      - ./backend:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/traqora
+      - REDIS_URL=redis://redis:6379
+      - CORS_ORIGIN=http://localhost:3000
+      - HORIZON_URL=http://stellar:8000
+      - SOROBAN_RPC_URL=http://stellar:8000/soroban/rpc
+      - STELLAR_NETWORK=standalone
+      - JWT_SECRET=dev-secret-key
+    ports:
+      - "3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      stellar:
+        condition: service_healthy
+
+  # Frontend Client
+  frontend:
+    build:
+      context: ./client
+      target: development
+    container_name: traqora-frontend
+    restart: always
+    volumes:
+      - ./client:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
+      - NEXT_PUBLIC_STELLAR_NETWORK=standalone
+      - NEXT_PUBLIC_HORIZON_URL=http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

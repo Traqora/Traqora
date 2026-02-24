@@ -1,5 +1,4 @@
-#![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec, Map};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 #[contracttype]
 #[derive(Clone)]
@@ -30,7 +29,6 @@ pub struct Flight {
     pub status: Symbol, // "active", "cancelled", "completed"
 }
 
-#[contracttype]
 pub struct AirlineRegistry;
 
 impl AirlineRegistry {
@@ -78,7 +76,7 @@ impl AirlineContract {
         AirlineRegistry::set_airline(&env, &airline, &profile);
         
         env.events().publish(
-            (symbol_short!("airline"), symbol_short!("registered")),
+            (symbol_short!("airline"), symbol_short!("reg")),
             airline,
         );
         
@@ -86,7 +84,7 @@ impl AirlineContract {
     }
     
     // Admin verification of airline
-    pub fn verify_airline(env: Env, admin: Address, airline: Address) {
+    pub fn verify_airline(env: Env, _admin: Address, airline: Address) {
         // TODO: Check admin authorization
         
         let mut profile = AirlineRegistry::get_airline(&env, &airline)
