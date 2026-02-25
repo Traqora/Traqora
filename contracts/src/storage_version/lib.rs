@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 
 /// Storage layout versioning for migration support
 /// Each contract type has its own version tracking

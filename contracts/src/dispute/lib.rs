@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN, Env, Symbol, Vec};
+=======
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol};
+>>>>>>> upstream/main
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -336,7 +340,7 @@ impl DisputeContract {
         
         env.events().publish(
             (symbol_short!("evidence"), symbol_short!("submitted")),
-            (dispute_id, submitter, evidence_hash),
+            (dispute_id, submitter, evidence.evidence_hash.clone()),
         );
     }
     

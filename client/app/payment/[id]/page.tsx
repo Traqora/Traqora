@@ -10,6 +10,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Plane, CreditCard, Wallet, Shield, CheckCircle, ArrowLeft, Lock, Zap } from "lucide-react"
+// NEW: import real wallet hook and store from stellar-wallet-connect
+import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
 
 // Mock flight data
 const mockFlightDetails = {
@@ -35,7 +37,11 @@ export default function PaymentPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("crypto")
   const [selectedCrypto, setSelectedCrypto] = useState("USDC")
   const [isProcessing, setIsProcessing] = useState(false)
-  const [walletConnected, setWalletConnected] = useState(false)
+  // NEW: read real wallet connection state from Zustand store
+  const { address, isConnected: walletConnected, walletType, network } = useWalletStore()
+  // NEW: use real wallet connect/disconnect handlers
+  const { handleConnect: walletConnect, handleDisconnect } = useWallet()
+  const [isWalletConnecting, setIsWalletConnecting] = useState(false)
 
   const flight = mockFlightDetails
 
@@ -45,13 +51,16 @@ export default function PaymentPage() {
     { symbol: "XLM", name: "Stellar Lumens", price: "850", icon: "⭐" },
   ]
 
+  // NEW: use the real StellarWalletsKit auth modal to connect
   const handleConnectWallet = async () => {
-    setIsProcessing(true)
-    // Simulate wallet connection
-    setTimeout(() => {
-      setWalletConnected(true)
-      setIsProcessing(false)
-    }, 2000)
+    setIsWalletConnecting(true)
+    try {
+      await walletConnect()
+    } catch (error) {
+      console.error("Wallet connection failed:", error)
+    } finally {
+      setIsWalletConnecting(false)
+    }
   }
 
   const handlePayment = async () => {
@@ -65,7 +74,7 @@ export default function PaymentPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <nav className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
@@ -183,30 +192,18 @@ export default function PaymentPage() {
                   {!walletConnected ? (
                     <div className="space-y-4">
                       <p className="text-muted-foreground">Connect your Stellar wallet to proceed with payment.</p>
+                      {/* NEW: single button that opens the StellarWalletsKit auth modal with all supported wallets */}
                       <div className="grid gap-3">
                         <Button
                           variant="outline"
                           size="lg"
                           className="justify-start gap-3 bg-transparent"
                           onClick={handleConnectWallet}
-                          disabled={isProcessing}
+                          disabled={isWalletConnecting}
                         >
                           <Wallet className="h-5 w-5" />
-                          Connect Freighter
-                          {isProcessing && (
-                            <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                          )}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="lg"
-                          className="justify-start gap-3 bg-transparent"
-                          onClick={handleConnectWallet}
-                          disabled={isProcessing}
-                        >
-                          <Shield className="h-5 w-5" />
-                          Connect Albedo
-                          {isProcessing && (
+                          {isWalletConnecting ? "Connecting..." : "Connect Stellar Wallet"}
+                          {isWalletConnecting && (
                             <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
                           )}
                         </Button>
@@ -214,14 +211,19 @@ export default function PaymentPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
+                      {/* NEW: show real wallet address and type from Zustand store */}
                       <div className="flex items-center gap-3 p-4 bg-secondary/10 rounded-lg">
                         <CheckCircle className="h-5 w-5 text-secondary" />
                         <div>
                           <p className="font-medium">Wallet Connected</p>
-                          <p className="text-sm text-muted-foreground">0x1234...5678</p>
+                          {/* NEW: display real truncated address */}
+                          <p className="text-sm text-muted-foreground font-mono">
+                            {address ? `${address.slice(0, 8)}...${address.slice(-4)}` : ""}
+                          </p>
                         </div>
+                        {/* NEW: show real wallet type badge */}
                         <Badge variant="secondary" className="ml-auto">
-                          Freighter
+                          {walletType || "Stellar"}
                         </Badge>
                       </div>
 

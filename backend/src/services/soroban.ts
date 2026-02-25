@@ -50,8 +50,7 @@ export const buildCreateBookingUnsignedXdr = async (params: {
     const server = getSorobanServer();
     const networkPassphrase = getNetworkPassphrase();
 
-    // Get source account (use a temporary keypair for fee estimation)
-    const sourceKeypair = StellarSdk.Keypair.fromPublicKey(params.passenger);
+    // Get source account (fee estimation)
     const sourceAccount = await server.getAccount(params.passenger);
 
     // Build contract invocation
@@ -124,7 +123,9 @@ export const submitSignedSorobanXdr = async (signedXdr: string): Promise<{ txHas
     // Submit transaction
     const response = await server.sendTransaction(transaction);
 
-    if (response.status === 'PENDING' || response.status === 'SUCCESS') {
+    // response.status type may not include SUCCESS/PENDING in typings
+    const status: any = response.status;
+    if (status === 'PENDING' || status === 'SUCCESS') {
       logger.info('Transaction submitted successfully', { hash: response.hash });
       return {
         txHash: response.hash,

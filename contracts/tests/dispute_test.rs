@@ -6,24 +6,6 @@ use soroban_sdk::{
 };
 use traqora_contracts::dispute::{DisputeContract, DisputeContractClient};
 
-fn create_dispute_contract(env: &Env) -> Address {
-    env.register_contract(None, DisputeContract)
-}
-
-fn advance_ledger(env: &Env, seconds: u64) {
-    env.ledger().set(LedgerInfo {
-        timestamp: env.ledger().timestamp() + seconds,
-        protocol_version: 22,
-        sequence_number: env.ledger().sequence() + 1,
-        network_id: Default::default(),
-        base_reserve: 10,
-        min_temp_entry_ttl: 16,
-        min_persistent_entry_ttl: 16,
-        max_entry_ttl: 6312000,
-    });
-}
-
-// Helper function to compute commit hash
 fn compute_commit_hash(env: &Env, vote_for_passenger: bool, salt: &BytesN<32>) -> BytesN<32> {
     let mut hash_bytes = Bytes::new(env);
     hash_bytes.push_back(if vote_for_passenger { 1u8 } else { 0u8 });
@@ -32,6 +14,23 @@ fn compute_commit_hash(env: &Env, vote_for_passenger: bool, salt: &BytesN<32>) -
         hash_bytes.push_back(*byte);
     }
     env.crypto().keccak256(&hash_bytes).into()
+}
+
+fn create_dispute_contract(env: &Env) -> Address {
+    env.register_contract(None, DisputeContract)
+}
+
+fn advance_ledger(env: &Env, seconds: u64) {
+    env.ledger().set(LedgerInfo {
+        timestamp: env.ledger().timestamp() + seconds,
+        protocol_version: env.ledger().protocol_version(),
+        sequence_number: env.ledger().sequence() + 1,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 16,
+        max_entry_ttl: 6312000,
+    });
 }
 
 #[test]
@@ -56,6 +55,26 @@ fn test_initialize() {
     let config = client.get_config();
     assert!(config.is_some());
     assert_eq!(config.unwrap().jury_size, 5);
+}
+
+#[test]
+fn test_multiple_disputes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    
+    let contract_id = create_dispute_contract(&env);
+    let client = DisputeContractClient::new(&env, &contract_id);
+    
+    client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
+    
+    let passenger = Address::generate(&env);
+    let airline = Address::generate(&env);
+    
+    let dispute_id1 = client.file_dispute(&passenger, &airline, &1, &10000, &2000);
+    let dispute_id2 = client.file_dispute(&passenger, &airline, &2, &10000, &2000);
+    
+    assert_eq!(dispute_id1, 1);
+    assert_eq!(dispute_id2, 2);
 }
 
 #[test]
@@ -248,7 +267,7 @@ fn test_commit_reveal_voting() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
-    
+
     let commit_hash1 = compute_commit_hash(&env, true, &salt1);
     let commit_hash2 = compute_commit_hash(&env, true, &salt2);
     let commit_hash3 = compute_commit_hash(&env, false, &salt3);
@@ -299,7 +318,7 @@ fn test_finalize_dispute() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
-    
+
     let commit_hash1 = compute_commit_hash(&env, true, &salt1);
     let commit_hash2 = compute_commit_hash(&env, true, &salt2);
     let commit_hash3 = compute_commit_hash(&env, false, &salt3);
@@ -316,7 +335,6 @@ fn test_finalize_dispute() {
     client.reveal_vote(&juror3, &dispute_id, &false, &salt3);
     
     advance_ledger(&env, 86401);
-    
     client.finalize_dispute(&dispute_id);
     
     let dispute = client.get_dispute(&dispute_id).unwrap();
@@ -353,7 +371,11 @@ fn test_appeal_mechanism() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
+<<<<<<< HEAD
     
+=======
+
+>>>>>>> upstream/main
     let commit_hash1 = compute_commit_hash(&env, false, &salt1);
     let commit_hash2 = compute_commit_hash(&env, false, &salt2);
     let commit_hash3 = compute_commit_hash(&env, true, &salt3);
@@ -411,7 +433,7 @@ fn test_execute_verdict() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
-    
+
     let commit_hash1 = compute_commit_hash(&env, true, &salt1);
     let commit_hash2 = compute_commit_hash(&env, true, &salt2);
     let commit_hash3 = compute_commit_hash(&env, false, &salt3);
@@ -466,7 +488,7 @@ fn test_claim_juror_reward() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
-    
+
     let commit_hash1 = compute_commit_hash(&env, true, &salt1);
     let commit_hash2 = compute_commit_hash(&env, true, &salt2);
     let commit_hash3 = compute_commit_hash(&env, false, &salt3);
@@ -529,7 +551,7 @@ fn test_claim_juror_reward_wrong_vote() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
-    
+
     let commit_hash1 = compute_commit_hash(&env, true, &salt1);
     let commit_hash2 = compute_commit_hash(&env, true, &salt2);
     let commit_hash3 = compute_commit_hash(&env, false, &salt3);
