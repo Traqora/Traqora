@@ -1,8 +1,11 @@
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env, Symbol};
-use traqora_contracts::airline::{AirlineContract, AirlineContractClient, PriceUpdateInput, PricingFactors};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env, Symbol,
+};
+use traqora_contracts::airline::{AirlineContract, PriceUpdateInput, PricingFactors};
 
 mod common;
-use common::{new_env, generate_actors, register_contracts, register_and_verify_airline};
+use common::{generate_actors, new_env, register_and_verify_airline, register_contracts};
 
 #[test]
 fn test_register_and_verify_airline() {
@@ -89,7 +92,9 @@ fn test_dynamic_pricing_oracle_update_cap_history_and_current_price() {
     register_and_verify_airline(&env, &contracts.airline, &actors.airline);
 
     let oracle = Address::generate(&env);
-    contracts.airline.initialize_pricing(&actors.admin, &oracle, &0u64, &2_000i128, &5_000i128);
+    contracts
+        .airline
+        .initialize_pricing(&actors.admin, &oracle, &0u64, &2_000i128, &5_000i128);
 
     let flight_id = contracts.airline.create_flight(
         &actors.airline,
@@ -113,7 +118,9 @@ fn test_dynamic_pricing_oracle_update_cap_history_and_current_price() {
         },
     };
 
-    let new_price = contracts.airline.update_flight_price(&oracle, &flight_id, &input);
+    let new_price = contracts
+        .airline
+        .update_flight_price(&oracle, &flight_id, &input);
     assert_eq!(new_price, 120_0000000i128);
 
     let flight = contracts.airline.get_flight(&flight_id).unwrap();
@@ -151,7 +158,9 @@ fn test_dynamic_pricing_oracle_requires_authorized_oracle() {
 
     let oracle = Address::generate(&env);
     let attacker = Address::generate(&env);
-    contracts.airline.initialize_pricing(&actors.admin, &oracle, &0u64, &2_000i128, &5_000i128);
+    contracts
+        .airline
+        .initialize_pricing(&actors.admin, &oracle, &0u64, &2_000i128, &5_000i128);
 
     let flight_id = contracts.airline.create_flight(
         &actors.airline,
@@ -174,7 +183,9 @@ fn test_dynamic_pricing_oracle_requires_authorized_oracle() {
         },
     };
 
-    contracts.airline.update_flight_price(&attacker, &flight_id, &input);
+    contracts
+        .airline
+        .update_flight_price(&attacker, &flight_id, &input);
 }
 
 #[test]
@@ -189,7 +200,9 @@ fn test_dynamic_pricing_oracle_cooldown_enforced() {
     register_and_verify_airline(&env, &contracts.airline, &actors.airline);
 
     let oracle = Address::generate(&env);
-    contracts.airline.initialize_pricing(&actors.admin, &oracle, &300u64, &2_000i128, &5_000i128);
+    contracts
+        .airline
+        .initialize_pricing(&actors.admin, &oracle, &300u64, &2_000i128, &5_000i128);
 
     let flight_id = contracts.airline.create_flight(
         &actors.airline,
@@ -212,8 +225,12 @@ fn test_dynamic_pricing_oracle_cooldown_enforced() {
         },
     };
 
-    contracts.airline.update_flight_price(&oracle, &flight_id, &input);
+    contracts
+        .airline
+        .update_flight_price(&oracle, &flight_id, &input);
 
     // Same timestamp -> should fail due to 300s cooldown
-    contracts.airline.update_flight_price(&oracle, &flight_id, &input);
+    contracts
+        .airline
+        .update_flight_price(&oracle, &flight_id, &input);
 }

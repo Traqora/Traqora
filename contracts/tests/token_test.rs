@@ -1,8 +1,8 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, String};
-use traqora_contracts::token::{TRQTokenContract, TRQTokenContractClient};
+use soroban_sdk::{String, Symbol};
+use traqora_contracts::token::TRQTokenContract;
 
 mod common;
-use common::{new_env, generate_actors, register_contracts, initialize_token};
+use common::{generate_actors, initialize_token, new_env, register_contracts};
 
 #[test]
 fn test_initialize_ok() {
@@ -20,7 +20,7 @@ fn test_reinitialize_should_panic() {
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
-    contracts.token.initialize(
+    contracts.token.init_token(
         &actors.admin,
         &String::from_str(&env, "TRQ"),
         &Symbol::new(&env, "TRQ"),
@@ -36,7 +36,9 @@ fn test_mint_increases_balance_and_total_supply() {
     initialize_token(&env, &contracts.token, &actors.admin);
 
     let amount = 1_000i128;
-    contracts.token.mint(&actors.admin, &actors.passenger, &amount);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &amount);
 
     assert_eq!(contracts.token.balance_of(&actors.passenger), amount);
     assert_eq!(contracts.token.total_supply(), amount);
@@ -49,7 +51,9 @@ fn test_transfer_valid() {
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
 
-    contracts.token.mint(&actors.admin, &actors.passenger, &1000);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &1000);
     contracts
         .token
         .transfer(&actors.passenger, &actors.airline, &400);
@@ -65,7 +69,9 @@ fn test_transfer_invalid_amount_should_panic() {
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
-    contracts.token.mint(&actors.admin, &actors.passenger, &1000);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &1000);
     contracts
         .token
         .transfer(&actors.passenger, &actors.airline, &0);
@@ -78,7 +84,9 @@ fn test_transfer_insufficient_balance_should_panic() {
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
-    contracts.token.mint(&actors.admin, &actors.passenger, &1000);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &1000);
     contracts
         .token
         .transfer(&actors.airline, &actors.passenger, &1);
@@ -131,10 +139,7 @@ fn test_transfer_from_insufficient_allowance_should_panic() {
     contracts
         .token
         .approve(&actors.passenger, &actors.airline, &0, &1);
-    contracts.token.transfer_from(
-        &actors.airline,
-        &actors.passenger,
-        &actors.airline,
-        &1,
-    );
+    contracts
+        .token
+        .transfer_from(&actors.airline, &actors.passenger, &actors.airline, &1);
 }

@@ -1,8 +1,7 @@
 use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env};
 
 use traqora_contracts::storage_version::{
-    VersionedStorage, MigrationRecord, MigrationProgress, 
-    BOOKING_CONTRACT, AIRLINE_CONTRACT, TOKEN_CONTRACT,
+    VersionedStorage, AIRLINE_CONTRACT, BOOKING_CONTRACT, TOKEN_CONTRACT,
 };
 
 use traqora_contracts::token::TRQTokenContract;
@@ -18,11 +17,17 @@ fn test_storage_version_initialization() {
 
     run_as_contract(&env, || {
         // Default version should be 1
-        assert_eq!(VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT), 1);
+        assert_eq!(
+            VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT),
+            1
+        );
 
         // Initialize should not change if already set
         VersionedStorage::initialize_storage_version(&env, &BOOKING_CONTRACT);
-        assert_eq!(VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT), 1);
+        assert_eq!(
+            VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT),
+            1
+        );
     });
 }
 
@@ -32,10 +37,16 @@ fn test_storage_version_set_and_get() {
 
     run_as_contract(&env, || {
         VersionedStorage::set_storage_version(&env, &BOOKING_CONTRACT, 2);
-        assert_eq!(VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT), 2);
+        assert_eq!(
+            VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT),
+            2
+        );
 
         VersionedStorage::set_storage_version(&env, &BOOKING_CONTRACT, 5);
-        assert_eq!(VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT), 5);
+        assert_eq!(
+            VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT),
+            5
+        );
     });
 }
 
@@ -45,14 +56,38 @@ fn test_needs_migration() {
 
     run_as_contract(&env, || {
         // Default version is 1
-        assert!(VersionedStorage::needs_migration(&env, &BOOKING_CONTRACT, 2));
-        assert!(VersionedStorage::needs_migration(&env, &BOOKING_CONTRACT, 5));
-        assert!(!VersionedStorage::needs_migration(&env, &BOOKING_CONTRACT, 1));
+        assert!(VersionedStorage::needs_migration(
+            &env,
+            &BOOKING_CONTRACT,
+            2
+        ));
+        assert!(VersionedStorage::needs_migration(
+            &env,
+            &BOOKING_CONTRACT,
+            5
+        ));
+        assert!(!VersionedStorage::needs_migration(
+            &env,
+            &BOOKING_CONTRACT,
+            1
+        ));
 
         VersionedStorage::set_storage_version(&env, &BOOKING_CONTRACT, 3);
-        assert!(!VersionedStorage::needs_migration(&env, &BOOKING_CONTRACT, 2));
-        assert!(!VersionedStorage::needs_migration(&env, &BOOKING_CONTRACT, 3));
-        assert!(VersionedStorage::needs_migration(&env, &BOOKING_CONTRACT, 4));
+        assert!(!VersionedStorage::needs_migration(
+            &env,
+            &BOOKING_CONTRACT,
+            2
+        ));
+        assert!(!VersionedStorage::needs_migration(
+            &env,
+            &BOOKING_CONTRACT,
+            3
+        ));
+        assert!(VersionedStorage::needs_migration(
+            &env,
+            &BOOKING_CONTRACT,
+            4
+        ));
     });
 }
 
@@ -85,11 +120,35 @@ fn test_multiple_migrations() {
     let env = Env::default();
 
     run_as_contract(&env, || {
-        VersionedStorage::record_migration(&env, &BOOKING_CONTRACT, 1, 2, symbol_short!("manual"), symbol_short!("v1_to_v2"));
-        VersionedStorage::record_migration(&env, &BOOKING_CONTRACT, 2, 3, symbol_short!("manual"), symbol_short!("v2_to_v3"));
-        VersionedStorage::record_migration(&env, &BOOKING_CONTRACT, 3, 4, symbol_short!("emergency"), symbol_short!("v3_to_v4"));
+        VersionedStorage::record_migration(
+            &env,
+            &BOOKING_CONTRACT,
+            1,
+            2,
+            symbol_short!("manual"),
+            symbol_short!("v1_to_v2"),
+        );
+        VersionedStorage::record_migration(
+            &env,
+            &BOOKING_CONTRACT,
+            2,
+            3,
+            symbol_short!("manual"),
+            symbol_short!("v2_to_v3"),
+        );
+        VersionedStorage::record_migration(
+            &env,
+            &BOOKING_CONTRACT,
+            3,
+            4,
+            symbol_short!("emergency"),
+            symbol_short!("v3_to_v4"),
+        );
 
-        assert_eq!(VersionedStorage::get_migration_count(&env, &BOOKING_CONTRACT), 3);
+        assert_eq!(
+            VersionedStorage::get_migration_count(&env, &BOOKING_CONTRACT),
+            3
+        );
 
         let record_3 = VersionedStorage::get_migration(&env, &BOOKING_CONTRACT, 3).unwrap();
         assert_eq!(record_3.migration_type, symbol_short!("emergency"));
@@ -106,16 +165,13 @@ fn test_migrate_storage_function() {
         VersionedStorage::set_storage_version(&env, &BOOKING_CONTRACT, 1);
 
         // Perform migration
-        let success = VersionedStorage::migrate_storage(
-            &env,
-            &BOOKING_CONTRACT,
-            1,
-            3,
-            &migrator,
-        );
+        let success = VersionedStorage::migrate_storage(&env, &BOOKING_CONTRACT, 1, 3, &migrator);
 
         assert!(success);
-        assert_eq!(VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT), 3);
+        assert_eq!(
+            VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT),
+            3
+        );
 
         // Check migration progress
         let progress = VersionedStorage::get_migration_progress(&env, &BOOKING_CONTRACT).unwrap();
@@ -181,13 +237,28 @@ fn test_validate_storage_version() {
         VersionedStorage::set_storage_version(&env, &TOKEN_CONTRACT, 3);
 
         // Version 3 should be valid for min=2, max=5
-        assert!(VersionedStorage::validate_storage_version(&env, &TOKEN_CONTRACT, 2, 5));
+        assert!(VersionedStorage::validate_storage_version(
+            &env,
+            &TOKEN_CONTRACT,
+            2,
+            5
+        ));
 
         // Version 3 should be invalid for min=4
-        assert!(!VersionedStorage::validate_storage_version(&env, &TOKEN_CONTRACT, 4, 5));
+        assert!(!VersionedStorage::validate_storage_version(
+            &env,
+            &TOKEN_CONTRACT,
+            4,
+            5
+        ));
 
         // Version 3 should be invalid for max=2
-        assert!(!VersionedStorage::validate_storage_version(&env, &TOKEN_CONTRACT, 1, 2));
+        assert!(!VersionedStorage::validate_storage_version(
+            &env,
+            &TOKEN_CONTRACT,
+            1,
+            2
+        ));
     });
 }
 
@@ -201,9 +272,18 @@ fn test_different_contract_types() {
         VersionedStorage::set_storage_version(&env, &AIRLINE_CONTRACT, 3);
         VersionedStorage::set_storage_version(&env, &TOKEN_CONTRACT, 1);
 
-        assert_eq!(VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT), 2);
-        assert_eq!(VersionedStorage::get_storage_version(&env, &AIRLINE_CONTRACT), 3);
-        assert_eq!(VersionedStorage::get_storage_version(&env, &TOKEN_CONTRACT), 1);
+        assert_eq!(
+            VersionedStorage::get_storage_version(&env, &BOOKING_CONTRACT),
+            2
+        );
+        assert_eq!(
+            VersionedStorage::get_storage_version(&env, &AIRLINE_CONTRACT),
+            3
+        );
+        assert_eq!(
+            VersionedStorage::get_storage_version(&env, &TOKEN_CONTRACT),
+            1
+        );
     });
 }
 

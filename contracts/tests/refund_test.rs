@@ -1,8 +1,8 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
-use traqora_contracts::refund::{RefundContract, RefundContractClient};
+use soroban_sdk::Symbol;
+use traqora_contracts::refund::RefundContract;
 
 mod common;
-use common::{new_env, generate_actors, register_contracts};
+use common::{generate_actors, new_env, register_contracts};
 
 #[test]
 fn test_set_policy_and_calculate_refund() {
@@ -12,10 +12,10 @@ fn test_set_policy_and_calculate_refund() {
 
     contracts.refund.set_refund_policy(
         &actors.airline,
-        &86_400,     // 24h
-        &10_000,     // 100%
-        &5_000,      // 50%
-        &3_600,      // 1h
+        &86_400, // 24h
+        &10_000, // 100%
+        &5_000,  // 50%
+        &3_600,  // 1h
     );
 
     // Far from departure -> full refund
