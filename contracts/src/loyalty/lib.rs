@@ -58,7 +58,7 @@ pub struct LoyaltyContract;
 #[contractimpl]
 impl LoyaltyContract {
     // Initialize tier configurations
-    pub fn initialize_tiers(env: Env) {
+    pub fn init_loyalty(env: Env) {
         let tiers = [
             TierConfig {
                 tier: symbol_short!("bronze"),

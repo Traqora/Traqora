@@ -1,0 +1,152 @@
+global:
+  resolve_timeout: 5m
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Templates for notifications
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route tree for alerts
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  
+  routes:
+    # Critical alerts go to PagerDuty and Slack
+    - match:
+        severity: critical
+      receiver: 'pagerduty-critical'
+      continue: true
+      
+    - match:
+        severity: critical
+      receiver: 'slack-critical'
+      
+    # Warning alerts go to Slack only
+    - match:
+        severity: warning
+      receiver: 'slack-warnings'
+      
+    # Business alerts
+    - match:
+        component: bookings
+      receiver: 'slack-business'
+      group_by: ['alertname', 'airline']
+      
+    - match:
+        component: payments
+      receiver: 'slack-business'
+      
+    # Blockchain alerts
+    - match:
+        component: blockchain
+      receiver: 'slack-blockchain'
+      group_by: ['alertname', 'wallet_type']
+
+# Inhibition rules - suppress certain alerts when others are firing
+inhibit_rules:
+  # Suppress warning if critical is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']
+    
+  # Suppress individual component alerts if service is down
+  - source_match:
+      alertname: 'ServiceDown'
+    target_match_re:
+      alertname: '.*'
+    equal: ['cluster']
+
+# Receivers - where to send alerts
+receivers:
+  - name: 'default'
+    slack_configs:
+      - channel: '#traqora-alerts'
+        title: 'Traqora Alert'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}\n{{ .Annotations.description }}\n{{ end }}'
+        send_resolved: true
+
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        severity: '{{ .CommonLabels.severity }}'
+        details:
+          firing: '{{ .Alerts.Firing | len }}'
+          resolved: '{{ .Alerts.Resolved | len }}'
+          description: '{{ .CommonAnnotations.description }}'
+          runbook: '{{ .CommonAnnotations.runbook }}'
+
+  - name: 'slack-critical'
+    slack_configs:
+      - channel: '#traqora-critical'
+        username: 'Traqora Alerting'
+        icon_emoji: ':fire:'
+        title: ':fire: CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          *Severity:* {{ .CommonLabels.severity }}
+          *Component:* {{ .CommonLabels.component }}
+          *Runbook:* {{ .CommonAnnotations.runbook }}
+          
+          *Firing Alerts:*
+          {{ range .Alerts.Firing }}
+          - {{ .Labels.alertname }}: {{ .Annotations.description }}
+          {{ end }}
+        send_resolved: true
+        actions:
+          - type: button
+            text: 'View in Grafana'
+            url: 'https://monitoring.traqora.com/d/overview'
+          - type: button
+            text: 'View Runbook'
+            url: '{{ .CommonAnnotations.runbook }}'
+
+  - name: 'slack-warnings'
+    slack_configs:
+      - channel: '#traqora-warnings'
+        username: 'Traqora Alerting'
+        icon_emoji: ':warning:'
+        title: ':warning: WARNING: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          *Component:* {{ .CommonLabels.component }}
+          *Runbook:* {{ .CommonAnnotations.runbook }}
+        send_resolved: true
+
+  - name: 'slack-business'
+    slack_configs:
+      - channel: '#traqora-business-alerts'
+        username: 'Traqora Business Metrics'
+        icon_emoji: ':chart_with_upwards_trend:'
+        title: 'Business Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          {{ if .CommonLabels.airline }}*Airline:* {{ .CommonLabels.airline }}{{ end }}
+        send_resolved: true
+
+  - name: 'slack-blockchain'
+    slack_configs:
+      - channel: '#traqora-blockchain'
+        username: 'Traqora Blockchain Monitor'
+        icon_emoji: ':link:'
+        title: 'Blockchain Alert: {{ .GroupLabels.alertname }}'
+        text: |
+          *Summary:* {{ .CommonAnnotations.summary }}
+          *Description:* {{ .CommonAnnotations.description }}
+          {{ if .CommonLabels.wallet_type }}*Wallet:* {{ .CommonLabels.wallet_type }}{{ end }}
+          *Runbook:* {{ .CommonAnnotations.runbook }}
+        send_resolved: true
+        actions:
+          - type: button
+            text: 'View Stellar Expert'
+            url: 'https://stellar.expert/explorer/testnet'

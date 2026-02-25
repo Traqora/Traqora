@@ -110,7 +110,7 @@ pub struct ContractProxy;
 
 #[contractimpl]
 impl ContractProxy {
-    pub fn initialize(
+    pub fn init_proxy(
         env: Env,
         admin: Address,
         implementation: BytesN<32>,
