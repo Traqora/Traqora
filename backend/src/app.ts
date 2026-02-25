@@ -3,6 +3,7 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { createFlightRoutes } from './api/routes/flights';
+import { bookingRoutes } from './api/routes/bookings';
 import { securityRoutes } from './api/routes/security';
 import { adminAuthRoutes } from './api/routes/admin/auth';
 import { adminFlightRoutes } from './api/routes/admin/flights';
@@ -117,6 +118,7 @@ export const createApp = (options: AppOptions = {}) => {
   });
 
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
+  app.use('/api/v1/bookings', bookingRoutes);
   app.use('/api/v1/security', securityRoutes);
 
   // Admin routes
