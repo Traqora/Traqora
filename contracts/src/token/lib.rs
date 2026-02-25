@@ -59,7 +59,7 @@ pub struct TRQTokenContract;
 
 #[contractimpl]
 impl TRQTokenContract {
-    pub fn initialize(env: Env, admin: Address, name: String, symbol: Symbol, decimals: u32) {
+    pub fn init_token(env: Env, admin: Address, name: String, symbol: Symbol, decimals: u32) {
         if TokenStorage::get_admin(&env).is_some() {
             panic!("Already initialized");
         }
