@@ -117,7 +117,7 @@ pub struct GovernanceContract;
 
 #[contractimpl]
 impl GovernanceContract {
-    pub fn initialize(
+    pub fn init_governance(
         env: Env,
         min_voting_period: u64,
         quorum: i128,
