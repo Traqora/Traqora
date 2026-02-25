@@ -1,4 +1,6 @@
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol, Vec};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol, Vec,
+};
 
 #[contracttype]
 #[derive(Clone)]
@@ -74,19 +76,27 @@ pub struct AirlineRegistry;
 
 impl AirlineRegistry {
     pub fn get_airline(env: &Env, address: &Address) -> Option<AirlineProfile> {
-        env.storage().persistent().get(&(symbol_short!("airline"), address))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("airline"), address))
     }
-    
+
     pub fn set_airline(env: &Env, address: &Address, profile: &AirlineProfile) {
-        env.storage().persistent().set(&(symbol_short!("airline"), address), profile);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("airline"), address), profile);
     }
-    
+
     pub fn get_flight(env: &Env, flight_id: u64) -> Option<Flight> {
-        env.storage().persistent().get(&(symbol_short!("flight"), flight_id))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("flight"), flight_id))
     }
-    
+
     pub fn set_flight(env: &Env, flight_id: u64, flight: &Flight) {
-        env.storage().persistent().set(&(symbol_short!("flight"), flight_id), flight);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("flight"), flight_id), flight);
     }
 }
 
@@ -98,15 +108,21 @@ impl PricingStorage {
     }
 
     pub fn set_config(env: &Env, config: &PricingConfig) {
-        env.storage().instance().set(&symbol_short!("pricing"), config);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("pricing"), config);
     }
 
     pub fn get_last_update(env: &Env, flight_id: u64) -> Option<u64> {
-        env.storage().persistent().get(&(symbol_short!("plu"), flight_id))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("plu"), flight_id))
     }
 
     pub fn set_last_update(env: &Env, flight_id: u64, ts: u64) {
-        env.storage().persistent().set(&(symbol_short!("plu"), flight_id), &ts);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("plu"), flight_id), &ts);
     }
 
     pub fn get_price_history(env: &Env, flight_id: u64) -> Vec<PriceHistoryEntry> {
@@ -117,7 +133,9 @@ impl PricingStorage {
     }
 
     pub fn set_price_history(env: &Env, flight_id: u64, history: &Vec<PriceHistoryEntry>) {
-        env.storage().persistent().set(&(symbol_short!("ph"), flight_id), history);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("ph"), flight_id), history);
     }
 }
 
@@ -134,11 +152,17 @@ impl AirlineContract {
         max_change_bps: i128,
         max_demand_multiplier_bps: i128,
     ) {
-        assert!(PricingStorage::get_config(&env).is_none(), "Already initialized");
+        assert!(
+            PricingStorage::get_config(&env).is_none(),
+            "Already initialized"
+        );
         admin.require_auth();
         assert!(max_change_bps > 0, "Invalid max_change_bps");
         assert!(max_change_bps <= 2_000, "max_change_bps exceeds 20%");
-        assert!(max_demand_multiplier_bps >= 0, "Invalid max_demand_multiplier_bps");
+        assert!(
+            max_demand_multiplier_bps >= 0,
+            "Invalid max_demand_multiplier_bps"
+        );
 
         let cfg = PricingConfig {
             admin: admin.clone(),
@@ -171,14 +195,9 @@ impl AirlineContract {
     }
 
     // Register new airline
-    pub fn register_airline(
-        env: Env,
-        airline: Address,
-        name: Symbol,
-        iata_code: Symbol,
-    ) -> bool {
+    pub fn register_airline(env: Env, airline: Address, name: Symbol, iata_code: Symbol) -> bool {
         airline.require_auth();
-        
+
         let profile = AirlineProfile {
             address: airline.clone(),
             name,
@@ -188,33 +207,30 @@ impl AirlineContract {
             total_bookings: 0,
             rating: 0,
         };
-        
+
         AirlineRegistry::set_airline(&env, &airline, &profile);
-        
-        env.events().publish(
-            (symbol_short!("airline"), symbol_short!("reg")),
-            airline,
-        );
-        
+
+        env.events()
+            .publish((symbol_short!("airline"), symbol_short!("reg")), airline);
+
         true
     }
-    
+
     // Admin verification of airline
     pub fn verify_airline(env: Env, _admin: Address, airline: Address) {
         // TODO: Check admin authorization
-        
-        let mut profile = AirlineRegistry::get_airline(&env, &airline)
-            .expect("Airline not found");
-        
+
+        let mut profile = AirlineRegistry::get_airline(&env, &airline).expect("Airline not found");
+
         profile.is_verified = true;
         AirlineRegistry::set_airline(&env, &airline, &profile);
-        
+
         env.events().publish(
             (symbol_short!("airline"), symbol_short!("verified")),
             airline,
         );
     }
-    
+
     // Create new flight listing
     pub fn create_flight(
         env: Env,
@@ -229,14 +245,13 @@ impl AirlineContract {
         currency: Symbol,
     ) -> u64 {
         airline.require_auth();
-        
-        let profile = AirlineRegistry::get_airline(&env, &airline)
-            .expect("Airline not registered");
-        
+
+        let profile = AirlineRegistry::get_airline(&env, &airline).expect("Airline not registered");
+
         assert!(profile.is_verified, "Airline not verified");
-        
+
         let flight_id = env.ledger().timestamp();
-        
+
         let flight = Flight {
             flight_id,
             airline: airline.clone(),
@@ -251,51 +266,49 @@ impl AirlineContract {
             currency,
             status: symbol_short!("active"),
         };
-        
+
         AirlineRegistry::set_flight(&env, flight_id, &flight);
-        
+
         env.events().publish(
             (symbol_short!("flight"), symbol_short!("created")),
             flight_id,
         );
-        
+
         flight_id
     }
-    
+
     pub fn get_flight(env: Env, flight_id: u64) -> Option<Flight> {
         AirlineRegistry::get_flight(&env, flight_id)
     }
-    
+
     pub fn get_airline(env: Env, address: Address) -> Option<AirlineProfile> {
         AirlineRegistry::get_airline(&env, &address)
     }
-    
+
     // Decrement available seats when booking is made
     pub fn reserve_seat(env: Env, airline: Address, flight_id: u64) {
         airline.require_auth();
-        
-        let mut flight = AirlineRegistry::get_flight(&env, flight_id)
-            .expect("Flight not found");
-        
+
+        let mut flight = AirlineRegistry::get_flight(&env, flight_id).expect("Flight not found");
+
         assert!(flight.airline == airline, "Unauthorized");
         assert!(flight.available_seats > 0, "No seats available");
-        
+
         flight.available_seats -= 1;
         AirlineRegistry::set_flight(&env, flight_id, &flight);
     }
-    
+
     // Cancel flight (airline emergency)
     pub fn cancel_flight(env: Env, airline: Address, flight_id: u64) {
         airline.require_auth();
-        
-        let mut flight = AirlineRegistry::get_flight(&env, flight_id)
-            .expect("Flight not found");
-        
+
+        let mut flight = AirlineRegistry::get_flight(&env, flight_id).expect("Flight not found");
+
         assert!(flight.airline == airline, "Unauthorized");
-        
+
         flight.status = symbol_short!("cancelled");
         AirlineRegistry::set_flight(&env, flight_id, &flight);
-        
+
         env.events().publish(
             (symbol_short!("flight"), symbol_short!("cancelled")),
             flight_id,
@@ -304,14 +317,22 @@ impl AirlineContract {
 
     // --- Dynamic Pricing Oracle ---
     // Oracle pushes updates based on multiple factors and guardrails.
-    pub fn update_flight_price(env: Env, oracle: Address, flight_id: u64, input: PriceUpdateInput) -> i128 {
+    pub fn update_flight_price(
+        env: Env,
+        oracle: Address,
+        flight_id: u64,
+        input: PriceUpdateInput,
+    ) -> i128 {
         oracle.require_auth();
 
         let cfg = PricingStorage::get_config(&env).expect("Pricing not initialized");
         assert!(cfg.oracle == oracle, "Unauthorized");
 
         let mut flight = AirlineRegistry::get_flight(&env, flight_id).expect("Flight not found");
-        assert!(flight.status == symbol_short!("active"), "Flight not active");
+        assert!(
+            flight.status == symbol_short!("active"),
+            "Flight not active"
+        );
         assert!(input.base_price > 0, "Invalid base_price");
 
         let now = env.ledger().timestamp();
@@ -328,7 +349,8 @@ impl AirlineContract {
             + input.factors.competitor_bps
             + input.factors.time_to_departure_bps;
         assert!(factor_sum > 0, "Invalid factors");
-        let mut suggested = input.base_price
+        let mut suggested = input
+            .base_price
             .checked_mul(factor_sum)
             .expect("Math overflow")
             / 10_000i128;
@@ -417,8 +439,8 @@ impl AirlineContract {
 
         // Combine utilization and time into a demand signal, then clamp to configured max.
         let demand_signal_bps = (utilization_bps + time_bps) / 2;
-        let demand_multiplier_bps = 10_000i128
-            + (cfg.max_demand_multiplier_bps * demand_signal_bps / 10_000i128);
+        let demand_multiplier_bps =
+            10_000i128 + (cfg.max_demand_multiplier_bps * demand_signal_bps / 10_000i128);
 
         flight
             .price
