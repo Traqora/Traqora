@@ -20,6 +20,8 @@ import {
 import { ProposalCard } from "@/components/governance/proposal-card"
 import type { ProposalData } from "@/components/governance/proposal-card"
 import { VotingPowerCard } from "@/components/governance/voting-power-card"
+// NEW: import NavWalletButton for the governance page navbar
+import { NavWalletButton } from "@/components/nav-wallet-button"
 
 // Mock proposals data
 const mockProposals: ProposalData[] = [
@@ -136,7 +138,7 @@ export default function GovernancePage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <nav className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-2">
@@ -157,6 +159,8 @@ export default function GovernancePage() {
                 <Shield className="h-4 w-4 mr-2 text-primary" />
                 Governance
               </Badge>
+              {/* NEW: real wallet connect/disconnect button in governance nav */}
+              <NavWalletButton />
             </div>
           </div>
         </div>
