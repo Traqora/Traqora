@@ -20,6 +20,8 @@ export const config = {
   
   // Database
   databaseUrl: process.env.DATABASE_URL || '',
+  // Mongo connection string (optional, used for notifications/history etc)
+  mongoUrl: process.env.MONGO_URI || '',
   redisUrl: process.env.REDIS_URL || '',
   
   // Authentication
