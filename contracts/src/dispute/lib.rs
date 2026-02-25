@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN, Env, Symbol, Vec};
-=======
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol};
->>>>>>> upstream/main
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
