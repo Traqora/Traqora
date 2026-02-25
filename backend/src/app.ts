@@ -106,6 +106,9 @@ export const createApp = (options: AppOptions = {}) => {
 
   app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
+  // Stripe webhook requires raw body — must be registered BEFORE express.json()
+  app.use('/api/v1/bookings/webhook/stripe', express.raw({ type: '*/*' }));
+
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 

@@ -1,4 +1,4 @@
-import express, { Router, Request, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
 import { initDataSource, AppDataSource } from '../../db/dataSource';
@@ -194,8 +194,8 @@ router.post('/:id/submit-onchain', asyncHandler(async (req: Request, res: Respon
   return res.status(202).json({ success: true, data: booking, soroban: result });
 }));
 
-// express.raw() is required here so req.body stays a Buffer for stripe.webhooks.constructEvent
-router.post('/webhook/stripe', express.raw({ type: 'application/json' }), asyncHandler(async (req: Request, res: Response) => {
+// req.body is a raw Buffer here because app.ts registers express.raw() for this path before express.json()
+router.post('/webhook/stripe', asyncHandler(async (req: Request, res: Response) => {
   await initDataSource();
 
   const sig = req.headers['stripe-signature'];
