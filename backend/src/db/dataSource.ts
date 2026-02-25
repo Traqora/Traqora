@@ -6,6 +6,7 @@ import { Booking } from './entities/Booking';
 import { Flight } from './entities/Flight';
 import { Passenger } from './entities/Passenger';
 import { IdempotencyKey } from './entities/IdempotencyKey';
+import { Refund } from './entities/Refund';
 
 const isTest = process.env.NODE_ENV === 'test';
 
@@ -16,7 +17,7 @@ export const AppDataSource = new DataSource(
         database: ':memory:',
         dropSchema: true,
         synchronize: true,
-        entities: [Booking, Flight, Passenger, IdempotencyKey],
+        entities: [Booking, Flight, Passenger, IdempotencyKey, Refund],
         logging: false,
       }
     : {
@@ -24,7 +25,7 @@ export const AppDataSource = new DataSource(
         url: config.databaseUrl,
         synchronize: true,
         logging: false,
-        entities: [Booking, Flight, Passenger, IdempotencyKey],
+        entities: [Booking, Flight, Passenger, IdempotencyKey, Refund],
         ssl: config.environment === 'production' ? { rejectUnauthorized: false } : false,
       }
 );

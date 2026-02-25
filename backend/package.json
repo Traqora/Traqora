@@ -37,7 +37,8 @@
     "stripe": "^16.2.0",
     "typeorm": "^0.3.20",
     "uuid": "^9.0.1",
-    "winston": "^3.13.0"
+    "winston": "^3.13.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -48,9 +49,9 @@
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.14.0",
     "@types/node-cron": "^3.0.2",
-    "@types/uuid": "^9.0.8",
     "@types/pg": "^8.11.6",
     "@types/supertest": "^6.0.3",
+    "@types/uuid": "^9.0.8",
     "@typescript-eslint/eslint-plugin": "^7.11.0",
     "@typescript-eslint/parser": "^7.11.0",
     "eslint": "^8.57.0",

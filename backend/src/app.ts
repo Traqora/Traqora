@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { createFlightRoutes } from './api/routes/flights';
 import { securityRoutes } from './api/routes/security';
+import { bookingRoutes } from './api/routes/bookings';
+import { refundRoutes } from './api/routes/refunds';
 import { config } from './config';
 import {
   createDefaultFlightSearchService,
@@ -112,6 +114,9 @@ export const createApp = (options: AppOptions = {}) => {
 
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/v1/security', securityRoutes);
+  app.use('/api/v1/bookings', bookingRoutes);
+  app.use('/api/bookings', bookingRoutes); // Legacy path for backward compatibility
+  app.use('/api/v1/refunds', refundRoutes);
 
   app.use(errorHandler);
 
@@ -121,3 +126,5 @@ export const createApp = (options: AppOptions = {}) => {
 
   return app;
 };
+
+export const app = createApp();
