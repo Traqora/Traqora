@@ -353,4 +353,200 @@ router.get('/:id/audit-trail', asyncHandler(async (req: Request, res: Response) 
   });
 }));
 
+/**
+ * POST /api/v1/refunds/:id/cancel
+ * Cancel a delayed refund request during the waiting period
+ */
+router.post('/:id/cancel', asyncHandler(async (req: Request, res: Response) => {
+  await initDataSource();
+
+  const cancelSchema = z.object({
+    cancelledBy: z.string().min(1),
+    cancellationReason: z.string().min(1),
+  });
+
+  const parsed = cancelSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: 'Validation error',
+        code: 'VALIDATION_ERROR',
+        details: parsed.error.flatten(),
+      },
+    });
+  }
+
+  try {
+    const refund = await refundService.cancelDelayedRefund(
+      req.params.id,
+      parsed.data.cancelledBy,
+      parsed.data.cancellationReason
+    );
+
+    logger.info(`Delayed refund ${req.params.id} cancelled by ${parsed.data.cancelledBy}`);
+
+    return res.json({
+      success: true,
+      data: refund,
+    });
+  } catch (error: any) {
+    logger.error('Failed to cancel delayed refund', error);
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: error.message || 'Failed to cancel delayed refund',
+        code: 'CANCEL_FAILED',
+      },
+    });
+  }
+}));
+
+/**
+ * POST /api/v1/refunds/:id/process-delayed
+ * Process a delayed refund after timelock expiration
+ */
+router.post('/:id/process-delayed', asyncHandler(async (req: Request, res: Response) => {
+  await initDataSource();
+
+  try {
+    const refund = await refundService.processDelayedRefund(req.params.id);
+
+    logger.info(`Delayed refund ${req.params.id} processed after timelock expiration`);
+
+    return res.json({
+      success: true,
+      data: refund,
+    });
+  } catch (error: any) {
+    logger.error('Failed to process delayed refund', error);
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: error.message || 'Failed to process delayed refund',
+        code: 'PROCESS_DELAYED_FAILED',
+      },
+    });
+  }
+}));
+
+/**
+ * POST /api/v1/refunds/:id/emergency-override
+ * Emergency override to process a delayed refund immediately (admin only)
+ */
+router.post('/:id/emergency-override', asyncHandler(async (req: Request, res: Response) => {
+  await initDataSource();
+
+  // TODO: Add admin authentication middleware
+  const apiKey = req.header('X-Admin-API-Key');
+  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+    return res.status(403).json({
+      success: false,
+      error: {
+        message: 'Unauthorized',
+        code: 'UNAUTHORIZED',
+      },
+    });
+  }
+
+  const overrideSchema = z.object({
+    overrideBy: z.string().min(1),
+    overrideReason: z.string().min(1),
+  });
+
+  const parsed = overrideSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: 'Validation error',
+        code: 'VALIDATION_ERROR',
+        details: parsed.error.flatten(),
+      },
+    });
+  }
+
+  try {
+    const refund = await refundService.emergencyOverrideDelayedRefund(
+      req.params.id,
+      parsed.data.overrideBy,
+      parsed.data.overrideReason
+    );
+
+    logger.warn(
+      `Emergency override applied to refund ${req.params.id} by ${parsed.data.overrideBy}`
+    );
+
+    return res.json({
+      success: true,
+      data: refund,
+    });
+  } catch (error: any) {
+    logger.error('Failed to apply emergency override', error);
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: error.message || 'Failed to apply emergency override',
+        code: 'EMERGENCY_OVERRIDE_FAILED',
+      },
+    });
+  }
+}));
+
+/**
+ * GET /api/v1/refunds/admin/delayed-pending
+ * Get all pending delayed refunds (admin only)
+ */
+router.get('/admin/delayed-pending', asyncHandler(async (req: Request, res: Response) => {
+  await initDataSource();
+
+  // TODO: Add admin authentication middleware
+  const apiKey = req.header('X-Admin-API-Key');
+  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+    return res.status(403).json({
+      success: false,
+      error: {
+        message: 'Unauthorized',
+        code: 'UNAUTHORIZED',
+      },
+    });
+  }
+
+  const refunds = await refundService.getPendingDelayedRefunds();
+
+  return res.json({
+    success: true,
+    data: refunds,
+    count: refunds.length,
+  });
+}));
+
+/**
+ * GET /api/v1/refunds/admin/delayed-ready
+ * Get delayed refunds ready for processing (admin only)
+ */
+router.get('/admin/delayed-ready', asyncHandler(async (req: Request, res: Response) => {
+  await initDataSource();
+
+  // TODO: Add admin authentication middleware
+  const apiKey = req.header('X-Admin-API-Key');
+  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+    return res.status(403).json({
+      success: false,
+      error: {
+        message: 'Unauthorized',
+        code: 'UNAUTHORIZED',
+      },
+    });
+  }
+
+  const refunds = await refundService.getDelayedRefundsReadyForProcessing();
+
+  return res.json({
+    success: true,
+    data: refunds,
+    count: refunds.length,
+  });
+}));
+
 export const refundRoutes = router;

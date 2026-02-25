@@ -12,7 +12,9 @@ export type RefundStatus =
   | 'onchain_submitted'
   | 'completed'
   | 'failed'
-  | 'manual_review';
+  | 'manual_review'
+  | 'delayed_pending'
+  | 'delayed_cancelled';
 
 export type RefundReason =
   | 'flight_cancelled'
@@ -86,6 +88,34 @@ export class Refund {
 
   @Column({ type: 'varchar', length: 128, nullable: true })
   requestedBy?: string | null;
+
+  // Time-locked refund fields
+  @Column({ type: 'boolean', default: false })
+  isDelayed!: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  delayedUntil?: Date | null;
+
+  @Column({ type: 'integer', nullable: true })
+  delayedLedgerSequence?: number | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  cancelledBy?: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  cancelledAt?: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  cancellationReason?: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  emergencyOverride!: boolean;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  emergencyOverrideBy?: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  emergencyOverrideReason?: string | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
