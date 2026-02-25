@@ -23,6 +23,12 @@ export interface CreateRefundRequest {
   requestedBy?: string;
 }
 
+// Refund tier thresholds (in cents)
+export const REFUND_TIER_THRESHOLDS = {
+  IMMEDIATE_MAX: 10000, // $100
+  DELAYED_HOURS: 48, // 48 hours delay for large refunds
+} as const;
+
 export class RefundService {
   private static instance: RefundService;
   private notificationService: NotificationService;
@@ -112,80 +118,10 @@ export class RefundService {
 
   /**
    * Create a new refund request
+   * Automatically determines if refund should be delayed based on amount
    */
   public async createRefundRequest(request: CreateRefundRequest): Promise<Refund> {
-    const refundRepo = AppDataSource.getRepository(Refund);
-    const bookingRepo = AppDataSource.getRepository(Booking);
-
-    const booking = await bookingRepo.findOne({
-      where: { id: request.bookingId },
-      relations: ['flight', 'passenger'],
-    });
-
-    if (!booking) {
-      throw new Error('Booking not found');
-    }
-
-    // Check if refund already exists
-    const existingRefund = await refundRepo.findOne({
-      where: { booking: { id: booking.id } },
-    });
-
-    if (existingRefund) {
-      throw new Error('Refund request already exists for this booking');
-    }
-
-    // Check eligibility
-    const eligibility = await this.checkEligibility(booking);
-
-    const refund = refundRepo.create({
-      booking,
-      status: 'eligibility_check',
-      reason: request.reason,
-      reasonDetails: request.reasonDetails,
-      requestedAmountCents: booking.amountCents,
-      isEligible: eligibility.isEligible,
-      eligibilityNotes: eligibility.reason,
-      processingFeeCents: eligibility.processingFeeCents,
-      requiresManualReview: eligibility.requiresManualReview,
-      requestedBy: request.requestedBy,
-    });
-
-    const saved = await refundRepo.save(refund);
-
-    // Log audit entry
-    await this.auditService.logAction({
-      refundId: saved.id,
-      action: 'refund_requested',
-      actor: request.requestedBy,
-      newStatus: saved.status,
-      metadata: {
-        reason: request.reason,
-        requestedAmount: booking.amountCents,
-      },
-    });
-
-    // Auto-approve if eligible and doesn't require manual review
-    if (eligibility.isEligible && !eligibility.requiresManualReview) {
-      await this.approveRefund(saved.id, eligibility.refundPercentage);
-    } else if (eligibility.requiresManualReview) {
-      saved.status = 'manual_review';
-      await refundRepo.save(saved);
-      logger.info(`Refund ${saved.id} requires manual review`);
-    } else {
-      saved.status = 'rejected';
-      await refundRepo.save(saved);
-      logger.info(`Refund ${saved.id} rejected due to ineligibility`);
-    }
-
-    // Send notification
-    await this.notificationService.sendEmail(
-      booking.passenger.email,
-      'Refund Request Received',
-      `Your refund request for booking ${booking.id} has been received and is being processed.`
-    );
-
-    return saved;
+    return this.requestDelayedRefund(request);
   }
 
   /**
@@ -556,5 +492,347 @@ export class RefundService {
     const refunds = await queryBuilder.getMany();
 
     return { refunds, total };
+  }
+
+  /**
+   * Request a delayed refund for amounts above threshold
+   * Implements time-locked safety mechanism to prevent exploits
+   */
+  public async requestDelayedRefund(request: CreateRefundRequest): Promise<Refund> {
+    const refundRepo = AppDataSource.getRepository(Refund);
+    const bookingRepo = AppDataSource.getRepository(Booking);
+
+    const booking = await bookingRepo.findOne({
+      where: { id: request.bookingId },
+      relations: ['flight', 'passenger'],
+    });
+
+    if (!booking) {
+      throw new Error('Booking not found');
+    }
+
+    // Check if refund already exists
+    const existingRefund = await refundRepo.findOne({
+      where: { booking: { id: booking.id } },
+    });
+
+    if (existingRefund) {
+      throw new Error('Refund request already exists for this booking');
+    }
+
+    // Check eligibility
+    const eligibility = await this.checkEligibility(booking);
+
+    // Determine if refund should be delayed based on amount
+    const shouldDelay = booking.amountCents > REFUND_TIER_THRESHOLDS.IMMEDIATE_MAX;
+    const delayedUntil = shouldDelay
+      ? new Date(Date.now() + REFUND_TIER_THRESHOLDS.DELAYED_HOURS * 60 * 60 * 1000)
+      : null;
+
+    const refund = refundRepo.create({
+      booking,
+      status: shouldDelay ? 'delayed_pending' : 'eligibility_check',
+      reason: request.reason,
+      reasonDetails: request.reasonDetails,
+      requestedAmountCents: booking.amountCents,
+      isEligible: eligibility.isEligible,
+      eligibilityNotes: eligibility.reason,
+      processingFeeCents: eligibility.processingFeeCents,
+      requiresManualReview: eligibility.requiresManualReview,
+      requestedBy: request.requestedBy,
+      isDelayed: shouldDelay,
+      delayedUntil,
+    });
+
+    const saved = await refundRepo.save(refund);
+
+    // Log audit entry
+    await this.auditService.logAction({
+      refundId: saved.id,
+      action: shouldDelay ? 'delayed_refund_requested' : 'refund_requested',
+      actor: request.requestedBy,
+      newStatus: saved.status,
+      metadata: {
+        reason: request.reason,
+        requestedAmount: booking.amountCents,
+        isDelayed: shouldDelay,
+        delayedUntil: delayedUntil?.toISOString(),
+      },
+    });
+
+    logger.info(
+      `Refund ${saved.id} requested: ${shouldDelay ? 'delayed until ' + delayedUntil?.toISOString() : 'immediate processing'}`
+    );
+
+    // Send notification
+    const notificationMessage = shouldDelay
+      ? `Your refund request for booking ${booking.id} has been received. Due to the refund amount ($${(booking.amountCents / 100).toFixed(2)}), it will be processed after ${delayedUntil?.toLocaleString()} for security purposes. You can cancel this request during the waiting period.`
+      : `Your refund request for booking ${booking.id} has been received and is being processed.`;
+
+    await this.notificationService.sendEmail(
+      booking.passenger.email,
+      'Refund Request Received',
+      notificationMessage
+    );
+
+    // If not delayed, process immediately
+    if (!shouldDelay) {
+      if (eligibility.isEligible && !eligibility.requiresManualReview) {
+        await this.approveRefund(saved.id, eligibility.refundPercentage);
+      } else if (eligibility.requiresManualReview) {
+        saved.status = 'manual_review';
+        await refundRepo.save(saved);
+      } else {
+        saved.status = 'rejected';
+        await refundRepo.save(saved);
+      }
+    }
+
+    return saved;
+  }
+
+  /**
+   * Cancel a delayed refund request during the waiting period
+   */
+  public async cancelDelayedRefund(
+    refundId: string,
+    cancelledBy: string,
+    cancellationReason: string
+  ): Promise<Refund> {
+    const refundRepo = AppDataSource.getRepository(Refund);
+    const refund = await refundRepo.findOne({
+      where: { id: refundId },
+      relations: ['booking', 'booking.passenger'],
+    });
+
+    if (!refund) {
+      throw new Error('Refund not found');
+    }
+
+    if (!refund.isDelayed) {
+      throw new Error('Only delayed refunds can be cancelled');
+    }
+
+    if (refund.status !== 'delayed_pending') {
+      throw new Error('Refund is not in delayed pending status');
+    }
+
+    if (refund.delayedUntil && new Date() >= refund.delayedUntil) {
+      throw new Error('Delay period has expired, refund cannot be cancelled');
+    }
+
+    refund.status = 'delayed_cancelled';
+    refund.cancelledBy = cancelledBy;
+    refund.cancelledAt = new Date();
+    refund.cancellationReason = cancellationReason;
+
+    await refundRepo.save(refund);
+
+    // Log audit entry
+    await this.auditService.logAction({
+      refundId: refund.id,
+      action: 'delayed_refund_cancelled',
+      actor: cancelledBy,
+      previousStatus: 'delayed_pending',
+      newStatus: 'delayed_cancelled',
+      metadata: {
+        cancellationReason,
+        cancelledAt: refund.cancelledAt.toISOString(),
+      },
+    });
+
+    // Send notification
+    await this.notificationService.sendEmail(
+      refund.booking.passenger.email,
+      'Refund Request Cancelled',
+      `Your refund request for booking ${refund.booking.id} has been cancelled. Reason: ${cancellationReason}`
+    );
+
+    logger.info(`Delayed refund ${refundId} cancelled by ${cancelledBy}`);
+
+    return refund;
+  }
+
+  /**
+   * Process delayed refunds that have passed their timelock period
+   */
+  public async processDelayedRefund(refundId: string): Promise<Refund> {
+    const refundRepo = AppDataSource.getRepository(Refund);
+    const refund = await refundRepo.findOne({
+      where: { id: refundId },
+      relations: ['booking', 'booking.passenger', 'booking.flight'],
+    });
+
+    if (!refund) {
+      throw new Error('Refund not found');
+    }
+
+    if (!refund.isDelayed) {
+      throw new Error('Refund is not a delayed refund');
+    }
+
+    if (refund.status !== 'delayed_pending') {
+      throw new Error('Refund is not in delayed pending status');
+    }
+
+    if (!refund.delayedUntil) {
+      throw new Error('Refund does not have a delay expiration time');
+    }
+
+    // Check if delay period has expired
+    if (new Date() < refund.delayedUntil) {
+      throw new Error(
+        `Delay period has not expired yet. Refund can be processed after ${refund.delayedUntil.toISOString()}`
+      );
+    }
+
+    // Re-check eligibility in case flight status changed
+    const eligibility = await this.checkEligibility(refund.booking);
+
+    // Log audit entry
+    await this.auditService.logAction({
+      refundId: refund.id,
+      action: 'delayed_refund_processing',
+      previousStatus: 'delayed_pending',
+      newStatus: 'eligibility_check',
+      metadata: {
+        delayExpired: refund.delayedUntil.toISOString(),
+        reEligibilityCheck: eligibility,
+      },
+    });
+
+    logger.info(`Processing delayed refund ${refundId} after timelock expiration`);
+
+    // Update eligibility and process
+    refund.isEligible = eligibility.isEligible;
+    refund.eligibilityNotes = eligibility.reason;
+    refund.processingFeeCents = eligibility.processingFeeCents;
+    refund.requiresManualReview = eligibility.requiresManualReview;
+
+    if (eligibility.isEligible && !eligibility.requiresManualReview) {
+      await this.approveRefund(refundId, eligibility.refundPercentage);
+    } else if (eligibility.requiresManualReview) {
+      refund.status = 'manual_review';
+      await refundRepo.save(refund);
+      logger.info(`Delayed refund ${refundId} requires manual review`);
+    } else {
+      refund.status = 'rejected';
+      await refundRepo.save(refund);
+      logger.info(`Delayed refund ${refundId} rejected due to ineligibility`);
+    }
+
+    return refund;
+  }
+
+  /**
+   * Emergency override to process a delayed refund immediately
+   * Should only be used in genuine emergency situations
+   */
+  public async emergencyOverrideDelayedRefund(
+    refundId: string,
+    overrideBy: string,
+    overrideReason: string
+  ): Promise<Refund> {
+    const refundRepo = AppDataSource.getRepository(Refund);
+    const refund = await refundRepo.findOne({
+      where: { id: refundId },
+      relations: ['booking', 'booking.passenger', 'booking.flight'],
+    });
+
+    if (!refund) {
+      throw new Error('Refund not found');
+    }
+
+    if (!refund.isDelayed) {
+      throw new Error('Refund is not a delayed refund');
+    }
+
+    if (refund.status !== 'delayed_pending') {
+      throw new Error('Refund is not in delayed pending status');
+    }
+
+    // Mark as emergency override
+    refund.emergencyOverride = true;
+    refund.emergencyOverrideBy = overrideBy;
+    refund.emergencyOverrideReason = overrideReason;
+
+    await refundRepo.save(refund);
+
+    // Log audit entry
+    await this.auditService.logAction({
+      refundId: refund.id,
+      action: 'emergency_override_applied',
+      actor: overrideBy,
+      previousStatus: 'delayed_pending',
+      newStatus: 'eligibility_check',
+      metadata: {
+        overrideReason,
+        overrideAt: new Date().toISOString(),
+        originalDelayedUntil: refund.delayedUntil?.toISOString(),
+      },
+    });
+
+    logger.warn(
+      `Emergency override applied to delayed refund ${refundId} by ${overrideBy}: ${overrideReason}`
+    );
+
+    // Send notification
+    await this.notificationService.sendEmail(
+      refund.booking.passenger.email,
+      'Refund Emergency Override',
+      `Your refund request for booking ${refund.booking.id} has been expedited due to emergency circumstances.`
+    );
+
+    // Re-check eligibility and process
+    const eligibility = await this.checkEligibility(refund.booking);
+    refund.isEligible = eligibility.isEligible;
+    refund.eligibilityNotes = eligibility.reason;
+    refund.processingFeeCents = eligibility.processingFeeCents;
+    refund.requiresManualReview = eligibility.requiresManualReview;
+
+    if (eligibility.isEligible && !eligibility.requiresManualReview) {
+      await this.approveRefund(refundId, eligibility.refundPercentage);
+    } else if (eligibility.requiresManualReview) {
+      refund.status = 'manual_review';
+      await refundRepo.save(refund);
+    } else {
+      refund.status = 'rejected';
+      await refundRepo.save(refund);
+    }
+
+    return refund;
+  }
+
+  /**
+   * Get all delayed refunds ready for processing
+   */
+  public async getDelayedRefundsReadyForProcessing(): Promise<Refund[]> {
+    const refundRepo = AppDataSource.getRepository(Refund);
+    const now = new Date();
+
+    return await refundRepo.find({
+      where: {
+        status: 'delayed_pending',
+        isDelayed: true,
+      },
+      relations: ['booking', 'booking.passenger', 'booking.flight'],
+      order: { delayedUntil: 'ASC' },
+    }).then((refunds) => refunds.filter((r) => r.delayedUntil && r.delayedUntil <= now));
+  }
+
+  /**
+   * Get all pending delayed refunds
+   */
+  public async getPendingDelayedRefunds(): Promise<Refund[]> {
+    const refundRepo = AppDataSource.getRepository(Refund);
+
+    return await refundRepo.find({
+      where: {
+        status: 'delayed_pending',
+        isDelayed: true,
+      },
+      relations: ['booking', 'booking.passenger', 'booking.flight'],
+      order: { delayedUntil: 'ASC' },
+    });
   }
 }
