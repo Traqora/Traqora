@@ -3,9 +3,15 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { createFlightRoutes } from './api/routes/flights';
-import { securityRoutes } from './api/routes/security';
 import { bookingRoutes } from './api/routes/bookings';
 import { refundRoutes } from './api/routes/refunds';
+import { securityRoutes } from './api/routes/security';
+import { adminAuthRoutes } from './api/routes/admin/auth';
+import { adminFlightRoutes } from './api/routes/admin/flights';
+import { adminUserRoutes } from './api/routes/admin/users';
+import { adminBookingRoutes } from './api/routes/admin/bookings';
+import { adminAnalyticsRoutes } from './api/routes/admin/analytics';
+import { adminRefundRoutes } from './api/routes/admin/refunds';
 import { config } from './config';
 import {
   createDefaultFlightSearchService,
@@ -40,41 +46,41 @@ export const createApp = (options: AppOptions = {}) => {
     options.globalRateLimit === false
       ? null
       : createIpRateLimiter({
-          points: config.rateLimitMax,
-          durationSeconds: config.rateLimitWindowSec,
-          keyPrefix: 'traqora-global-rate-limit',
-          ...options.globalRateLimit,
-        });
+        points: config.rateLimitMax,
+        durationSeconds: config.rateLimitWindowSec,
+        keyPrefix: 'traqora-global-rate-limit',
+        ...options.globalRateLimit,
+      });
 
   const tieredRateLimitMiddleware =
     options.tieredRateLimit === false
       ? null
       : createTieredRateLimiter({
-          keyPrefix: 'traqora-tiered-rate-limit',
-          redisUrl: config.redisUrl || undefined,
-          trustProxy: config.trustProxy,
-          useCloudflareHeaders: config.useCloudflareHeaders,
-          public: {
-            points: config.rateLimitPublicMax,
-            durationSeconds: config.rateLimitWindowSec,
-          },
-          user: {
-            points: config.rateLimitUserMax,
-            durationSeconds: config.rateLimitWindowSec,
-          },
-          premium: {
-            points: config.rateLimitPremiumMax,
-            durationSeconds: config.rateLimitWindowSec,
-          },
-          ddos: {
-            points: config.ddosBurstMax,
-            durationSeconds: config.ddosBurstWindowSec,
-          },
-          blockDurationSeconds: config.rateLimitBlockDurationSec,
-          blockAfterViolations: config.rateLimitBlockAfterViolations,
-          captchaAfterViolations: config.captchaAfterViolations,
-          ...options.tieredRateLimit,
-        });
+        keyPrefix: 'traqora-tiered-rate-limit',
+        redisUrl: config.redisUrl || undefined,
+        trustProxy: config.trustProxy,
+        useCloudflareHeaders: config.useCloudflareHeaders,
+        public: {
+          points: config.rateLimitPublicMax,
+          durationSeconds: config.rateLimitWindowSec,
+        },
+        user: {
+          points: config.rateLimitUserMax,
+          durationSeconds: config.rateLimitWindowSec,
+        },
+        premium: {
+          points: config.rateLimitPremiumMax,
+          durationSeconds: config.rateLimitWindowSec,
+        },
+        ddos: {
+          points: config.ddosBurstMax,
+          durationSeconds: config.ddosBurstWindowSec,
+        },
+        blockDurationSeconds: config.rateLimitBlockDurationSec,
+        blockAfterViolations: config.rateLimitBlockAfterViolations,
+        captchaAfterViolations: config.captchaAfterViolations,
+        ...options.tieredRateLimit,
+      });
 
   const searchRateLimitMiddleware = createIpRateLimiter({
     points: 100,
@@ -101,6 +107,9 @@ export const createApp = (options: AppOptions = {}) => {
 
   app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
+  // Stripe webhook requires raw body — must be registered BEFORE express.json()
+  app.use('/api/v1/bookings/webhook/stripe', express.raw({ type: '*/*' }));
+
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
@@ -113,10 +122,17 @@ export const createApp = (options: AppOptions = {}) => {
   });
 
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
-  app.use('/api/v1/security', securityRoutes);
   app.use('/api/v1/bookings', bookingRoutes);
-  app.use('/api/bookings', bookingRoutes); // Legacy path for backward compatibility
   app.use('/api/v1/refunds', refundRoutes);
+  app.use('/api/v1/security', securityRoutes);
+
+  // Admin routes
+  app.use('/api/v1/admin/auth', adminAuthRoutes);
+  app.use('/api/v1/admin/flights', adminFlightRoutes);
+  app.use('/api/v1/admin/users', adminUserRoutes);
+  app.use('/api/v1/admin/bookings', adminBookingRoutes);
+  app.use('/api/v1/admin/analytics', adminAnalyticsRoutes);
+  app.use('/api/v1/admin/refunds', adminRefundRoutes);
 
   app.use(errorHandler);
 
@@ -126,5 +142,3 @@ export const createApp = (options: AppOptions = {}) => {
 
   return app;
 };
-
-export const app = createApp();

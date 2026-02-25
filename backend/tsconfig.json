@@ -2,8 +2,13 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "commonjs",
-    "lib": ["ES2022"],
-    "types": ["node", "jest"],
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "node",
+      "jest"
+    ],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -26,6 +31,17 @@
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests"
+  ],
+  "references": [
+    {
+      "path": "./tsconfig.test.json"
+    }
+  ]
 }

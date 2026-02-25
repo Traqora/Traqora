@@ -13,7 +13,7 @@ const searchQuerySchema = z.object({
   airlines: z
     .string()
     .optional()
-    .transform((value) => (value ? value.split(',').map((airline) => airline.trim()) : undefined)),
+    .transform((value: string | undefined) => (value ? value.split(',').map((airline: string) => airline.trim()) : undefined)),
   stops: z.coerce.number().int().min(0).max(2).optional(),
   duration_max: z.coerce.number().int().min(30).max(2000).optional(),
   sort: z.enum(['price', 'duration', 'departure_time', 'rating']).default('price'),

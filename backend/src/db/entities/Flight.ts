@@ -15,7 +15,7 @@ export class Flight {
   @Column({ type: 'varchar', length: 16 })
   toAirport!: string;
 
-  @Column({ type: 'timestamptz' })
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   departureTime!: Date;
 
   @Column({ type: 'integer', default: 0 })
