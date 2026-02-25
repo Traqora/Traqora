@@ -18,7 +18,7 @@ pub struct TierConfig {
     pub min_points: i128,
     pub min_bookings: u64,
     pub points_multiplier: u32, // basis points (100 = 1x, 150 = 1.5x)
-    pub bonus_percentage: u32, // basis points
+    pub bonus_percentage: u32,  // basis points
 }
 
 #[contracttype]
@@ -36,19 +36,27 @@ pub struct LoyaltyStorageKey;
 
 impl LoyaltyStorageKey {
     pub fn get_account(env: &Env, user: &Address) -> Option<LoyaltyAccount> {
-        env.storage().persistent().get(&(symbol_short!("account"), user))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("account"), user))
     }
-    
+
     pub fn set_account(env: &Env, user: &Address, account: &LoyaltyAccount) {
-        env.storage().persistent().set(&(symbol_short!("account"), user), account);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("account"), user), account);
     }
-    
+
     pub fn get_tier_config(env: &Env, tier: &Symbol) -> Option<TierConfig> {
-        env.storage().persistent().get(&(symbol_short!("tier"), tier))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("tier"), tier))
     }
-    
+
     pub fn set_tier_config(env: &Env, tier: &Symbol, config: &TierConfig) {
-        env.storage().persistent().set(&(symbol_short!("tier"), tier), config);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("tier"), tier), config);
     }
 }
 
@@ -58,7 +66,7 @@ pub struct LoyaltyContract;
 #[contractimpl]
 impl LoyaltyContract {
     // Initialize tier configurations
-    pub fn initialize_tiers(env: Env) {
+    pub fn init_loyalty(env: Env) {
         let tiers = [
             TierConfig {
                 tier: symbol_short!("bronze"),
@@ -89,12 +97,12 @@ impl LoyaltyContract {
                 bonus_percentage: 2000, // 20%
             },
         ];
-        
+
         for config in tiers.iter() {
             LoyaltyStorageKey::set_tier_config(&env, &config.tier, config);
         }
     }
-    
+
     // Get or create loyalty account
     pub fn get_or_create_account(env: Env, user: Address) -> LoyaltyAccount {
         if let Some(account) = LoyaltyStorageKey::get_account(&env, &user) {
@@ -112,67 +120,61 @@ impl LoyaltyContract {
             new_account
         }
     }
-    
+
     // Award points for booking
-    pub fn award_points(
-        env: Env,
-        user: Address,
-        booking_amount: i128,
-        booking_id: u64,
-    ) -> i128 {
+    pub fn award_points(env: Env, user: Address, booking_amount: i128, booking_id: u64) -> i128 {
         let mut account = Self::get_or_create_account(env.clone(), user.clone());
-        
-        let tier_config = LoyaltyStorageKey::get_tier_config(&env, &account.tier)
-            .expect("Tier config not found");
-        
+
+        let tier_config =
+            LoyaltyStorageKey::get_tier_config(&env, &account.tier).expect("Tier config not found");
+
         // Base points: 1 point per $1 spent
         let base_points = booking_amount;
-        
+
         // Apply tier multiplier
         let multiplier = tier_config.points_multiplier as i128;
         let earned_points = base_points * multiplier / 100;
-        
+
         account.total_points += earned_points;
         account.lifetime_bookings += 1;
         account.lifetime_spent += booking_amount;
-        
+
         // Check for tier upgrade
         Self::check_tier_upgrade(&env, &mut account);
-        
+
         LoyaltyStorageKey::set_account(&env, &user, &account);
-        
+
         env.events().publish(
             (symbol_short!("points"), symbol_short!("earned")),
             (user, earned_points, booking_id),
         );
-        
+
         earned_points
     }
-    
+
     // Redeem points for discount
     pub fn redeem_points(env: Env, user: Address, points: i128) -> i128 {
         user.require_auth();
-        
-        let mut account = LoyaltyStorageKey::get_account(&env, &user)
-            .expect("Account not found");
-        
+
+        let mut account = LoyaltyStorageKey::get_account(&env, &user).expect("Account not found");
+
         assert!(account.total_points >= points, "Insufficient points");
         assert!(points > 0, "Invalid points amount");
-        
+
         // Conversion rate: 100 points = $1
         let discount = points / 100;
-        
+
         account.total_points -= points;
         LoyaltyStorageKey::set_account(&env, &user, &account);
-        
+
         env.events().publish(
             (symbol_short!("points"), symbol_short!("redeemed")),
             (user, points, discount),
         );
-        
+
         discount
     }
-    
+
     fn check_tier_upgrade(env: &Env, account: &mut LoyaltyAccount) {
         let tiers = [
             symbol_short!("platinum"),
@@ -180,17 +182,18 @@ impl LoyaltyContract {
             symbol_short!("silver"),
             symbol_short!("bronze"),
         ];
-        
+
         for tier in tiers.iter() {
-            let config = LoyaltyStorageKey::get_tier_config(env, tier)
-                .expect("Tier config not found");
-            
-            if account.total_points >= config.min_points 
-                && account.lifetime_bookings >= config.min_bookings {
+            let config =
+                LoyaltyStorageKey::get_tier_config(env, tier).expect("Tier config not found");
+
+            if account.total_points >= config.min_points
+                && account.lifetime_bookings >= config.min_bookings
+            {
                 if account.tier != *tier {
                     account.tier = tier.clone();
                     account.tier_updated_at = env.ledger().timestamp();
-                    
+
                     env.events().publish(
                         (symbol_short!("tier"), symbol_short!("upgrade")),
                         (&account.user, tier),
@@ -200,11 +203,11 @@ impl LoyaltyContract {
             }
         }
     }
-    
+
     pub fn get_account(env: Env, user: Address) -> Option<LoyaltyAccount> {
         LoyaltyStorageKey::get_account(&env, &user)
     }
-    
+
     pub fn get_tier_benefits(env: Env, tier: Symbol) -> Option<TierConfig> {
         LoyaltyStorageKey::get_tier_config(&env, &tier)
     }

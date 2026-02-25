@@ -4,15 +4,17 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
-import { Plane, Menu, Wallet, CheckCircle, Home, Search, LayoutDashboard } from "lucide-react"
+import { Plane, Menu, Wallet, CheckCircle, Home, Search, LayoutDashboard, LogOut } from "lucide-react"
+// NEW: import real wallet hook and store from stellar-wallet-connect
+import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
 
-interface MobileNavProps {
-  isWalletConnected?: boolean
-  walletType?: string
-}
-
-export function MobileNav({ isWalletConnected = false, walletType = "" }: MobileNavProps) {
+export function MobileNav() {
   const [open, setOpen] = useState(false)
+  // NEW: read real wallet state from Zustand store
+  const { address, isConnected, walletType } = useWalletStore()
+  // NEW: use real wallet connect/disconnect handlers
+  const { handleConnect, handleDisconnect } = useWallet()
+  const [isConnecting, setIsConnecting] = useState(false)
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -56,20 +58,52 @@ export function MobileNav({ isWalletConnected = false, walletType = "" }: Mobile
             <span>My Bookings</span>
           </a>
 
-          <div className="pt-4 border-t border-border">
-            <Badge variant="outline" className="w-full justify-center px-3 py-2">
-              {isWalletConnected ? (
-                <>
-                  <CheckCircle className="h-4 w-4 mr-2 text-secondary" />
-                  {walletType} Connected
-                </>
-              ) : (
-                <>
-                  <Wallet className="h-4 w-4 mr-2" />
-                  Connect Wallet
-                </>
-              )}
-            </Badge>
+          {/* NEW: real wallet connect/disconnect actions in mobile nav */}
+          <div className="pt-4 border-t border-border space-y-3">
+            {isConnected && address ? (
+              <>
+                <Badge variant="outline" className="w-full justify-center px-3 py-2">
+                  <CheckCircle className="h-4 w-4 mr-2 text-primary" />
+                  {walletType || "Wallet"} Connected
+                </Badge>
+                <p className="text-xs text-muted-foreground text-center font-mono">
+                  {address.slice(0, 8)}...{address.slice(-4)}
+                </p>
+                {/* NEW: disconnect button in mobile nav */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-2"
+                  onClick={async () => {
+                    await handleDisconnect()
+                    setOpen(false)
+                  }}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Disconnect Wallet
+                </Button>
+              </>
+            ) : (
+              /* NEW: connect button triggers real StellarWalletsKit auth modal */
+              <Button
+                className="w-full gap-2"
+                disabled={isConnecting}
+                onClick={async () => {
+                  setIsConnecting(true)
+                  try {
+                    await handleConnect()
+                    setOpen(false)
+                  } catch {
+                    // user cancelled or error - silently handled
+                  } finally {
+                    setIsConnecting(false)
+                  }
+                }}
+              >
+                <Wallet className="h-4 w-4" />
+                {isConnecting ? "Connecting..." : "Connect Wallet"}
+              </Button>
+            )}
           </div>
         </nav>
       </SheetContent>

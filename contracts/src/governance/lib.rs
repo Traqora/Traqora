@@ -44,71 +44,105 @@ pub struct GovernanceStorageKey;
 
 impl GovernanceStorageKey {
     pub fn get_proposal(env: &Env, proposal_id: u64) -> Option<Proposal> {
-        env.storage().persistent().get(&(symbol_short!("proposal"), proposal_id))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("proposal"), proposal_id))
     }
-    
+
     pub fn set_proposal(env: &Env, proposal_id: u64, proposal: &Proposal) {
-        env.storage().persistent().set(&(symbol_short!("proposal"), proposal_id), proposal);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("proposal"), proposal_id), proposal);
     }
-    
+
     pub fn has_voted(env: &Env, voter: &Address, proposal_id: u64) -> bool {
-        env.storage().persistent().has(&(symbol_short!("vote"), voter, proposal_id))
+        env.storage()
+            .persistent()
+            .has(&(symbol_short!("vote"), voter, proposal_id))
     }
-    
+
     pub fn record_vote(env: &Env, voter: &Address, proposal_id: u64) {
-        env.storage().persistent().set(&(symbol_short!("vote"), voter, proposal_id), &true);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("vote"), voter, proposal_id), &true);
     }
-    
+
     pub fn get_config(env: &Env) -> Option<GovernanceConfig> {
         env.storage().instance().get(&symbol_short!("config"))
     }
-    
+
     pub fn set_config(env: &Env, config: &GovernanceConfig) {
-        env.storage().instance().set(&symbol_short!("config"), config);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("config"), config);
     }
-    
+
     pub fn get_proposal_count(env: &Env) -> u64 {
-        env.storage().instance().get(&symbol_short!("p_count")).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&symbol_short!("p_count"))
+            .unwrap_or(0)
     }
-    
+
     pub fn set_proposal_count(env: &Env, count: u64) {
-        env.storage().instance().set(&symbol_short!("p_count"), &count);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("p_count"), &count);
     }
-    
+
     pub fn get_delegation(env: &Env, delegator: &Address) -> Option<Delegation> {
-        env.storage().persistent().get(&(symbol_short!("deleg"), delegator))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("deleg"), delegator))
     }
-    
+
     pub fn set_delegation(env: &Env, delegator: &Address, delegation: &Delegation) {
-        env.storage().persistent().set(&(symbol_short!("deleg"), delegator), delegation);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("deleg"), delegator), delegation);
     }
-    
+
     pub fn remove_delegation(env: &Env, delegator: &Address) {
-        env.storage().persistent().remove(&(symbol_short!("deleg"), delegator));
+        env.storage()
+            .persistent()
+            .remove(&(symbol_short!("deleg"), delegator));
     }
-    
+
     pub fn get_delegated_power(env: &Env, delegate: &Address) -> i128 {
-        env.storage().persistent().get(&(symbol_short!("del_pow"), delegate)).unwrap_or(0)
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("del_pow"), delegate))
+            .unwrap_or(0)
     }
-    
+
     pub fn set_delegated_power(env: &Env, delegate: &Address, power: i128) {
-        env.storage().persistent().set(&(symbol_short!("del_pow"), delegate), &power);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("del_pow"), delegate), &power);
     }
-    
+
     pub fn get_proposal_id_at(env: &Env, index: u64) -> Option<u64> {
-        env.storage().persistent().get(&(symbol_short!("p_idx"), index))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("p_idx"), index))
     }
-    
+
     pub fn set_proposal_id_at(env: &Env, index: u64, proposal_id: u64) {
-        env.storage().persistent().set(&(symbol_short!("p_idx"), index), &proposal_id);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("p_idx"), index), &proposal_id);
     }
-    
+
     pub fn get_vote_record(env: &Env, voter: &Address, proposal_id: u64) -> Option<Vote> {
-        env.storage().persistent().get(&(symbol_short!("v_rec"), voter, proposal_id))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("v_rec"), voter, proposal_id))
     }
-    
+
     pub fn set_vote_record(env: &Env, voter: &Address, proposal_id: u64, vote: &Vote) {
-        env.storage().persistent().set(&(symbol_short!("v_rec"), voter, proposal_id), vote);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("v_rec"), voter, proposal_id), vote);
     }
 }
 
@@ -117,7 +151,7 @@ pub struct GovernanceContract;
 
 #[contractimpl]
 impl GovernanceContract {
-    pub fn initialize(
+    pub fn init_governance(
         env: Env,
         min_voting_period: u64,
         quorum: i128,
@@ -130,7 +164,7 @@ impl GovernanceContract {
         };
         GovernanceStorageKey::set_config(&env, &config);
     }
-    
+
     pub fn create_proposal(
         env: Env,
         proposer: Address,
@@ -140,21 +174,20 @@ impl GovernanceContract {
         voting_period: u64,
     ) -> u64 {
         proposer.require_auth();
-        
-        let config = GovernanceStorageKey::get_config(&env)
-            .expect("Not initialized");
-        
+
+        let config = GovernanceStorageKey::get_config(&env).expect("Not initialized");
+
         assert!(
             voting_period >= config.min_voting_period,
             "Voting period too short"
         );
-        
+
         let count = GovernanceStorageKey::get_proposal_count(&env);
         let proposal_id = count + 1;
         GovernanceStorageKey::set_proposal_count(&env, proposal_id);
         GovernanceStorageKey::set_proposal_id_at(&env, proposal_id, proposal_id);
         let current_time = env.ledger().timestamp();
-        
+
         let proposal = Proposal {
             proposal_id,
             proposer,
@@ -168,17 +201,17 @@ impl GovernanceContract {
             status: symbol_short!("active"),
             executed: false,
         };
-        
+
         GovernanceStorageKey::set_proposal(&env, proposal_id, &proposal);
-        
+
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("created")),
             proposal_id,
         );
-        
+
         proposal_id
     }
-    
+
     pub fn cast_vote(
         env: Env,
         voter: Address,
@@ -187,59 +220,59 @@ impl GovernanceContract {
         voting_power: i128,
     ) {
         voter.require_auth();
-        
+
         assert!(
             !GovernanceStorageKey::has_voted(&env, &voter, proposal_id),
             "Already voted"
         );
-        
-        let mut proposal = GovernanceStorageKey::get_proposal(&env, proposal_id)
-            .expect("Proposal not found");
-        
+
+        let mut proposal =
+            GovernanceStorageKey::get_proposal(&env, proposal_id).expect("Proposal not found");
+
         let current_time = env.ledger().timestamp();
         assert!(current_time <= proposal.voting_end, "Voting period ended");
         assert!(
             proposal.status == symbol_short!("active"),
             "Proposal not active"
         );
-        
+
         if support {
             proposal.yes_votes += voting_power;
         } else {
             proposal.no_votes += voting_power;
         }
-        
+
         let vote_record = Vote {
             voter: voter.clone(),
             proposal_id,
             support,
             voting_power,
         };
-        
+
         GovernanceStorageKey::set_proposal(&env, proposal_id, &proposal);
         GovernanceStorageKey::record_vote(&env, &voter, proposal_id);
         GovernanceStorageKey::set_vote_record(&env, &voter, proposal_id, &vote_record);
-        
+
         env.events().publish(
             (symbol_short!("vote"), symbol_short!("cast")),
             (proposal_id, voter, support),
         );
     }
-    
+
     pub fn finalize_proposal(env: Env, proposal_id: u64) {
-        let mut proposal = GovernanceStorageKey::get_proposal(&env, proposal_id)
-            .expect("Proposal not found");
-        
+        let mut proposal =
+            GovernanceStorageKey::get_proposal(&env, proposal_id).expect("Proposal not found");
+
         let current_time = env.ledger().timestamp();
         assert!(current_time > proposal.voting_end, "Voting still active");
         assert!(
             proposal.status == symbol_short!("active"),
             "Already finalized"
         );
-        
+
         let config = GovernanceStorageKey::get_config(&env).expect("Not initialized");
         let total_votes = proposal.yes_votes + proposal.no_votes;
-        
+
         // Check quorum
         if total_votes >= config.quorum {
             if proposal.yes_votes > proposal.no_votes {
@@ -250,34 +283,29 @@ impl GovernanceContract {
         } else {
             proposal.status = symbol_short!("rejected");
         }
-        
+
         GovernanceStorageKey::set_proposal(&env, proposal_id, &proposal);
-        
+
         env.events().publish(
             (symbol_short!("proposal"), symbol_short!("finalized")),
             (proposal_id, proposal.status),
         );
     }
-    
+
     pub fn get_proposal(env: Env, proposal_id: u64) -> Option<Proposal> {
         GovernanceStorageKey::get_proposal(&env, proposal_id)
     }
-    
+
     pub fn has_voted(env: Env, voter: Address, proposal_id: u64) -> bool {
         GovernanceStorageKey::has_voted(&env, &voter, proposal_id)
     }
-    
-    pub fn delegate_voting_power(
-        env: Env,
-        delegator: Address,
-        delegate: Address,
-        amount: i128,
-    ) {
+
+    pub fn delegate_voting_power(env: Env, delegator: Address, delegate: Address, amount: i128) {
         delegator.require_auth();
-        
+
         assert!(amount > 0, "Invalid delegation amount");
         assert!(delegator != delegate, "Cannot delegate to self");
-        
+
         // Revoke any existing delegation first
         if let Some(existing) = GovernanceStorageKey::get_delegation(&env, &delegator) {
             let current_power = GovernanceStorageKey::get_delegated_power(&env, &existing.delegate);
@@ -287,67 +315,72 @@ impl GovernanceContract {
                 current_power - existing.amount,
             );
         }
-        
+
         let delegation = Delegation {
             delegator: delegator.clone(),
             delegate: delegate.clone(),
             amount,
         };
-        
+
         GovernanceStorageKey::set_delegation(&env, &delegator, &delegation);
-        
+
         let current_power = GovernanceStorageKey::get_delegated_power(&env, &delegate);
         GovernanceStorageKey::set_delegated_power(&env, &delegate, current_power + amount);
-        
+
         env.events().publish(
             (symbol_short!("deleg"), symbol_short!("set")),
             (delegator, delegate, amount),
         );
     }
-    
+
     pub fn revoke_delegation(env: Env, delegator: Address) {
         delegator.require_auth();
-        
-        let delegation = GovernanceStorageKey::get_delegation(&env, &delegator)
-            .expect("No active delegation");
-        
+
+        let delegation =
+            GovernanceStorageKey::get_delegation(&env, &delegator).expect("No active delegation");
+
         let current_power = GovernanceStorageKey::get_delegated_power(&env, &delegation.delegate);
         GovernanceStorageKey::set_delegated_power(
             &env,
             &delegation.delegate,
             current_power - delegation.amount,
         );
-        
+
         GovernanceStorageKey::remove_delegation(&env, &delegator);
-        
+
         env.events().publish(
             (symbol_short!("deleg"), symbol_short!("revoked")),
             delegator,
         );
     }
-    
+
     pub fn get_delegation(env: Env, delegator: Address) -> Option<Delegation> {
         GovernanceStorageKey::get_delegation(&env, &delegator)
     }
-    
+
     pub fn get_voting_power(env: Env, voter: Address, base_balance: i128) -> i128 {
         let delegated_power = GovernanceStorageKey::get_delegated_power(&env, &voter);
-        
+
         // If voter has delegated away, their own power is reduced
-        let own_power = if let Some(delegation) = GovernanceStorageKey::get_delegation(&env, &voter) {
+        let own_power = if let Some(delegation) = GovernanceStorageKey::get_delegation(&env, &voter)
+        {
             let reduced = base_balance - delegation.amount;
-            if reduced < 0 { 0 } else { reduced }
+            if reduced < 0 {
+                0
+            } else {
+                reduced
+            }
         } else {
             base_balance
         };
-        
+
         own_power + delegated_power
     }
-    
+
     pub fn get_proposal_count(env: Env) -> u64 {
         GovernanceStorageKey::get_proposal_count(&env)
     }
-    
+
     pub fn get_vote_record(env: Env, voter: Address, proposal_id: u64) -> Option<Vote> {
         GovernanceStorageKey::get_vote_record(&env, &voter, proposal_id)
     }

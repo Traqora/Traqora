@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { logger } from './logger';
 
 export interface ApiError extends Error {
@@ -10,11 +10,11 @@ export const errorHandler = (
   err: ApiError,
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ) => {
   const statusCode = err.statusCode || 500;
   const message = err.message || 'Internal Server Error';
-  
+
   logger.error({
     error: err.message,
     stack: err.stack,
@@ -33,7 +33,13 @@ export const errorHandler = (
   });
 };
 
-export const asyncHandler = (fn: Function) => {
+type AsyncRouteHandler = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => Promise<unknown>;
+
+export const asyncHandler = (fn: AsyncRouteHandler) => {
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };

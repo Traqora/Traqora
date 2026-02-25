@@ -1,0 +1,84 @@
+name: CD - Testnet
+
+on:
+    push:
+        branches: [main]
+
+jobs:
+    deploy-contracts:
+        name: Deploy Contracts to Testnet
+        runs-on: ubuntu-latest
+        if: github.ref == 'refs/heads/main'
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  toolchain: stable
+                  targets: wasm32-unknown-unknown
+
+            - name: Cache Cargo
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/bin/
+                      ~/.cargo/registry/index/
+                      ~/.cargo/registry/cache/
+                      ~/.cargo/git/db/
+                      contracts/target/
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+            - name: Install Soroban CLI
+              run: |
+                  if ! command -v soroban &> /dev/null; then
+                    cargo install --locked soroban-cli
+                  fi
+
+            - name: Build Contracts
+              run: |
+                  cd contracts
+                  cargo build --target wasm32-unknown-unknown --release
+
+            - name: Deploy to Testnet
+              env:
+                  SOROBAN_SECRET_KEY: ${{ secrets.SOROBAN_SECRET_KEY }}
+                  NETWORK: testnet
+                  RPC_URL: https://soroban-testnet.stellar.org:443
+                  NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+              run: |
+                  soroban network add --rpc-url $RPC_URL --network-passphrase "$NETWORK_PASSPHRASE" $NETWORK
+                  echo "$SOROBAN_SECRET_KEY" > secret.txt
+                  soroban config identity add --secret-key deployer < secret.txt
+                  rm secret.txt
+
+                  CONTRACT_ID=$(soroban contract deploy \
+                    --wasm contracts/target/wasm32-unknown-unknown/release/traqora_contracts.wasm \
+                    --source deployer \
+                    --network $NETWORK)
+
+                  echo "Deployed Contract ID: $CONTRACT_ID"
+
+    deploy-frontend-backend:
+        name: Build and Deploy App
+        needs: deploy-contracts
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Build and Deploy
+              run: echo "Deploying app components..."
+
+    notify:
+        name: Notification
+        needs: [deploy-contracts, deploy-frontend-backend]
+        if: always()
+        runs-on: ubuntu-latest
+        steps:
+            - name: Notify Success/Failure
+              run: |
+                  if [ "${{ needs.deploy-contracts.result }}" == "success" ] && [ "${{ needs.deploy-frontend-backend.result }}" == "success" ]; then
+                    echo "Deployment to Testnet successful!"
+                  else
+                    echo "Deployment to Testnet failed."
+                    exit 1
+                  fi
