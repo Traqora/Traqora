@@ -4,8 +4,12 @@ import { AppDataSource, initDataSource } from '../src/db/dataSource';
 import { Flight } from '../src/db/entities/Flight';
 
 jest.mock('../src/services/stripe', () => {
+  let callCount = 0;
   const paymentIntents = {
-    create: jest.fn(async () => ({ id: 'pi_test_123', client_secret: 'cs_test_123' })),
+    create: jest.fn(async () => {
+      callCount++;
+      return { id: `pi_test_${callCount}`, client_secret: `cs_test_${callCount}` };
+    }),
   };
 
   return {
@@ -73,7 +77,7 @@ describe('Booking flow', () => {
       .expect(201);
 
     expect(res1.body.success).toBe(true);
-    expect(res1.body.payment.paymentIntentId).toBe('pi_test_123');
+    expect(res1.body.payment.paymentIntentId).toBeTruthy();
     expect(res1.body.soroban.unsignedXdr).toBe('unsigned_xdr_test');
 
     const res2 = await request(app)
@@ -104,6 +108,7 @@ describe('Booking flow', () => {
       .expect(201);
 
     const bookingId = createRes.body.data.id;
+    const stripePaymentIntentId = createRes.body.payment.paymentIntentId;
 
     await request(app)
       .post('/api/v1/bookings/webhook/stripe')
@@ -113,7 +118,7 @@ describe('Booking flow', () => {
         Buffer.from(
           JSON.stringify({
             type: 'payment_intent.succeeded',
-            data: { object: { id: 'pi_test_123' } },
+            data: { object: { id: stripePaymentIntentId } },
           })
         )
       )
