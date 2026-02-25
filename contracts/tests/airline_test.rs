@@ -2,6 +2,8 @@ use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, Vec};
 use traqora_contracts::airline::{
     AirlineContract,
     AirlineContractClient,
+    BatchCreateFlightsResult,
+    BatchUpdateFlightStatusResult,
     Flight,
     FlightInput,
     FlightStatusUpdate,

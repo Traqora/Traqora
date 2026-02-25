@@ -35,6 +35,8 @@ pub struct BatchCompleteBookingsResult {
 
 pub struct BookingStorage;
 
+const MAX_BATCH_SIZE: u32 = 50;
+
 impl BookingStorage {
     pub fn get(env: &Env, booking_id: u64) -> Option<Booking> {
         env.storage().persistent().get(&booking_id)
