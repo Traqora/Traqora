@@ -30,7 +30,8 @@
     "uuid": "^9.0.1",
     "winston": "^3.13.0",
     "rate-limiter-flexible": "^5.0.3",
-    "ioredis": "^5.4.1"
+    "ioredis": "^5.4.1",
+    "prom-client": "^15.1.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
