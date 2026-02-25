@@ -18,9 +18,14 @@ let isInitialized = false;
 let initializationError: Error | null = null;
 let configuredNetwork: StellarNetwork = 'testnet';
 
-const networkPassphraseMap: Record<StellarNetwork, string> = {
+const networkEnumMap: Record<StellarNetwork, Networks> = {
   testnet: Networks.TESTNET,
   mainnet: Networks.PUBLIC,
+};
+
+const networkPassphraseMap: Record<StellarNetwork, string> = {
+  testnet: 'Test SDF Network ; September 2015',
+  mainnet: 'Public Global Stellar Network ; September 2015',
 };
 
 // ---------------------------------------------------------------------------
@@ -41,10 +46,12 @@ export function initializeWalletKit(network: StellarNetwork = 'testnet'): void {
   if (!isInitialized) {
     try {
       configuredNetwork = network;
+      
       StellarWalletsKit.init({
         modules: defaultModules(),
-        network: networkPassphraseMap[network],
+        network: networkEnumMap[network],
       });
+      
       isInitialized = true;
       initializationError = null;
     } catch (error) {

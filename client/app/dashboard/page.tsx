@@ -23,6 +23,10 @@ import {
   Copy,
   TrendingUp,
 } from "lucide-react"
+// NEW: import NavWalletButton for the dashboard navbar
+import { NavWalletButton } from "@/components/nav-wallet-button"
+// NEW: import useWalletStore and useWallet for the real wallet info in the Wallet tab
+import { useWalletStore, useWallet } from "@/lib/stellar-wallet-connect"
 
 // Mock user data
 const mockUser = {
@@ -127,6 +131,96 @@ const getStatusIcon = (status: string) => {
   }
 }
 
+/**
+ * NEW: DashboardWalletCard - reads real wallet state from the Zustand store
+ * and displays the connected wallet address, network, and status.
+ */
+function DashboardWalletCard() {
+  const { address, isConnected, network, walletType } = useWalletStore()
+  const { handleConnect } = useWallet()
+  const [isConnecting, setIsConnecting] = useState(false)
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+  }
+
+  const formatAddr = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`
+
+  if (!isConnected || !address) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            Connect Wallet
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground">Connect your Stellar wallet to view details.</p>
+          <Button
+            className="w-full"
+            disabled={isConnecting}
+            onClick={async () => {
+              setIsConnecting(true)
+              try {
+                await handleConnect()
+              } catch {
+                // handled silently
+              } finally {
+                setIsConnecting(false)
+              }
+            }}
+          >
+            <Wallet className="h-4 w-4 mr-2" />
+            {isConnecting ? "Connecting..." : "Connect Wallet"}
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Wallet className="h-5 w-5" />
+          Connected Wallet
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+          <div>
+            {/* NEW: show real wallet type from store */}
+            <p className="font-medium">{walletType || "Stellar Wallet"}</p>
+            {/* NEW: show real truncated address from store */}
+            <p className="text-sm text-muted-foreground font-mono">{formatAddr(address)}</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => copyToClipboard(address)}>
+            <Copy className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex justify-between items-center">
+            <span className="text-muted-foreground">Network</span>
+            {/* NEW: show real network from store */}
+            <Badge variant="secondary">
+              Stellar {(network || "testnet").toString().charAt(0).toUpperCase() + (network || "testnet").toString().slice(1)}
+            </Badge>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-muted-foreground">Status</span>
+            <Badge variant="secondary" className="text-secondary">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Connected
+            </Badge>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("bookings")
 
@@ -158,7 +252,7 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <nav className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-2">
@@ -175,10 +269,8 @@ export default function DashboardPage() {
               <Link href="/governance" className="text-muted-foreground hover:text-foreground transition-colors">
                 Governance
               </Link>
-              <Badge variant="secondary" className="px-3 py-1">
-                <CheckCircle className="h-4 w-4 mr-2 text-secondary" />
-                Freighter Connected
-              </Badge>
+              {/* NEW: replaced static badge with real wallet connect/disconnect button */}
+              <NavWalletButton />
             </div>
           </div>
         </div>
@@ -322,7 +414,7 @@ export default function DashboardPage() {
                       </div>
 
                       {/* Actions */}
-                      <div className="flex flex-col gap-2 lg:min-w-[200px]">
+                      <div className="flex flex-col gap-2 lg:min-w-50">
                         <Button variant="outline" size="sm" className="justify-start bg-transparent">
                           <QrCode className="h-4 w-4 mr-2" />
                           View Ticket
@@ -436,45 +528,13 @@ export default function DashboardPage() {
             </div>
           </TabsContent>
 
-          {/* Wallet Tab */}
+          {/* Wallet Tab - NEW: uses real wallet store data */}
           <TabsContent value="wallet" className="space-y-6">
             <h2 className="font-serif font-bold text-xl">Wallet Information</h2>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Wallet Details */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Wallet className="h-5 w-5" />
-                    Connected Wallet
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                    <div>
-                      <p className="font-medium">Freighter Wallet</p>
-                      <p className="text-sm text-muted-foreground font-mono">{formatAddress(mockUser.address)}</p>
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={() => copyToClipboard(mockUser.address)}>
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Network</span>
-                      <Badge variant="secondary">Stellar Mainnet</Badge>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Status</span>
-                      <Badge variant="secondary" className="text-secondary">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Connected
-                      </Badge>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Wallet Details - NEW: reads from real useWalletStore */}
+              <DashboardWalletCard />
 
               {/* Balances */}
               <Card>

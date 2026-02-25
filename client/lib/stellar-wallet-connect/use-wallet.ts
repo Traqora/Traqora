@@ -81,15 +81,20 @@ export function useWallet(network?: StellarNetwork): UseWalletReturn {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    initializeWalletKit(network);
+    try {
+      initializeWalletKit(network);
+      console.log("useWallet: StellarWalletsKit initialized");
+    } catch (error) {
+      console.error("useWallet: Failed to initialize kit:", error);
+    }
 
     const unsubscribeState = StellarWalletsKit.on(
       KitEventType.STATE_UPDATED,
-      (event) => {
-        const { address, networkPassphrase } = event.payload;
+      (event: any) => {
+        const { address, networkPassphrase } = event?.payload || {};
 
         if (address) {
-          const net: StellarNetwork = networkPassphrase.includes('TESTNET')
+          const net: StellarNetwork = networkPassphrase?.includes?.('TESTNET')
             ? 'testnet'
             : 'mainnet';
           connectWalletStore(address, net, 'Connected Wallet', address);
@@ -104,6 +109,7 @@ export function useWallet(network?: StellarNetwork): UseWalletReturn {
     const unsubscribeDisconnect = StellarWalletsKit.on(
       KitEventType.DISCONNECT,
       () => {
+        console.log("useWallet: DISCONNECT event received");
         disconnectWalletStore();
         updateConnectionStatus(false);
       }
@@ -112,17 +118,21 @@ export function useWallet(network?: StellarNetwork): UseWalletReturn {
     // Check for an existing session on mount.
     const checkExistingConnection = async () => {
       try {
-        const { address } = await StellarWalletsKit.getAddress();
+        const result = await StellarWalletsKit.getAddress();
+        const address = result?.address;
+        
         if (address) {
+          // Use the override network parameter if provided, otherwise default to testnet
+          const detectedNetwork: StellarNetwork = network || 'testnet';
           connectWalletStore(
             address,
-            network ?? 'testnet',
+            detectedNetwork,
             'Connected Wallet',
             address
           );
           updateConnectionStatus(true);
         }
-      } catch {
+      } catch (error) {
         // No active connection -- that's fine.
       }
     };

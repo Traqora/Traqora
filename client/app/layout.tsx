@@ -2,6 +2,8 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Playfair_Display, Source_Sans_3 as Source_Sans_Pro } from "next/font/google"
 import "./globals.css"
+// NEW: import WalletProvider to initialise StellarWalletsKit on app mount
+import { WalletProvider } from "@/components/wallet-provider"
 
 const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
@@ -31,7 +33,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${playfairDisplay.variable} ${sourceSansPro.variable} antialiased`}>
-      <body className="font-sans">{children}</body>
+      {/* NEW: WalletProvider initialises the Stellar wallet kit before children render */}
+      <body className="font-sans">
+        <WalletProvider>{children}</WalletProvider>
+      </body>
     </html>
   )
 }
