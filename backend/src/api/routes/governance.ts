@@ -106,7 +106,7 @@ router.get('/proposals', asyncHandler(async (req: Request, res: Response) => {
     filtered = mockProposals.filter(p => p.status === status);
   }
 
-  res.json({
+return res.json({
     success: true,
     data: filtered,
     total: filtered.length,
@@ -125,7 +125,7 @@ router.get('/proposals/:id', asyncHandler(async (req: Request, res: Response) =>
     });
   }
 
-  res.json({
+return res.json({
     success: true,
     data: proposal,
   });
@@ -161,7 +161,7 @@ router.post('/proposals', asyncHandler(async (req: Request, res: Response) => {
     totalVoters: 0,
   };
 
-  res.status(201).json({
+return res.status(201).json({
     success: true,
     data: newProposal,
     message: 'Proposal created successfully',
@@ -204,7 +204,7 @@ router.post('/proposals/:id/vote', asyncHandler(async (req: Request, res: Respon
     timestamp: new Date().toISOString(),
   };
 
-  res.status(201).json({
+return res.status(201).json({
     success: true,
     data: vote,
     message: 'Vote cast successfully',
@@ -248,7 +248,7 @@ router.post('/delegate', asyncHandler(async (req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
   };
 
-  res.status(201).json({
+return res.status(201).json({
     success: true,
     data: delegation,
     message: 'Voting power delegated successfully',
@@ -266,7 +266,7 @@ router.delete('/delegate', asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
-  res.json({
+return res.json({
     success: true,
     message: 'Delegation revoked successfully',
   });

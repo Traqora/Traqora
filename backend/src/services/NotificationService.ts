@@ -1,4 +1,4 @@
-import logger from '../utils/logger';
+import { logger } from '../utils/logger';
 
 export class NotificationService {
   private static instance: NotificationService;
@@ -12,7 +12,7 @@ export class NotificationService {
     return NotificationService.instance;
   }
 
-  public async sendEmail(to: string, subject: string, body: string): Promise<boolean> {
+  public async sendEmail(to: string, subject: string, _body: string): Promise<boolean> {
     try {
       // Stub for email sending logic (e.g., SendGrid, AWS SES)
       logger.info(`[Email Notification] To: ${to}, Subject: ${subject}`);
@@ -24,7 +24,7 @@ export class NotificationService {
     }
   }
 
-  public async sendPushNotification(userId: string, message: string, data?: any): Promise<boolean> {
+  public async sendPushNotification(userId: string, message: string, _data?: any): Promise<boolean> {
     try {
       // Stub for push notification (e.g., Firebase FCM)
       logger.info(`[Push Notification] User: ${userId}, Message: ${message}`);

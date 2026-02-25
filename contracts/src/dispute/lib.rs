@@ -1,4 +1,8 @@
+<<<<<<< HEAD
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN, Env, Symbol, Vec};
+=======
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol};
+>>>>>>> upstream/main
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -326,7 +330,7 @@ impl DisputeContract {
         let evidence = Evidence {
             dispute_id,
             submitter: submitter.clone(),
-            evidence_hash,
+            evidence_hash: evidence_hash.clone(),
             description,
             submitted_at: current_time,
         };
@@ -487,16 +491,17 @@ impl DisputeContract {
             "Already revealed"
         );
         
-        let mut hash_input = Bytes::new(&env);
-        hash_input.push_back(if vote_for_passenger { 1u8 } else { 0u8 });
+        // Build hash input - vote (1 byte) + salt (32 bytes) = 33 bytes
+        let mut hash_bytes = Bytes::new(&env);
+        hash_bytes.push_back(if vote_for_passenger { 1u8 } else { 0u8 });
         let salt_bytes = salt.to_array();
         for byte in salt_bytes.iter() {
-            hash_input.push_back(*byte);
+            hash_bytes.push_back(*byte);
         }
         
-        let computed_hash = env.crypto().keccak256(&hash_input);
+        let computed_hash: BytesN<32> = env.crypto().keccak256(&hash_bytes).into();
         assert!(
-            computed_hash.to_array() == commit.commit_hash.to_array(),
+            computed_hash == commit.commit_hash,
             "Invalid reveal"
         );
         

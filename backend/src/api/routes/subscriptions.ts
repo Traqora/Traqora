@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import PriceAlert from '../../models/PriceAlert';
 import PriceHistory from '../../models/PriceHistory';
-import logger from '../../utils/logger';
+import { logger } from '../../utils/logger';
 
 const router = Router();
 

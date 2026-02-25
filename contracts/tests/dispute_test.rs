@@ -4,22 +4,20 @@ use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
     Address, Bytes, BytesN, Env, Symbol,
 };
-
 use traqora_contracts::dispute::{DisputeContract, DisputeContractClient};
 
 fn compute_commit_hash(env: &Env, vote_for_passenger: bool, salt: &BytesN<32>) -> BytesN<32> {
-    let mut input = Bytes::new(env);
-    input.push_back(if vote_for_passenger { 1u8 } else { 0u8 });
-    for byte in salt.to_array().iter() {
-        input.push_back(*byte);
+    let mut hash_bytes = Bytes::new(env);
+    hash_bytes.push_back(if vote_for_passenger { 1u8 } else { 0u8 });
+    let salt_bytes = salt.to_array();
+    for byte in salt_bytes.iter() {
+        hash_bytes.push_back(*byte);
     }
-
-    let h = env.crypto().keccak256(&input);
-    BytesN::from_array(env, &h.to_array())
+    env.crypto().keccak256(&hash_bytes).into()
 }
 
 fn create_dispute_contract(env: &Env) -> Address {
-    env.register(DisputeContract, ())
+    env.register_contract(None, DisputeContract)
 }
 
 fn advance_ledger(env: &Env, seconds: u64) {
@@ -373,7 +371,11 @@ fn test_appeal_mechanism() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
+<<<<<<< HEAD
+    
+=======
 
+>>>>>>> upstream/main
     let commit_hash1 = compute_commit_hash(&env, false, &salt1);
     let commit_hash2 = compute_commit_hash(&env, false, &salt2);
     let commit_hash3 = compute_commit_hash(&env, true, &salt3);

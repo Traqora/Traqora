@@ -1,6 +1,6 @@
 import Queue from 'bull';
 import cron from 'node-cron';
-import logger from '../utils/logger';
+import { logger } from '../utils/logger';
 import { config } from '../config';
 import PriceAlert from '../models/PriceAlert';
 import PriceHistory from '../models/PriceHistory';

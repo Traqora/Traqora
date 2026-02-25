@@ -1,5 +1,6 @@
-import axios from 'axios';
-import logger from '../utils/logger';
+import { logger } from '../utils/logger';
+// axios removed since the service uses mock data internally
+
 
 // Interface for price data
 export interface FlightPrice {
@@ -12,8 +13,9 @@ export interface FlightPrice {
 
 export class PriceOracleService {
   private static instance: PriceOracleService;
-  private readonly API_URL = process.env.ORACLE_API_URL || 'https://api.mock-airline-oracle.com/v1/prices';
-  private readonly API_KEY = process.env.ORACLE_API_KEY || 'mock-key';
+  // API configuration (currently unused in mock implementation)
+  // private readonly API_URL = process.env.ORACLE_API_URL || 'https://api.mock-airline-oracle.com/v1/prices';
+  // private readonly API_KEY = process.env.ORACLE_API_KEY || 'mock-key';
 
   private constructor() {}
 

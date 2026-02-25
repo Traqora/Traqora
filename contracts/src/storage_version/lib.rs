@@ -66,7 +66,7 @@ impl VersionedStorage {
     pub fn get_storage_version(env: &Env, contract_type: &Symbol) -> u32 {
         env.storage()
             .instance()
-            .get(&(symbol_short!("stor_ver"), contract_type))
+            .get(&(symbol_short!("strg_ver"), contract_type))
             .unwrap_or(1)
     }
     
@@ -74,7 +74,7 @@ impl VersionedStorage {
     pub fn set_storage_version(env: &Env, contract_type: &Symbol, version: u32) {
         env.storage()
             .instance()
-            .set(&(symbol_short!("stor_ver"), contract_type), &version);
+            .set(&(symbol_short!("strg_ver"), contract_type), &version);
     }
     
     /// Execute storage migration with progress tracking
@@ -153,14 +153,14 @@ impl VersionedStorage {
         let _step_key = (symbol_short!("mig_step"), contract_type, from, to);
         
         env.events().publish(
-            (symbol_short!("migration"), symbol_short!("st_start")),
+            (symbol_short!("mig"), symbol_short!("step_beg")),
             (contract_type.clone(), from, to),
         );
         
         let result = true;
         
         env.events().publish(
-            (symbol_short!("migration"), symbol_short!("st_done")),
+            (symbol_short!("mig"), symbol_short!("step_end")),
             (contract_type.clone(), from, to),
         );
         

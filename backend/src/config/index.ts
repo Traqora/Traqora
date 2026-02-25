@@ -17,6 +17,8 @@ export const config = {
   },
 
   databaseUrl: process.env.DATABASE_URL || '',
+  // Mongo connection string (optional, used for notifications/history etc)
+  mongoUrl: process.env.MONGO_URI || '',
   redisUrl: process.env.REDIS_URL || '',
 
   jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
