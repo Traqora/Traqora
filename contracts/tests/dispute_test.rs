@@ -2,23 +2,28 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
-    Address, BytesN, Env, Symbol,
+    Address, Bytes, BytesN, Env, Symbol,
 };
+use traqora_contracts::dispute::{DisputeContract, DisputeContractClient};
 
-mod dispute {
-    soroban_sdk::contractimport!(
-        file = "../target/wasm32-unknown-unknown/release/traqora_contracts.wasm"
-    );
+fn compute_commit_hash(env: &Env, vote_for_passenger: bool, salt: &BytesN<32>) -> BytesN<32> {
+    let mut hash_bytes = Bytes::new(env);
+    hash_bytes.push_back(if vote_for_passenger { 1u8 } else { 0u8 });
+    let salt_bytes = salt.to_array();
+    for byte in salt_bytes.iter() {
+        hash_bytes.push_back(*byte);
+    }
+    env.crypto().keccak256(&hash_bytes).into()
 }
 
 fn create_dispute_contract(env: &Env) -> Address {
-    env.register_contract(None, dispute::Contract)
+    env.register_contract(None, DisputeContract)
 }
 
 fn advance_ledger(env: &Env, seconds: u64) {
     env.ledger().set(LedgerInfo {
         timestamp: env.ledger().timestamp() + seconds,
-        protocol_version: 20,
+        protocol_version: env.ledger().protocol_version(),
         sequence_number: env.ledger().sequence() + 1,
         network_id: Default::default(),
         base_reserve: 10,
@@ -34,7 +39,7 @@ fn test_initialize() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(
         &2000,  // min_stake_percentage (20%)
@@ -53,12 +58,32 @@ fn test_initialize() {
 }
 
 #[test]
+fn test_multiple_disputes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    
+    let contract_id = create_dispute_contract(&env);
+    let client = DisputeContractClient::new(&env, &contract_id);
+    
+    client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
+    
+    let passenger = Address::generate(&env);
+    let airline = Address::generate(&env);
+    
+    let dispute_id1 = client.file_dispute(&passenger, &airline, &1, &10000, &2000);
+    let dispute_id2 = client.file_dispute(&passenger, &airline, &2, &10000, &2000);
+    
+    assert_eq!(dispute_id1, 1);
+    assert_eq!(dispute_id2, 2);
+}
+
+#[test]
 fn test_file_dispute() {
     let env = Env::default();
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -92,7 +117,7 @@ fn test_file_dispute_insufficient_stake() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -114,7 +139,7 @@ fn test_airline_respond() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -135,7 +160,7 @@ fn test_submit_evidence() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -164,7 +189,7 @@ fn test_jury_selection() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -199,7 +224,7 @@ fn test_party_cannot_be_juror() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -219,7 +244,7 @@ fn test_commit_reveal_voting() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -242,33 +267,10 @@ fn test_commit_reveal_voting() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
-    
-    let commit_hash1 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt1.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash2 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt2.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash3 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(0u32);
-        for byte in salt3.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
+
+    let commit_hash1 = compute_commit_hash(&env, true, &salt1);
+    let commit_hash2 = compute_commit_hash(&env, true, &salt2);
+    let commit_hash3 = compute_commit_hash(&env, false, &salt3);
     
     client.commit_vote(&juror1, &dispute_id, &commit_hash1);
     client.commit_vote(&juror2, &dispute_id, &commit_hash2);
@@ -293,7 +295,7 @@ fn test_finalize_dispute() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -316,33 +318,10 @@ fn test_finalize_dispute() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
-    
-    let commit_hash1 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt1.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash2 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt2.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash3 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(0u32);
-        for byte in salt3.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
+
+    let commit_hash1 = compute_commit_hash(&env, true, &salt1);
+    let commit_hash2 = compute_commit_hash(&env, true, &salt2);
+    let commit_hash3 = compute_commit_hash(&env, false, &salt3);
     
     client.commit_vote(&juror1, &dispute_id, &commit_hash1);
     client.commit_vote(&juror2, &dispute_id, &commit_hash2);
@@ -356,7 +335,6 @@ fn test_finalize_dispute() {
     client.reveal_vote(&juror3, &dispute_id, &false, &salt3);
     
     advance_ledger(&env, 86401);
-    
     client.finalize_dispute(&dispute_id);
     
     let dispute = client.get_dispute(&dispute_id).unwrap();
@@ -370,7 +348,7 @@ fn test_appeal_mechanism() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -393,33 +371,14 @@ fn test_appeal_mechanism() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
+<<<<<<< HEAD
     
-    let commit_hash1 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(0u32);
-        for byte in salt1.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash2 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(0u32);
-        for byte in salt2.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash3 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt3.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
+=======
+
+>>>>>>> upstream/main
+    let commit_hash1 = compute_commit_hash(&env, false, &salt1);
+    let commit_hash2 = compute_commit_hash(&env, false, &salt2);
+    let commit_hash3 = compute_commit_hash(&env, true, &salt3);
     
     client.commit_vote(&juror1, &dispute_id, &commit_hash1);
     client.commit_vote(&juror2, &dispute_id, &commit_hash2);
@@ -451,7 +410,7 @@ fn test_execute_verdict() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -474,33 +433,10 @@ fn test_execute_verdict() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
-    
-    let commit_hash1 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt1.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash2 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt2.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash3 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(0u32);
-        for byte in salt3.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
+
+    let commit_hash1 = compute_commit_hash(&env, true, &salt1);
+    let commit_hash2 = compute_commit_hash(&env, true, &salt2);
+    let commit_hash3 = compute_commit_hash(&env, false, &salt3);
     
     client.commit_vote(&juror1, &dispute_id, &commit_hash1);
     client.commit_vote(&juror2, &dispute_id, &commit_hash2);
@@ -529,7 +465,7 @@ fn test_claim_juror_reward() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -552,33 +488,10 @@ fn test_claim_juror_reward() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
-    
-    let commit_hash1 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt1.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash2 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt2.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash3 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(0u32);
-        for byte in salt3.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
+
+    let commit_hash1 = compute_commit_hash(&env, true, &salt1);
+    let commit_hash2 = compute_commit_hash(&env, true, &salt2);
+    let commit_hash3 = compute_commit_hash(&env, false, &salt3);
     
     client.commit_vote(&juror1, &dispute_id, &commit_hash1);
     client.commit_vote(&juror2, &dispute_id, &commit_hash2);
@@ -615,7 +528,7 @@ fn test_claim_juror_reward_wrong_vote() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -638,33 +551,10 @@ fn test_claim_juror_reward_wrong_vote() {
     let salt1 = BytesN::from_array(&env, &[1u8; 32]);
     let salt2 = BytesN::from_array(&env, &[2u8; 32]);
     let salt3 = BytesN::from_array(&env, &[3u8; 32]);
-    
-    let commit_hash1 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt1.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash2 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(1u32);
-        for byte in salt2.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
-    
-    let commit_hash3 = env.crypto().keccak256(&{
-        let mut v = soroban_sdk::vec![&env];
-        v.push_back(0u32);
-        for byte in salt3.to_array().iter() {
-            v.push_back(*byte as u32);
-        }
-        v.to_bytes()
-    });
+
+    let commit_hash1 = compute_commit_hash(&env, true, &salt1);
+    let commit_hash2 = compute_commit_hash(&env, true, &salt2);
+    let commit_hash3 = compute_commit_hash(&env, false, &salt3);
     
     client.commit_vote(&juror1, &dispute_id, &commit_hash1);
     client.commit_vote(&juror2, &dispute_id, &commit_hash2);
@@ -692,7 +582,7 @@ fn test_complete_dispute_lifecycle() {
     env.mock_all_auths();
     
     let contract_id = create_dispute_contract(&env);
-    let client = dispute::Client::new(&env, &contract_id);
+    let client = DisputeContractClient::new(&env, &contract_id);
     
     client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
     
@@ -725,14 +615,7 @@ fn test_complete_dispute_lifecycle() {
     let votes = vec![true, true, true, false, false];
     
     for (i, juror) in jurors.iter().enumerate() {
-        let commit_hash = env.crypto().keccak256(&{
-            let mut v = soroban_sdk::vec![&env];
-            v.push_back(if votes[i] { 1u32 } else { 0u32 });
-            for byte in salts[i].to_array().iter() {
-                v.push_back(*byte as u32);
-            }
-            v.to_bytes()
-        });
+        let commit_hash = compute_commit_hash(&env, votes[i], &salts[i]);
         client.commit_vote(juror, &dispute_id, &commit_hash);
     }
     
