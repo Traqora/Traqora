@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol,
+    contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec, token,
 };
 
 #[contracttype]
@@ -21,9 +21,9 @@ pub struct Booking {
 
 #[contracttype]
 #[derive(Clone)]
-pub struct BookingOracleConfig {
-    pub admin: Address,
-    pub oracle: Address,
+pub struct CachedBalance {
+    pub amount: i128,
+    pub cached_at: u64,
 }
 
 pub struct BookingStorage;
@@ -37,12 +37,35 @@ impl BookingStorage {
         env.storage().persistent().set(&booking_id, booking);
     }
 
-    pub fn get_oracle_config(env: &Env) -> Option<BookingOracleConfig> {
-        env.storage().instance().get(&symbol_short!("oracle"))
+    pub fn is_reentrancy_locked(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&symbol_short!("r_lock"))
+            .unwrap_or(false)
     }
 
-    pub fn set_oracle_config(env: &Env, cfg: &BookingOracleConfig) {
-        env.storage().instance().set(&symbol_short!("oracle"), cfg);
+    pub fn set_reentrancy_lock(env: &Env, locked: bool) {
+        env.storage()
+            .instance()
+            .set(&symbol_short!("r_lock"), &locked);
+    }
+
+    pub fn get_cached_balance(env: &Env, token: &Address, account: &Address) -> Option<CachedBalance> {
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("b_cache"), token, account))
+    }
+
+    pub fn set_cached_balance(env: &Env, token: &Address, account: &Address, value: &CachedBalance) {
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("b_cache"), token, account), value);
+    }
+
+    pub fn clear_cached_balance(env: &Env, token: &Address, account: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&(symbol_short!("b_cache"), token, account));
     }
 }
 
@@ -51,19 +74,28 @@ pub struct BookingContract;
 
 #[contractimpl]
 impl BookingContract {
-    pub fn initialize_oracle(env: Env, admin: Address, oracle: Address) {
-        admin.require_auth();
-        let existing = BookingStorage::get_oracle_config(&env);
-        if let Some(cfg) = existing {
-            assert!(cfg.admin == admin, "Unauthorized");
-        }
-        let cfg = BookingOracleConfig {
-            admin,
-            oracle: oracle.clone(),
-        };
-        BookingStorage::set_oracle_config(&env, &cfg);
-        env.events()
-            .publish((symbol_short!("booking"), symbol_short!("oracle")), oracle);
+    const BALANCE_CACHE_TTL_SECS: u64 = 30;
+
+    fn begin_external_call(env: &Env) {
+        assert!(
+            !BookingStorage::is_reentrancy_locked(env),
+            "Reentrancy detected"
+        );
+        BookingStorage::set_reentrancy_lock(env, true);
+    }
+
+    fn end_external_call(env: &Env) {
+        BookingStorage::set_reentrancy_lock(env, false);
+    }
+
+    fn transfer_and_invalidate_cache(env: &Env, token: &Address, from: &Address, to: &Address, amount: i128) {
+        Self::begin_external_call(env);
+        let token_client = token::Client::new(env, token);
+        token_client.transfer(from, to, &amount);
+        Self::end_external_call(env);
+
+        BookingStorage::clear_cached_balance(env, token, from);
+        BookingStorage::clear_cached_balance(env, token, to);
     }
 
     // Initialize booking - starts in "pending" status until paid
@@ -119,16 +151,20 @@ impl BookingContract {
 
         booking.passenger.require_auth();
 
-        let token_client = token::Client::new(&env, &booking.token);
+        booking.amount_escrowed = booking.price;
+        booking.status = symbol_short!("paying");
 
-        // Transfer tokens from passenger to this contract
-        token_client.transfer(
+        BookingStorage::set(&env, booking_id, &booking);
+
+        // Callback-style finalization around external token transfer.
+        Self::transfer_and_invalidate_cache(
+            &env,
+            &booking.token,
             &booking.passenger,
             &env.current_contract_address(),
-            &booking.price,
+            booking.price,
         );
 
-        booking.amount_escrowed = booking.price;
         booking.status = symbol_short!("confirmed");
 
         BookingStorage::set(&env, booking_id, &booking);
@@ -151,16 +187,20 @@ impl BookingContract {
         );
         assert!(booking.amount_escrowed > 0, "No funds in escrow");
 
-        let token_client = token::Client::new(&env, &booking.token);
-
-        token_client.transfer(
-            &env.current_contract_address(),
-            &booking.airline,
-            &booking.amount_escrowed,
-        );
-
         let released_amount = booking.amount_escrowed;
         booking.amount_escrowed = 0;
+        booking.status = symbol_short!("releasg");
+
+        BookingStorage::set(&env, booking_id, &booking);
+
+        Self::transfer_and_invalidate_cache(
+            &env,
+            &booking.token,
+            &env.current_contract_address(),
+            &booking.airline,
+            released_amount,
+        );
+
         booking.status = symbol_short!("completed");
 
         BookingStorage::set(&env, booking_id, &booking);
@@ -213,7 +253,7 @@ impl BookingContract {
         // In a real app, airline could also trigger this
         booking.passenger.require_auth();
         assert!(
-            current_time < booking.departure_time - 86400,
+            current_time + 86400 < booking.departure_time,
             "Cancellation window closed"
         );
 
@@ -257,16 +297,22 @@ impl BookingContract {
             "Booking cannot be refunded"
         );
 
+        let mut refunded_amount = 0i128;
         if booking.amount_escrowed > 0 {
-            let token_client = token::Client::new(&env, &booking.token);
-            token_client.transfer(
+            booking.status = symbol_short!("refding");
+            refunded_amount = booking.amount_escrowed;
+            booking.amount_escrowed = 0;
+            BookingStorage::set(&env, booking_id, &booking);
+
+            Self::transfer_and_invalidate_cache(
+                &env,
+                &booking.token,
                 &env.current_contract_address(),
                 &booking.passenger,
-                &booking.amount_escrowed,
+                refunded_amount,
             );
         }
-
-        let refunded_amount = booking.amount_escrowed;
+        
         booking.amount_escrowed = 0;
         booking.status = symbol_short!("refunded");
 
@@ -283,6 +329,136 @@ impl BookingContract {
         BookingStorage::get(&env, booking_id)
     }
 
+    // Cached token balance lookup for frequent read paths.
+    pub fn get_token_balance_cached(env: Env, token: Address, account: Address) -> i128 {
+        let now = env.ledger().timestamp();
+        if let Some(cache) = BookingStorage::get_cached_balance(&env, &token, &account) {
+            if now.saturating_sub(cache.cached_at) <= Self::BALANCE_CACHE_TTL_SECS {
+                return cache.amount;
+            }
+        }
+
+        let token_client = token::Client::new(&env, &token);
+        let amount = token_client.balance(&account);
+
+        BookingStorage::set_cached_balance(
+            &env,
+            &token,
+            &account,
+            &CachedBalance {
+                amount,
+                cached_at: now,
+            },
+        );
+
+        amount
+    }
+
+    // Batch settlement for a single airline and token, reducing token contract calls.
+    pub fn batch_release_payments(env: Env, airline: Address, booking_ids: Vec<u64>) -> i128 {
+        airline.require_auth();
+        assert!(booking_ids.len() > 0, "No bookings provided");
+
+        let mut token: Option<Address> = None;
+        let mut total_release = 0i128;
+        let mut released_amounts: Vec<i128> = Vec::new(&env);
+
+        for booking_id in booking_ids.iter() {
+            let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+
+            assert!(booking.airline == airline, "Unauthorized");
+            assert!(booking.status == symbol_short!("confirmed"), "Invalid booking status");
+            assert!(booking.amount_escrowed > 0, "No funds in escrow");
+
+            if let Some(ref t) = token {
+                assert!(*t == booking.token, "Mixed token batch not supported");
+            } else {
+                token = Some(booking.token.clone());
+            }
+
+            total_release += booking.amount_escrowed;
+            released_amounts.push_back(booking.amount_escrowed);
+            booking.amount_escrowed = 0;
+            booking.status = symbol_short!("releasg");
+            BookingStorage::set(&env, booking_id, &booking);
+        }
+
+        let token_address = token.expect("Missing token");
+        Self::transfer_and_invalidate_cache(
+            &env,
+            &token_address,
+            &env.current_contract_address(),
+            &airline,
+            total_release,
+        );
+
+        for i in 0..booking_ids.len() {
+            let booking_id = booking_ids.get(i).expect("Booking id missing");
+            let released_amount = released_amounts.get(i).unwrap_or(0);
+            let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+            booking.status = symbol_short!("completed");
+            BookingStorage::set(&env, booking_id, &booking);
+
+            env.events().publish(
+                (symbol_short!("booking"), symbol_short!("released")),
+                (booking_id, released_amount),
+            );
+        }
+
+        total_release
+    }
+
+    // Batch refunds for a single passenger and token, reducing token contract calls.
+    pub fn batch_refund_passenger(env: Env, passenger: Address, booking_ids: Vec<u64>) -> i128 {
+        passenger.require_auth();
+        assert!(booking_ids.len() > 0, "No bookings provided");
+
+        let current_time = env.ledger().timestamp();
+        let mut token: Option<Address> = None;
+        let mut total_refund = 0i128;
+
+        for booking_id in booking_ids.iter() {
+            let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+
+            assert!(booking.passenger == passenger, "Unauthorized");
+            assert!(current_time + 86400 < booking.departure_time, "Cancellation window closed");
+            assert!(
+                booking.status == symbol_short!("confirmed") || booking.status == symbol_short!("pending"),
+                "Booking cannot be refunded"
+            );
+
+            if let Some(ref t) = token {
+                assert!(*t == booking.token, "Mixed token batch not supported");
+            } else {
+                token = Some(booking.token.clone());
+            }
+
+            total_refund += booking.amount_escrowed;
+            booking.amount_escrowed = 0;
+            booking.status = symbol_short!("refding");
+            BookingStorage::set(&env, booking_id, &booking);
+        }
+
+        if total_refund > 0 {
+            let token_address = token.expect("Missing token");
+            Self::transfer_and_invalidate_cache(
+                &env,
+                &token_address,
+                &env.current_contract_address(),
+                &passenger,
+                total_refund,
+            );
+        }
+
+        for booking_id in booking_ids.iter() {
+            let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+            booking.status = symbol_short!("refunded");
+            BookingStorage::set(&env, booking_id, &booking);
+        }
+
+        total_refund
+    }
+    
     // Original API wrappers for backward compatibility
     pub fn cancel_booking(env: Env, passenger: Address, booking_id: u64) {
         passenger.require_auth();

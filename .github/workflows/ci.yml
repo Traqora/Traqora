@@ -1,0 +1,108 @@
+name: CI
+
+on:
+    pull_request:
+        branches: [main]
+    push:
+        branches: [main]
+
+jobs:
+    contracts:
+        name: Contracts CI
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  toolchain: stable
+                  targets: wasm32-unknown-unknown
+
+            - name: Cache Cargo
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/bin/
+                      ~/.cargo/registry/index/
+                      ~/.cargo/registry/cache/
+                      ~/.cargo/git/db/
+                      contracts/target/
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+            - name: Install Soroban CLI
+              run: |
+                  if ! command -v soroban &> /dev/null; then
+                    cargo install --locked soroban-cli
+                  fi
+
+            - name: Contract Compilation
+              run: |
+                  cd contracts
+                  cargo build --target wasm32-unknown-unknown --release
+
+            - name: Contract Tests
+              run: |
+                  cd contracts
+                  cargo test
+
+    backend:
+        name: Backend CI
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "18"
+                  cache: "npm"
+                  cache-dependency-path: backend/package-lock.json
+
+            - name: Install Dependencies
+              run: |
+                  cd backend
+                  npm ci
+
+            - name: Typecheck
+              run: |
+                  cd backend
+                  npm run typecheck
+
+            - name: Lint
+              run: |
+                  cd backend
+                  npm run lint
+
+            - name: Tests
+              run: |
+                  cd backend
+                  npm test
+
+    client:
+        name: Client CI
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "18"
+                  cache: "npm"
+                  cache-dependency-path: client/package.json
+
+            - name: Install Dependencies
+              run: |
+                  cd client
+                  npm install
+
+            - name: Lint
+              run: |
+                  cd client
+                  npm run lint
+
+            - name: Build
+              run: |
+                  cd client
+                  npm run build
