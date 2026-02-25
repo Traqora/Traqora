@@ -3,13 +3,14 @@ use soroban_sdk::{
     Address, BytesN, Env, Vec,
 };
 
-use crate::proxy::{
+use traqora_contracts::proxy::{
     ContractProxy, ContractProxyClient, MultisigConfig, ProxyState, UpgradeProposal,
 };
 
 fn setup_env() -> (Env, ContractProxyClient<'static>) {
     let env = Env::default();
-    let contract_id = env.register_contract(None, ContractProxy);
+    env.mock_all_auths();
+    let contract_id = env.register(ContractProxy, ());
     let client = ContractProxyClient::new(&env, &contract_id);
     (env, client)
 }

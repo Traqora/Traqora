@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 
 /// Storage layout versioning for migration support
 /// Each contract type has its own version tracking
@@ -66,7 +66,7 @@ impl VersionedStorage {
     pub fn get_storage_version(env: &Env, contract_type: &Symbol) -> u32 {
         env.storage()
             .instance()
-            .get(&(symbol_short!("storage_ver"), contract_type))
+            .get(&(symbol_short!("stor_ver"), contract_type))
             .unwrap_or(1)
     }
     
@@ -74,7 +74,7 @@ impl VersionedStorage {
     pub fn set_storage_version(env: &Env, contract_type: &Symbol, version: u32) {
         env.storage()
             .instance()
-            .set(&(symbol_short!("storage_ver"), contract_type), &version);
+            .set(&(symbol_short!("stor_ver"), contract_type), &version);
     }
     
     /// Execute storage migration with progress tracking
@@ -91,7 +91,7 @@ impl VersionedStorage {
         assert!(current == from_version, "Current version mismatch");
         
         let progress = MigrationProgress {
-            contract_type: *contract_type,
+            contract_type: contract_type.clone(),
             from_version,
             to_version,
             current_step: 0,
@@ -150,18 +150,18 @@ impl VersionedStorage {
         to: u32,
         _migrator: &Address,
     ) -> bool {
-        let step_key = (symbol_short!("mig_step"), contract_type, from, to);
+        let _step_key = (symbol_short!("mig_step"), contract_type, from, to);
         
         env.events().publish(
-            (symbol_short!("migration"), symbol_short!("step_start")),
-            (*contract_type, from, to),
+            (symbol_short!("migration"), symbol_short!("st_start")),
+            (contract_type.clone(), from, to),
         );
         
         let result = true;
         
         env.events().publish(
-            (symbol_short!("migration"), symbol_short!("step_complete")),
-            (*contract_type, from, to),
+            (symbol_short!("migration"), symbol_short!("st_done")),
+            (contract_type.clone(), from, to),
         );
         
         result
@@ -305,7 +305,7 @@ pub mod slot_allocation {
             FLIGHT_SLOTS
         } else if data_type == symbol_short!("dispute") {
             DISPUTE_SLOTS
-        } else if data_type == symbol_short!("governance") {
+        } else if data_type == symbol_short!("gov") {
             GOVERNANCE_SLOTS
         } else if data_type == symbol_short!("loyalty") {
             LOYALTY_SLOTS
