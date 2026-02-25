@@ -123,7 +123,7 @@ impl ContractProxy {
         
         let config = ProxyConfig {
             admin: admin.clone(),
-            implementation,
+            implementation: implementation.clone(),
             state: ProxyState::Active,
             version: 1,
             storage_version: 1,
@@ -166,7 +166,7 @@ impl ContractProxy {
         
         let proposal = UpgradeProposal {
             proposal_id: proposal_count,
-            new_implementation,
+            new_implementation: new_implementation.clone(),
             new_storage_version,
             proposed_at: env.ledger().timestamp(),
             approvals,

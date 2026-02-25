@@ -5,6 +5,8 @@ import "./globals.css"
 import { SocketProvider } from '@/components/socket/SocketProvider'
 import { Toaster } from '@/components/ui/toaster'
 import { ConnectionIndicator } from '@/components/connection-indicator'
+// NEW: WalletProvider to initialise StellarWalletsKit on app mount
+import { WalletProvider } from "@/components/wallet-provider"
 
 const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
@@ -35,11 +37,14 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${playfairDisplay.variable} ${sourceSansPro.variable} antialiased`}>
       <body className="font-sans">
-        <SocketProvider>
-          <ConnectionIndicator />
-          <Toaster />
-          {children}
-        </SocketProvider>
+        {/* Nesting providers ensures both Wallet and Socket functionality are available app-wide */}
+        <WalletProvider>
+          <SocketProvider>
+            <ConnectionIndicator />
+            <Toaster />
+            {children}
+          </SocketProvider>
+        </WalletProvider>
       </body>
     </html>
   )

@@ -11,6 +11,8 @@ import { Separator } from "@/components/ui/separator"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Plane, Clock, Users, Luggage, Shield, Wallet, CheckCircle, QrCode, ExternalLink, Download } from "lucide-react"
+// NEW: import real wallet hook and store from stellar-wallet-connect
+import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
 
 // Mock flight data - in real app this would come from API
 const mockFlightDetails = {
@@ -45,7 +47,10 @@ type BookingStep = "details" | "wallet" | "confirm" | "success"
 export default function BookFlightPage() {
   const params = useParams()
   const [currentStep, setCurrentStep] = useState<BookingStep>("details")
-  const [isWalletConnected, setIsWalletConnected] = useState(false)
+  // NEW: read real wallet connection state from Zustand store
+  const { address, isConnected: isWalletConnected, walletType: connectedWalletType } = useWalletStore()
+  // NEW: use real wallet connect handler from stellar-wallet-connect
+  const { handleConnect: walletConnect } = useWallet()
   const [selectedWallet, setSelectedWallet] = useState<string>("")
   const [isProcessing, setIsProcessing] = useState(false)
   const [bookingId, setBookingId] = useState("")
@@ -54,21 +59,26 @@ export default function BookFlightPage() {
 
   const flight = mockFlightDetails
 
+  // NEW: use the real StellarWalletsKit auth modal to connect the wallet
   const handleConnectWallet = async (walletType: string) => {
     setIsProcessing(true)
     setSelectedWallet(walletType)
-    setProcessingStage("Connecting to wallet...")
+    setProcessingStage("Opening wallet selector...")
 
-    setTimeout(() => {
-      setProcessingStage("Verifying wallet connection...")
-    }, 800)
-
-    setTimeout(() => {
-      setProcessingStage("Wallet connected successfully!")
-      setIsWalletConnected(true)
+    try {
+      await walletConnect()
+      // NEW: after successful connection, update state from the store
+      const storeState = useWalletStore.getState()
+      if (storeState.isConnected && storeState.address) {
+        setSelectedWallet(storeState.walletType || walletType)
+        setProcessingStage("Wallet connected successfully!")
+        setCurrentStep("confirm")
+      }
+    } catch (error) {
+      setProcessingStage("Connection cancelled or failed.")
+    } finally {
       setIsProcessing(false)
-      setCurrentStep("confirm")
-    }, 2000)
+    }
   }
 
   const handleConfirmBooking = async () => {
@@ -132,7 +142,7 @@ export default function BookFlightPage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <nav className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-2">
@@ -140,11 +150,12 @@ export default function BookFlightPage() {
               <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
             </div>
             <div className="flex items-center space-x-4">
+              {/* NEW: show real wallet state badge from Zustand store */}
               <Badge variant="outline" className="px-3 py-1">
-                {isWalletConnected ? (
+                {isWalletConnected && address ? (
                   <>
                     <CheckCircle className="h-4 w-4 mr-2 text-secondary" />
-                    {selectedWallet} Connected
+                    {connectedWalletType || selectedWallet || "Wallet"} Connected
                   </>
                 ) : (
                   <>
@@ -372,45 +383,25 @@ export default function BookFlightPage() {
                 </p>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* NEW: single button that opens the StellarWalletsKit auth modal with all supported wallets */}
                 <div className="grid gap-4">
                   <Button
                     variant="outline"
                     size="lg"
                     className="h-16 justify-start gap-4 bg-transparent hover-lift-3d transition-all duration-300"
-                    onClick={() => handleConnectWallet("Freighter")}
+                    onClick={() => handleConnectWallet("Stellar Wallet")}
                     disabled={isProcessing}
                   >
                     <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
                       <Wallet className="h-6 w-6 text-primary" />
                     </div>
                     <div className="text-left">
-                      <p className="font-medium">Freighter</p>
-                      <p className="text-sm text-muted-foreground">Most popular Stellar wallet</p>
+                      <p className="font-medium">Connect Stellar Wallet</p>
+                      <p className="text-sm text-muted-foreground">Freighter, Lobstr, xBull, Albedo, Rabet and more</p>
                     </div>
-                    {isProcessing && selectedWallet === "Freighter" && (
+                    {isProcessing && (
                       <div className="ml-auto">
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
-                      </div>
-                    )}
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    className="h-16 justify-start gap-4 bg-transparent hover-lift-3d transition-all duration-300"
-                    onClick={() => handleConnectWallet("Albedo")}
-                    disabled={isProcessing}
-                  >
-                    <div className="w-10 h-10 bg-secondary/10 rounded-lg flex items-center justify-center">
-                      <Shield className="h-6 w-6 text-secondary" />
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium">Albedo</p>
-                      <p className="text-sm text-muted-foreground">Advanced security features</p>
-                    </div>
-                    {isProcessing && selectedWallet === "Albedo" && (
-                      <div className="ml-auto">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-secondary"></div>
                       </div>
                     )}
                   </Button>
@@ -444,12 +435,17 @@ export default function BookFlightPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
+                  {/* NEW: show real wallet address and type from Zustand store */}
                   <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
                     <div>
                       <p className="font-medium">Connected Wallet</p>
-                      <p className="text-sm text-muted-foreground">0x1234...5678</p>
+                      {/* NEW: display real truncated address */}
+                      <p className="text-sm text-muted-foreground font-mono">
+                        {address ? `${address.slice(0, 8)}...${address.slice(-4)}` : "0x1234...5678"}
+                      </p>
                     </div>
-                    <Badge variant="secondary">{selectedWallet}</Badge>
+                    {/* NEW: show real wallet type badge */}
+                    <Badge variant="secondary">{connectedWalletType || selectedWallet}</Badge>
                   </div>
 
                   <div className="space-y-3">
