@@ -1,0 +1,283 @@
+groups:
+  - name: traqora_critical_alerts
+    interval: 30s
+    rules:
+      # System Health Alerts
+      - alert: ServiceDown
+        expr: up{job="traqora-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "Traqora backend service is down"
+          description: "The Traqora backend service has been down for more than 1 minute."
+          runbook: "https://github.com/traqora/runbooks/service-down.md"
+
+      - alert: HighErrorRate
+        expr: rate(traqora_http_request_errors_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} errors/sec (threshold: 10)"
+          runbook: "https://github.com/traqora/runbooks/high-error-rate.md"
+
+      - alert: DatabaseConnectionFailed
+        expr: traqora_system_health{component="database"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection failed"
+          description: "Unable to connect to the database for more than 1 minute."
+          runbook: "https://github.com/traqora/runbooks/database-connection.md"
+
+      # Memory and Resource Alerts
+      - alert: HighMemoryUsage
+        expr: (traqora_nodejs_heap_size_used_bytes / traqora_nodejs_heap_size_total_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          component: backend
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}% (threshold: 90%)"
+          runbook: "https://github.com/traqora/runbooks/high-memory.md"
+
+      - alert: CriticalMemoryUsage
+        expr: (traqora_nodejs_heap_size_used_bytes / traqora_nodejs_heap_size_total_bytes) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "Critical memory usage detected"
+          description: "Memory usage is {{ $value }}% (threshold: 95%)"
+          runbook: "https://github.com/traqora/runbooks/high-memory.md"
+
+      # Blockchain Alerts
+      - alert: LowWalletBalance
+        expr: traqora_wallet_balance_xlm < 100
+        for: 5m
+        labels:
+          severity: critical
+          component: blockchain
+        annotations:
+          summary: "Low wallet balance detected"
+          description: "Wallet {{ $labels.wallet_type }} balance is {{ $value }} XLM (threshold: 100 XLM)"
+          runbook: "https://github.com/traqora/runbooks/low-wallet-balance.md"
+
+      - alert: CriticalWalletBalance
+        expr: traqora_wallet_balance_xlm < 50
+        for: 1m
+        labels:
+          severity: critical
+          component: blockchain
+        annotations:
+          summary: "Critical wallet balance detected"
+          description: "Wallet {{ $labels.wallet_type }} balance is {{ $value }} XLM (threshold: 50 XLM)"
+          runbook: "https://github.com/traqora/runbooks/low-wallet-balance.md"
+
+      - alert: HighTransactionFailureRate
+        expr: (rate(traqora_soroban_transactions_total{status="failed"}[5m]) / rate(traqora_soroban_transactions_total[5m])) * 100 > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: blockchain
+        annotations:
+          summary: "High blockchain transaction failure rate"
+          description: "Transaction failure rate is {{ $value }}% (threshold: 5%)"
+          runbook: "https://github.com/traqora/runbooks/transaction-failures.md"
+
+      - alert: NoBlockchainTransactions
+        expr: rate(traqora_soroban_transactions_total[10m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+          component: blockchain
+        annotations:
+          summary: "No blockchain transactions in 15 minutes"
+          description: "No blockchain transactions have been processed in the last 15 minutes."
+          runbook: "https://github.com/traqora/runbooks/no-transactions.md"
+
+  - name: traqora_business_alerts
+    interval: 1m
+    rules:
+      # Booking Alerts
+      - alert: HighBookingFailureRate
+        expr: (rate(traqora_bookings_failed_total[5m]) / rate(traqora_bookings_created_total[5m])) * 100 > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: bookings
+        annotations:
+          summary: "High booking failure rate"
+          description: "Booking failure rate is {{ $value }}% (threshold: 10%)"
+          runbook: "https://github.com/traqora/runbooks/booking-failures.md"
+
+      - alert: NoBookingsCreated
+        expr: rate(traqora_bookings_created_total[30m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: bookings
+        annotations:
+          summary: "No bookings created in 30 minutes"
+          description: "No bookings have been created in the last 30 minutes during business hours."
+          runbook: "https://github.com/traqora/runbooks/no-bookings.md"
+
+      - alert: SlowBookingProcessing
+        expr: histogram_quantile(0.95, rate(traqora_booking_processing_duration_seconds_bucket[5m])) > 300
+        for: 10m
+        labels:
+          severity: warning
+          component: bookings
+        annotations:
+          summary: "Slow booking processing detected"
+          description: "95th percentile booking processing time is {{ $value }}s (threshold: 300s)"
+          runbook: "https://github.com/traqora/runbooks/slow-processing.md"
+
+      # Payment Alerts
+      - alert: LowPaymentSuccessRate
+        expr: (rate(traqora_stripe_payments_total{status="succeeded"}[5m]) / rate(traqora_stripe_payments_total[5m])) * 100 < 95
+        for: 5m
+        labels:
+          severity: warning
+          component: payments
+        annotations:
+          summary: "Low payment success rate"
+          description: "Payment success rate is {{ $value }}% (threshold: 95%)"
+          runbook: "https://github.com/traqora/runbooks/payment-failures.md"
+
+      - alert: StripeWebhookFailures
+        expr: rate(traqora_stripe_webhooks_total{status="failed"}[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: payments
+        annotations:
+          summary: "Stripe webhook failures detected"
+          description: "Stripe webhook failure rate is {{ $value }}/sec"
+          runbook: "https://github.com/traqora/runbooks/webhook-failures.md"
+
+      # Refund Alerts
+      - alert: HighRefundRate
+        expr: (rate(traqora_refunds_requested_total[1h]) / rate(traqora_bookings_confirmed_total[1h])) * 100 > 20
+        for: 30m
+        labels:
+          severity: warning
+          component: refunds
+        annotations:
+          summary: "High refund request rate"
+          description: "Refund rate is {{ $value }}% of confirmed bookings (threshold: 20%)"
+          runbook: "https://github.com/traqora/runbooks/high-refund-rate.md"
+
+      - alert: SlowRefundProcessing
+        expr: histogram_quantile(0.95, rate(traqora_refund_processing_duration_seconds_bucket[5m])) > 3600
+        for: 15m
+        labels:
+          severity: warning
+          component: refunds
+        annotations:
+          summary: "Slow refund processing detected"
+          description: "95th percentile refund processing time is {{ $value }}s (threshold: 3600s)"
+          runbook: "https://github.com/traqora/runbooks/slow-refund-processing.md"
+
+      # Dispute Alerts
+      - alert: HighDisputeRate
+        expr: (rate(traqora_disputes_created_total[24h]) / rate(traqora_bookings_confirmed_total[24h])) * 100 > 5
+        for: 1h
+        labels:
+          severity: warning
+          component: disputes
+        annotations:
+          summary: "High dispute creation rate"
+          description: "Dispute rate is {{ $value }}% of confirmed bookings (threshold: 5%)"
+          runbook: "https://github.com/traqora/runbooks/high-dispute-rate.md"
+
+      - alert: StaleDisputes
+        expr: traqora_active_disputes > 50
+        for: 1h
+        labels:
+          severity: warning
+          component: disputes
+        annotations:
+          summary: "High number of active disputes"
+          description: "There are {{ $value }} active disputes (threshold: 50)"
+          runbook: "https://github.com/traqora/runbooks/stale-disputes.md"
+
+  - name: traqora_performance_alerts
+    interval: 1m
+    rules:
+      # API Performance
+      - alert: HighAPILatency
+        expr: histogram_quantile(0.95, rate(traqora_http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High API latency detected"
+          description: "95th percentile API latency is {{ $value }}s (threshold: 2s)"
+          runbook: "https://github.com/traqora/runbooks/high-latency.md"
+
+      - alert: CriticalAPILatency
+        expr: histogram_quantile(0.95, rate(traqora_http_request_duration_seconds_bucket[5m])) > 5
+        for: 2m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "Critical API latency detected"
+          description: "95th percentile API latency is {{ $value }}s (threshold: 5s)"
+          runbook: "https://github.com/traqora/runbooks/high-latency.md"
+
+      # Database Performance
+      - alert: SlowDatabaseQueries
+        expr: histogram_quantile(0.95, rate(traqora_database_query_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Slow database queries detected"
+          description: "95th percentile query duration is {{ $value }}s (threshold: 1s)"
+          runbook: "https://github.com/traqora/runbooks/slow-queries.md"
+
+      - alert: HighDatabaseErrorRate
+        expr: rate(traqora_database_errors_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "High database error rate"
+          description: "Database error rate is {{ $value }}/sec (threshold: 5)"
+          runbook: "https://github.com/traqora/runbooks/database-errors.md"
+
+      # Request Volume
+      - alert: HighRequestVolume
+        expr: rate(traqora_http_requests_total[5m]) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High request volume detected"
+          description: "Request rate is {{ $value }}/sec (threshold: 1000)"
+          runbook: "https://github.com/traqora/runbooks/high-traffic.md"
+
+      - alert: LowRequestVolume
+        expr: rate(traqora_http_requests_total[15m]) < 1
+        for: 15m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Unusually low request volume"
+          description: "Request rate is {{ $value }}/sec during business hours"
+          runbook: "https://github.com/traqora/runbooks/low-traffic.md"

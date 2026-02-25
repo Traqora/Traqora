@@ -1,0 +1,256 @@
+{
+  "dashboard": {
+    "title": "Traqora - Blockchain Metrics",
+    "tags": ["traqora", "blockchain", "soroban"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Soroban Transactions",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(traqora_soroban_transactions_total[5m])",
+            "legendFormat": "{{contract}} - {{method}} ({{status}})",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Transactions/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Transaction Success Rate",
+        "type": "stat",
+        "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "rate(traqora_soroban_transactions_total{status=\"success\"}[5m]) / rate(traqora_soroban_transactions_total[5m]) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": 95 },
+                { "color": "green", "value": 99 }
+              ]
+            }
+          }
+        },
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "params": [95], "type": "lt" },
+              "operator": { "type": "and" },
+              "query": { "params": ["A", "5m", "now"] },
+              "reducer": { "params": [], "type": "avg" },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "name": "Low Transaction Success Rate",
+          "noDataState": "no_data",
+          "notifications": []
+        }
+      },
+      {
+        "id": 3,
+        "title": "Wallet Balances",
+        "type": "graph",
+        "gridPos": { "x": 18, "y": 0, "w": 6, "h": 8 },
+        "targets": [
+          {
+            "expr": "traqora_wallet_balance_xlm",
+            "legendFormat": "{{wallet_type}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "XLM" },
+          { "format": "short" }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "params": [100], "type": "lt" },
+              "operator": { "type": "and" },
+              "query": { "params": ["A", "5m", "now"] },
+              "reducer": { "params": [], "type": "min" },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "5m",
+          "handler": 1,
+          "name": "Low Wallet Balance",
+          "noDataState": "alerting",
+          "notifications": []
+        }
+      },
+      {
+        "id": 4,
+        "title": "Transaction Duration (p95)",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(traqora_soroban_transaction_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{contract}} - {{method}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "s", "label": "Duration" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Transaction Fees (p95)",
+        "type": "graph",
+        "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(traqora_soroban_transaction_fees_stroops_bucket[5m]))",
+            "legendFormat": "{{contract}} - {{method}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Stroops" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Contract Events",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(traqora_contract_events_total[5m])",
+            "legendFormat": "{{contract}} - {{event_type}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Events/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Contract Events by Type",
+        "type": "piechart",
+        "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "increase(traqora_contract_events_total[1h])",
+            "legendFormat": "{{event_type}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Failed Transactions by Contract",
+        "type": "graph",
+        "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(traqora_soroban_transactions_total{status=\"failed\"}[5m])",
+            "legendFormat": "{{contract}} - {{method}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Failed Tx/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Average Transaction Fee (24h)",
+        "type": "stat",
+        "gridPos": { "x": 12, "y": 24, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "avg_over_time(traqora_soroban_transaction_fees_stroops[24h])",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Total Transaction Fees (24h)",
+        "type": "stat",
+        "gridPos": { "x": 18, "y": 24, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "expr": "sum(increase(traqora_soroban_transaction_fees_stroops[24h]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "orientation": "auto",
+          "reduceOptions": {
+            "calcs": ["lastNotNull"],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0
+          }
+        }
+      }
+    ]
+  }
+}
