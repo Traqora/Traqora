@@ -22,6 +22,6 @@ export class IdempotencyKey {
   @Column({ type: 'varchar', length: 64, nullable: true })
   resourceId?: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   createdAt!: Date;
 }
