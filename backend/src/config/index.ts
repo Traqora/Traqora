@@ -24,8 +24,20 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
 
+  adminApiKey: process.env.ADMIN_API_KEY || 'dev-admin-key',
+
   rateLimitWindowSec: Number.parseInt(process.env.RATE_LIMIT_WINDOW_SEC || '60', 10),
   rateLimitMax: Number.parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+  rateLimitPublicMax: Number.parseInt(process.env.RATE_LIMIT_PUBLIC_MAX || '60', 10),
+  rateLimitUserMax: Number.parseInt(process.env.RATE_LIMIT_USER_MAX || '120', 10),
+  rateLimitPremiumMax: Number.parseInt(process.env.RATE_LIMIT_PREMIUM_MAX || '300', 10),
+  ddosBurstMax: Number.parseInt(process.env.DDOS_BURST_MAX || '25', 10),
+  ddosBurstWindowSec: Number.parseInt(process.env.DDOS_BURST_WINDOW_SEC || '3', 10),
+  rateLimitBlockDurationSec: Number.parseInt(process.env.RATE_LIMIT_BLOCK_DURATION_SEC || '900', 10),
+  rateLimitBlockAfterViolations: Number.parseInt(process.env.RATE_LIMIT_BLOCK_AFTER_VIOLATIONS || '8', 10),
+  captchaAfterViolations: Number.parseInt(process.env.CAPTCHA_AFTER_VIOLATIONS || '3', 10),
+  trustProxy: process.env.TRUST_PROXY === 'true',
+  useCloudflareHeaders: process.env.USE_CLOUDFLARE_HEADERS === 'true',
 
   flightSearchCacheTtlSeconds: Number.parseInt(
     process.env.FLIGHT_SEARCH_CACHE_TTL_SECONDS || '300',

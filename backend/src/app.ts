@@ -3,6 +3,7 @@ import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { createFlightRoutes } from './api/routes/flights';
+import { securityRoutes } from './api/routes/security';
 import { config } from './config';
 import {
   createDefaultFlightSearchService,
@@ -10,16 +11,26 @@ import {
 } from './services/flightSearchService';
 import { errorHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
-import { createIpRateLimiter, IpRateLimitOptions } from './utils/rateLimiter';
+import {
+  createIpRateLimiter,
+  createTieredRateLimiter,
+  IpRateLimitOptions,
+  TieredRateLimitOptions,
+} from './utils/rateLimiter';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
   globalRateLimit?: false | Partial<IpRateLimitOptions>;
+  tieredRateLimit?: false | Partial<TieredRateLimitOptions>;
   searchRateLimit?: Partial<IpRateLimitOptions>;
 }
 
 export const createApp = (options: AppOptions = {}) => {
   const app = express();
+
+  if (config.trustProxy) {
+    app.set('trust proxy', 1);
+  }
 
   const flightSearchService = options.flightSearchService || createDefaultFlightSearchService();
 
@@ -31,6 +42,36 @@ export const createApp = (options: AppOptions = {}) => {
           durationSeconds: config.rateLimitWindowSec,
           keyPrefix: 'traqora-global-rate-limit',
           ...options.globalRateLimit,
+        });
+
+  const tieredRateLimitMiddleware =
+    options.tieredRateLimit === false
+      ? null
+      : createTieredRateLimiter({
+          keyPrefix: 'traqora-tiered-rate-limit',
+          redisUrl: config.redisUrl || undefined,
+          trustProxy: config.trustProxy,
+          useCloudflareHeaders: config.useCloudflareHeaders,
+          public: {
+            points: config.rateLimitPublicMax,
+            durationSeconds: config.rateLimitWindowSec,
+          },
+          user: {
+            points: config.rateLimitUserMax,
+            durationSeconds: config.rateLimitWindowSec,
+          },
+          premium: {
+            points: config.rateLimitPremiumMax,
+            durationSeconds: config.rateLimitWindowSec,
+          },
+          ddos: {
+            points: config.ddosBurstMax,
+            durationSeconds: config.ddosBurstWindowSec,
+          },
+          blockDurationSeconds: config.rateLimitBlockDurationSec,
+          blockAfterViolations: config.rateLimitBlockAfterViolations,
+          captchaAfterViolations: config.captchaAfterViolations,
+          ...options.tieredRateLimit,
         });
 
   const searchRateLimitMiddleware = createIpRateLimiter({
@@ -52,6 +93,10 @@ export const createApp = (options: AppOptions = {}) => {
     app.use(globalRateLimitMiddleware);
   }
 
+  if (tieredRateLimitMiddleware) {
+    app.use(tieredRateLimitMiddleware);
+  }
+
   app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
   app.use(express.json({ limit: '10mb' }));
@@ -66,6 +111,7 @@ export const createApp = (options: AppOptions = {}) => {
   });
 
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
+  app.use('/api/v1/security', securityRoutes);
 
   app.use(errorHandler);
 
