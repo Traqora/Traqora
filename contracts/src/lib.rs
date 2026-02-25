@@ -29,3 +29,6 @@ pub mod token;
 
 #[path = "oracle/lib.rs"]
 pub mod oracle;
+
+#[path = "admin/lib.rs"]
+pub mod admin;
