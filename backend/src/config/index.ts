@@ -20,9 +20,11 @@ export const config = {
   },
 
   // Database
-  databaseUrl: process.env.DATABASE_URL || "",
-  redisUrl: process.env.REDIS_URL || "",
-
+  databaseUrl: process.env.DATABASE_URL || '',
+  // Mongo connection string (optional, used for notifications/history etc)
+  mongoUrl: process.env.MONGO_URI || '',
+  redisUrl: process.env.REDIS_URL || '',
+  
   // Authentication
   jwtSecret: process.env.JWT_SECRET || "your-secret-key-change-in-production",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",

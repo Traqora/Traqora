@@ -1,10 +1,22 @@
 import mongoose from 'mongoose';
-import logger from '../utils/logger';
+import { logger } from '../utils/logger';
 import { config } from '../config';
 
 export const connectDatabase = async () => {
+  const mongoURI = config.mongoUrl || process.env.MONGO_URI || '';
+
+  if (!mongoURI) {
+    logger.warn('No MongoDB URI provided, skipping connection');
+    return;
+  }
+
+  // basic validation: ensure scheme starts with mongodb
+  if (!mongoURI.startsWith('mongodb')) {
+    logger.warn(`MongoDB URI does not look valid (${mongoURI}), skipping connection`);
+    return;
+  }
+
   try {
-    const mongoURI = config.databaseUrl || process.env.MONGO_URI || 'mongodb://localhost:27017/traqora';
     await mongoose.connect(mongoURI);
     logger.info('MongoDB connected successfully');
   } catch (error) {

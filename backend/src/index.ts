@@ -8,7 +8,7 @@ import http from 'http';
 import { config } from './config';
 import { logger } from './utils/logger';
 import { errorHandler } from './utils/errorHandler';
-import { rateLimiter } from './utils/rateLimiter';
+// import { rateLimiter } from './utils/rateLimiter';
 import { initDataSource } from './db/dataSource';
 
 // Route imports
@@ -25,7 +25,7 @@ import { metricsRoutes } from './api/routes/metrics';
 
 // New Services
 import { connectDatabase } from './config/database';
-import { initWebSocket } from './websockets/server';
+import { initWebSocket, getWebSocketServer } from './websockets/server';
 import { initPriceMonitorCron } from './jobs/priceMonitor';
 
 // Monitoring
@@ -84,6 +84,23 @@ app.use('/api/v1/flights', flightRoutes);
 app.use('/api/v1/subscriptions', subscriptionRoutes);
 app.use('/api/v1/governance', governanceRoutes);
 app.use('/api/v1/bookings', bookingRoutes);
+
+// Internal/dev-only utilities
+app.post('/internal/test-broadcast', (req, res) => {
+  if (config.environment === 'production') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const { flightId = 'TEST-FLT', price = 100 } = req.body || {};
+  try {
+    const ws = getWebSocketServer();
+    ws.broadcastPriceUpdate(flightId, Number(price));
+    return res.json({ ok: true });
+  } catch (err) {
+    logger.warn('Failed to broadcast (ws not ready)', err);
+    return res.status(500).json({ ok: false, error: 'ws_not_ready' });
+  }
+});
 // app.use('/api/v1/airlines', airlineRoutes);
 // app.use('/api/v1/users', userRoutes);
 // app.use('/api/v1/refunds', refundRoutes);
@@ -94,7 +111,7 @@ app.use('/api/v1/bookings', bookingRoutes);
 app.use(errorHandler);
 
 // 404 handler
-app.use((req, res) => {
+app.use((_req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
