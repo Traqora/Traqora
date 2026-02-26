@@ -12,6 +12,7 @@ import { adminUserRoutes } from './api/routes/admin/users';
 import { adminBookingRoutes } from './api/routes/admin/bookings';
 import { adminAnalyticsRoutes } from './api/routes/admin/analytics';
 import { adminRefundRoutes } from './api/routes/admin/refunds';
+import { authRoutes } from './api/routes/auth';
 import { config } from './config';
 import {
   createDefaultFlightSearchService,
@@ -25,6 +26,7 @@ import {
   IpRateLimitOptions,
   TieredRateLimitOptions,
 } from './utils/rateLimiter';
+import { requireAuth } from './middleware/authMiddleware';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
@@ -121,10 +123,11 @@ export const createApp = (options: AppOptions = {}) => {
     });
   });
 
+  app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
-  app.use('/api/v1/bookings', bookingRoutes);
-  app.use('/api/v1/refunds', refundRoutes);
-  app.use('/api/v1/security', securityRoutes);
+  app.use('/api/v1/bookings', requireAuth, bookingRoutes);
+  app.use('/api/v1/refunds', requireAuth, refundRoutes);
+  app.use('/api/v1/security', requireAuth, securityRoutes);
 
   // Admin routes
   app.use('/api/v1/admin/auth', adminAuthRoutes);

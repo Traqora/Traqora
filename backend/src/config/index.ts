@@ -24,6 +24,9 @@ export const config = {
 
   jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-change-in-production',
+  jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+  nonceExpirySeconds: Number.parseInt(process.env.NONCE_EXPIRY_SECONDS || '300', 10),
 
   adminApiKey: process.env.ADMIN_API_KEY || 'dev-admin-key',
 

@@ -11,50 +11,53 @@ import { IdempotencyKey } from "./entities/IdempotencyKey";
 import { AdminUser } from "./entities/AdminUser";
 import { AdminAuditLog } from "./entities/AdminAuditLog";
 import { Refund } from "./entities/Refund";
+import { User } from "./entities/User";
 
 const isTest = process.env.NODE_ENV === "test";
 
 export const AppDataSource = new DataSource(
   isTest
     ? {
-        type: "sqlite",
-        database: ":memory:",
-        dropSchema: true,
-        synchronize: true,
-        entities: [
-          Booking,
-          Flight,
-          Passenger,
-          IdempotencyKey,
-          UserPreference,
-          NotificationLog,
-          AdminUser,
-          AdminAuditLog,
-          Refund,
-        ],
-        logging: false,
-      }
+      type: "sqlite",
+      database: ":memory:",
+      dropSchema: true,
+      synchronize: true,
+      entities: [
+        Booking,
+        Flight,
+        Passenger,
+        IdempotencyKey,
+        UserPreference,
+        NotificationLog,
+        AdminUser,
+        AdminAuditLog,
+        Refund,
+        User,
+      ],
+      logging: false,
+    }
     : {
-        type: "postgres",
-        url: config.databaseUrl,
-        synchronize: true,
-        logging: false,
-        entities: [
-          Booking,
-          Flight,
-          Passenger,
-          IdempotencyKey,
-          UserPreference,
-          NotificationLog,
-          AdminUser,
-          AdminAuditLog,
-          Refund,
-        ],
-        ssl:
-          config.environment === "production"
-            ? { rejectUnauthorized: false }
-            : false,
-      },
+      type: "postgres",
+      url: config.databaseUrl,
+      synchronize: true,
+      logging: false,
+      entities: [
+        Booking,
+        Flight,
+        Passenger,
+        IdempotencyKey,
+        UserPreference,
+        NotificationLog,
+        AdminUser,
+        AdminAuditLog,
+        Refund,
+        User,
+      ],
+      ssl:
+        config.environment === "production"
+          ? { rejectUnauthorized: false }
+          : false,
+    },
 );
 
 export const initDataSource = async () => {
