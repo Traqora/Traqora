@@ -33,6 +33,17 @@ fn advance_ledger(env: &Env, seconds: u64) {
     });
 }
 
+// Helper function to compute commit hash
+fn compute_commit_hash(env: &Env, vote_for_passenger: bool, salt: &BytesN<32>) -> BytesN<32> {
+    let mut hash_bytes = Bytes::new(env);
+    hash_bytes.push_back(if vote_for_passenger { 1u8 } else { 0u8 });
+    let salt_bytes = salt.to_array();
+    for byte in salt_bytes.iter() {
+        hash_bytes.push_back(*byte);
+    }
+    env.crypto().keccak256(&hash_bytes).into()
+}
+
 #[test]
 fn test_initialize() {
     let env = Env::default();
@@ -40,7 +51,6 @@ fn test_initialize() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(
         &2000,  // min_stake_percentage (20%)
         &5,     // jury_size
@@ -84,7 +94,6 @@ fn test_file_dispute() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -116,7 +125,6 @@ fn test_file_dispute_insufficient_stake() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -134,7 +142,6 @@ fn test_airline_respond() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -155,7 +162,6 @@ fn test_submit_evidence() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -184,7 +190,6 @@ fn test_jury_selection() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -219,7 +224,6 @@ fn test_party_cannot_be_juror() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -239,7 +243,6 @@ fn test_commit_reveal_voting() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -290,7 +293,6 @@ fn test_finalize_dispute() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -343,7 +345,6 @@ fn test_appeal_mechanism() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -403,7 +404,6 @@ fn test_execute_verdict() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -458,7 +458,6 @@ fn test_claim_juror_reward() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -521,7 +520,6 @@ fn test_claim_juror_reward_wrong_vote() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
@@ -575,7 +573,6 @@ fn test_complete_dispute_lifecycle() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-
     client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);

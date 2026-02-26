@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN, Env, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -520,7 +520,11 @@ impl DisputeContract {
             DisputeStorageKey::get_vote_reveal(&env, dispute_id, &juror).is_none(),
             "Already revealed"
         );
+<<<<<<< HEAD
+        
+=======
 
+>>>>>>> d189056bc32006ab8b0aa25d06bc5f163c0367f2
         // Build hash input - vote (1 byte) + salt (32 bytes) = 33 bytes
         let mut hash_bytes = Bytes::new(&env);
         hash_bytes.push_back(if vote_for_passenger { 1u8 } else { 0u8 });
@@ -528,10 +532,20 @@ impl DisputeContract {
         for byte in salt_bytes.iter() {
             hash_bytes.push_back(*byte);
         }
+<<<<<<< HEAD
+        
+        let computed_hash: BytesN<32> = env.crypto().keccak256(&hash_bytes).into();
+        assert!(
+            computed_hash == commit.commit_hash,
+            "Invalid reveal"
+        );
+        
+=======
 
         let computed_hash: BytesN<32> = env.crypto().keccak256(&hash_bytes).into();
         assert!(computed_hash == commit.commit_hash, "Invalid reveal");
 
+>>>>>>> d189056bc32006ab8b0aa25d06bc5f163c0367f2
         let reveal = VoteReveal {
             dispute_id,
             juror: juror.clone(),

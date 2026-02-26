@@ -8,14 +8,15 @@ export const config = {
   sorobanRpcUrl: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
 
   contracts: {
-    booking: process.env.BOOKING_CONTRACT_ID || '',
-    airline: process.env.AIRLINE_CONTRACT_ID || '',
-    refund: process.env.REFUND_CONTRACT_ID || '',
-    loyalty: process.env.LOYALTY_CONTRACT_ID || '',
-    governance: process.env.GOVERNANCE_CONTRACT_ID || '',
-    token: process.env.TOKEN_CONTRACT_ID || '',
+    booking: process.env.BOOKING_CONTRACT_ID || "",
+    airline: process.env.AIRLINE_CONTRACT_ID || "",
+    refund: process.env.REFUND_CONTRACT_ID || "",
+    loyalty: process.env.LOYALTY_CONTRACT_ID || "",
+    governance: process.env.GOVERNANCE_CONTRACT_ID || "",
+    token: process.env.TOKEN_CONTRACT_ID || "",
   },
 
+  // Database
   databaseUrl: process.env.DATABASE_URL || '',
   // Mongo connection string (optional, used for notifications/history etc)
   mongoUrl: process.env.MONGO_URI || '',
