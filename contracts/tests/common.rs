@@ -1,10 +1,10 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, String};
-use traqora_contracts::token::{TRQTokenContract, TRQTokenContractClient};
-use traqora_contracts::booking::{BookingContract, BookingContractClient};
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Symbol};
 use traqora_contracts::airline::{AirlineContract, AirlineContractClient};
-use traqora_contracts::loyalty::{LoyaltyContract, LoyaltyContractClient};
+use traqora_contracts::booking::{BookingContract, BookingContractClient};
 use traqora_contracts::governance::{GovernanceContract, GovernanceContractClient};
+use traqora_contracts::loyalty::{LoyaltyContract, LoyaltyContractClient};
 use traqora_contracts::refund::{RefundContract, RefundContractClient};
+use traqora_contracts::token::{TRQTokenContract, TRQTokenContractClient};
 
 pub struct Contracts<'a> {
     pub token: TRQTokenContractClient<'a>,
@@ -54,7 +54,7 @@ pub fn register_contracts<'a>(env: &'a Env) -> Contracts<'a> {
 }
 
 pub fn initialize_token(env: &Env, token: &TRQTokenContractClient, admin: &Address) {
-    token.initialize(
+    token.init_token(
         admin,
         &String::from_str(env, "TRQ"),
         &Symbol::new(env, "TRQ"),

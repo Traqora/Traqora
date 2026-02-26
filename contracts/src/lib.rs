@@ -26,3 +26,6 @@ pub mod refund;
 
 #[path = "token/lib.rs"]
 pub mod token;
+
+#[path = "oracle/lib.rs"]
+pub mod oracle;

@@ -1,10 +1,4 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
-import dotenv from 'dotenv';
-import http from 'http';
-
+import { createApp } from './app';
 import { config } from './config';
 import { logger } from './utils/logger';
 import { errorHandler } from './utils/errorHandler';
@@ -31,6 +25,7 @@ import { initPriceMonitorCron } from './jobs/priceMonitor';
 // Monitoring
 import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { contractMonitor, setupDefaultEventListeners, startWalletBalanceMonitoring } from './services/contractMonitor';
+import morgan from 'morgan';
 
 dotenv.config();
 
@@ -148,4 +143,5 @@ if (process.env.NODE_ENV !== 'test') {
     });
 }
 
+export { app };
 export default app;

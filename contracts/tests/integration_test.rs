@@ -1,8 +1,8 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, String};
+use soroban_sdk::Symbol;
 
 mod common;
 use common::{
-    new_env, generate_actors, register_contracts, initialize_token, register_and_verify_airline,
+    generate_actors, initialize_token, new_env, register_and_verify_airline, register_contracts,
 };
 
 #[test]
@@ -37,7 +37,9 @@ fn test_full_booking_and_loyalty_flow() {
         &contracts.token.address,
     );
 
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id);
     contracts.airline.reserve_seat(&actors.airline, &flight_id);
 
@@ -46,8 +48,10 @@ fn test_full_booking_and_loyalty_flow() {
     assert_eq!(contracts.token.balance_of(&actors.airline), price);
 
     // Loyalty points awarded
-    contracts.loyalty.initialize_tiers();
-    let earned = contracts.loyalty.award_points(&actors.passenger, &price, &booking_id);
+    contracts.loyalty.init_loyalty();
+    let earned = contracts
+        .loyalty
+        .award_points(&actors.passenger, &price, &booking_id);
     assert!(earned > 0);
 }
 
@@ -59,13 +63,9 @@ fn test_refund_policy_integration() {
     initialize_token(&env, &contracts.token, &actors.admin);
     register_and_verify_airline(&env, &contracts.airline, &actors.airline);
 
-    contracts.refund.set_refund_policy(
-        &actors.airline,
-        &86_400,
-        &10_000,
-        &5_000,
-        &3_600,
-    );
+    contracts
+        .refund
+        .set_refund_policy(&actors.airline, &86_400, &10_000, &5_000, &3_600);
 
     // Create a booking scheduled far out so full refund applies
     let price = 200_0000000i128;
@@ -79,7 +79,9 @@ fn test_refund_policy_integration() {
         &price,
         &contracts.token.address,
     );
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id);
 
     // Calculate refund via policy

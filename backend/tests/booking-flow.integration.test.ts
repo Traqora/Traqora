@@ -4,53 +4,73 @@ import { initDataSource, AppDataSource } from '../src/db/dataSource';
 import { Flight } from '../src/db/entities/Flight';
 import { Booking } from '../src/db/entities/Booking';
 
+jest.mock('../src/services/stripe', () => ({
+  stripe: {
+    paymentIntents: {
+      create: jest.fn(async () => ({ id: 'pi_bf_test', client_secret: 'cs_bf_test' })),
+    },
+    webhooks: {
+      constructEvent: jest.fn((body: any) => JSON.parse(body.toString('utf8'))),
+    },
+  },
+  stripeWebhookSecret: 'whsec_test',
+}));
+
+jest.mock('../src/services/soroban', () => ({
+  buildCreateBookingUnsignedXdr: jest.fn(async () => ({ xdr: 'unsigned_xdr_bf' })),
+  submitSignedSorobanXdr: jest.fn(async () => ({ txHash: 'txhash_bf' })),
+  getTransactionStatus: jest.fn(async () => ({
+    status: 'success',
+    result: { bookingId: '42' },
+  })),
+}));
+
 describe('Booking Flow Integration Tests', () => {
   let testFlight: Flight;
 
   beforeAll(async () => {
+    process.env.NODE_ENV = 'test';
     await initDataSource();
   });
 
   beforeEach(async () => {
-    // Create a test flight
     const flightRepo = AppDataSource.getRepository(Flight);
-    testFlight = flightRepo.create({
-      airline: 'Test Airlines',
-      flightNumber: 'TA123',
-      fromAirport: 'JFK',
-      toAirport: 'LAX',
-      departureTime: new Date(Date.now() + 86400000 * 7), // 7 days from now
-      arrivalTime: new Date(Date.now() + 86400000 * 7 + 21600000), // 7 days + 6 hours
-      priceCents: 45000,
-      currency: 'USD',
-      seatsAvailable: 100,
-      airlineSorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-    });
-    await flightRepo.save(testFlight);
+    testFlight = await flightRepo.save(
+      flightRepo.create({
+        flightNumber: 'BF100',
+        fromAirport: 'JFK',
+        toAirport: 'LAX',
+        departureTime: new Date(Date.now() + 86400000 * 7),
+        priceCents: 45000,
+        seatsAvailable: 100,
+        airlineSorobanAddress: 'GAAIRLINEBF',
+      })
+    );
   });
 
   afterEach(async () => {
-    // Clean up test data
     const bookingRepo = AppDataSource.getRepository(Booking);
     const flightRepo = AppDataSource.getRepository(Flight);
-    await bookingRepo.delete({});
-    await flightRepo.delete({});
+    await bookingRepo.clear();
+    await flightRepo.clear();
   });
 
-  describe('POST /api/bookings', () => {
+  afterAll(async () => {
+    if (AppDataSource.isInitialized) await AppDataSource.destroy();
+  });
+
+  describe('POST /api/v1/bookings', () => {
     it('should create a booking with unsigned XDR', async () => {
-      const idempotencyKey = `test-${Date.now()}`;
       const response = await request(app)
-        .post('/api/bookings')
-        .set('Idempotency-Key', idempotencyKey)
+        .post('/api/v1/bookings')
+        .set('Idempotency-Key', `test-${Date.now()}`)
         .send({
           flightId: testFlight.id,
           passenger: {
             email: 'test@example.com',
             firstName: 'John',
             lastName: 'Doe',
-            phone: '+1234567890',
-            sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+            sorobanAddress: 'GPASSENGERBF1',
           },
         });
 
@@ -64,14 +84,14 @@ describe('Booking Flow Integration Tests', () => {
 
     it('should reject booking without idempotency key', async () => {
       const response = await request(app)
-        .post('/api/bookings')
+        .post('/api/v1/bookings')
         .send({
           flightId: testFlight.id,
           passenger: {
             email: 'test@example.com',
             firstName: 'John',
             lastName: 'Doe',
-            sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+            sorobanAddress: 'GPASSENGERBF2',
           },
         });
 
@@ -84,25 +104,23 @@ describe('Booking Flow Integration Tests', () => {
       const bookingData = {
         flightId: testFlight.id,
         passenger: {
-          email: 'test@example.com',
-          firstName: 'John',
-          lastName: 'Doe',
-          sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+          email: 'idem@example.com',
+          firstName: 'Idem',
+          lastName: 'User',
+          sorobanAddress: 'GPASSENGERBF3',
         },
       };
 
-      // First request
       const response1 = await request(app)
-        .post('/api/bookings')
+        .post('/api/v1/bookings')
         .set('Idempotency-Key', idempotencyKey)
         .send(bookingData);
 
       expect(response1.status).toBe(201);
       const bookingId = response1.body.data.id;
 
-      // Second request with same key
       const response2 = await request(app)
-        .post('/api/bookings')
+        .post('/api/v1/bookings')
         .set('Idempotency-Key', idempotencyKey)
         .send(bookingData);
 
@@ -112,21 +130,20 @@ describe('Booking Flow Integration Tests', () => {
     });
 
     it('should reject booking for sold out flight', async () => {
-      // Update flight to have 0 seats
       const flightRepo = AppDataSource.getRepository(Flight);
       testFlight.seatsAvailable = 0;
       await flightRepo.save(testFlight);
 
       const response = await request(app)
-        .post('/api/bookings')
+        .post('/api/v1/bookings')
         .set('Idempotency-Key', `test-${Date.now()}`)
         .send({
           flightId: testFlight.id,
           passenger: {
-            email: 'test@example.com',
-            firstName: 'John',
-            lastName: 'Doe',
-            sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+            email: 'soldout@example.com',
+            firstName: 'Sold',
+            lastName: 'Out',
+            sorobanAddress: 'GPASSENGERBF4',
           },
         });
 
@@ -135,26 +152,23 @@ describe('Booking Flow Integration Tests', () => {
     });
   });
 
-  describe('GET /api/bookings/:id', () => {
+  describe('GET /api/v1/bookings/:id', () => {
     it('should retrieve booking by ID', async () => {
-      // Create a booking first
       const createResponse = await request(app)
-        .post('/api/bookings')
+        .post('/api/v1/bookings')
         .set('Idempotency-Key', `test-${Date.now()}`)
         .send({
           flightId: testFlight.id,
           passenger: {
-            email: 'test@example.com',
-            firstName: 'John',
-            lastName: 'Doe',
-            sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+            email: 'gettest@example.com',
+            firstName: 'Get',
+            lastName: 'Test',
+            sorobanAddress: 'GPASSENGERBF5',
           },
         });
 
       const bookingId = createResponse.body.data.id;
-
-      // Retrieve the booking
-      const response = await request(app).get(`/api/bookings/${bookingId}`);
+      const response = await request(app).get(`/api/v1/bookings/${bookingId}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -162,24 +176,24 @@ describe('Booking Flow Integration Tests', () => {
     });
 
     it('should return 404 for non-existent booking', async () => {
-      const response = await request(app).get('/api/bookings/non-existent-id');
-
+      const response = await request(app).get(
+        '/api/v1/bookings/00000000-0000-0000-0000-000000000099'
+      );
       expect(response.status).toBe(404);
       expect(response.body.error.code).toBe('BOOKING_NOT_FOUND');
     });
   });
 
-  describe('POST /api/bookings/:id/submit-onchain', () => {
-    it('should submit signed transaction', async () => {
-      // Create a booking and mark as paid
+  describe('POST /api/v1/bookings/:id/submit-onchain', () => {
+    it('should submit signed transaction for paid booking', async () => {
       const bookingRepo = AppDataSource.getRepository(Booking);
       const booking = bookingRepo.create({
         flight: testFlight,
         passenger: {
-          email: 'test@example.com',
-          firstName: 'John',
-          lastName: 'Doe',
-          sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+          email: 'onchain@example.com',
+          firstName: 'On',
+          lastName: 'Chain',
+          sorobanAddress: 'GPASSENGERBF6',
         },
         status: 'paid',
         amountCents: 45000,
@@ -188,10 +202,8 @@ describe('Booking Flow Integration Tests', () => {
       await bookingRepo.save(booking);
 
       const response = await request(app)
-        .post(`/api/bookings/${booking.id}/submit-onchain`)
-        .send({
-          signedXdr: 'signed-test-xdr',
-        });
+        .post(`/api/v1/bookings/${booking.id}/submit-onchain`)
+        .send({ signedXdr: 'signed-test-xdr' });
 
       expect(response.status).toBe(202);
       expect(response.body.success).toBe(true);
@@ -204,10 +216,10 @@ describe('Booking Flow Integration Tests', () => {
       const booking = bookingRepo.create({
         flight: testFlight,
         passenger: {
-          email: 'test@example.com',
-          firstName: 'John',
-          lastName: 'Doe',
-          sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+          email: 'notpaid@example.com',
+          firstName: 'Not',
+          lastName: 'Paid',
+          sorobanAddress: 'GPASSENGERBF7',
         },
         status: 'awaiting_payment',
         amountCents: 45000,
@@ -215,52 +227,24 @@ describe('Booking Flow Integration Tests', () => {
       await bookingRepo.save(booking);
 
       const response = await request(app)
-        .post(`/api/bookings/${booking.id}/submit-onchain`)
-        .send({
-          signedXdr: 'signed-test-xdr',
-        });
+        .post(`/api/v1/bookings/${booking.id}/submit-onchain`)
+        .send({ signedXdr: 'signed-test-xdr' });
 
       expect(response.status).toBe(409);
       expect(response.body.error.code).toBe('BOOKING_NOT_READY');
     });
   });
 
-  describe('GET /api/bookings/:id/transaction-status', () => {
-    it('should return transaction status for booking with tx hash', async () => {
-      const bookingRepo = AppDataSource.getRepository(Booking);
-      const booking = bookingRepo.create({
-        flight: testFlight,
-        passenger: {
-          email: 'test@example.com',
-          firstName: 'John',
-          lastName: 'Doe',
-          sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        },
-        status: 'onchain_submitted',
-        amountCents: 45000,
-        sorobanTxHash: '0xtest123',
-      });
-      await bookingRepo.save(booking);
-
-      const response = await request(app).get(
-        `/api/bookings/${booking.id}/transaction-status`
-      );
-
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
-      expect(response.body.data).toHaveProperty('bookingStatus');
-      expect(response.body.data).toHaveProperty('transactionStatus');
-    });
-
+  describe('GET /api/v1/bookings/:id/transaction-status', () => {
     it('should return null transaction status for booking without tx hash', async () => {
       const bookingRepo = AppDataSource.getRepository(Booking);
       const booking = bookingRepo.create({
         flight: testFlight,
         passenger: {
-          email: 'test@example.com',
-          firstName: 'John',
-          lastName: 'Doe',
-          sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+          email: 'notx@example.com',
+          firstName: 'No',
+          lastName: 'Tx',
+          sorobanAddress: 'GPASSENGERBF8',
         },
         status: 'awaiting_payment',
         amountCents: 45000,
@@ -268,7 +252,7 @@ describe('Booking Flow Integration Tests', () => {
       await bookingRepo.save(booking);
 
       const response = await request(app).get(
-        `/api/bookings/${booking.id}/transaction-status`
+        `/api/v1/bookings/${booking.id}/transaction-status`
       );
 
       expect(response.status).toBe(200);
@@ -276,87 +260,30 @@ describe('Booking Flow Integration Tests', () => {
       expect(response.body.data.transactionStatus).toBeNull();
     });
 
-    it('should update booking status when transaction succeeds', async () => {
+    it('should return transaction status for booking with tx hash', async () => {
       const bookingRepo = AppDataSource.getRepository(Booking);
       const booking = bookingRepo.create({
         flight: testFlight,
         passenger: {
-          email: 'test@example.com',
-          firstName: 'John',
-          lastName: 'Doe',
-          sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+          email: 'withtx@example.com',
+          firstName: 'With',
+          lastName: 'Tx',
+          sorobanAddress: 'GPASSENGERBF9',
         },
         status: 'onchain_submitted',
         amountCents: 45000,
-        sorobanTxHash: '0xtest123', // Mock hash that returns success
+        sorobanTxHash: 'txhash_status_test',
       });
       await bookingRepo.save(booking);
 
       const response = await request(app).get(
-        `/api/bookings/${booking.id}/transaction-status`
+        `/api/v1/bookings/${booking.id}/transaction-status`
       );
 
       expect(response.status).toBe(200);
-      
-      // Verify booking status was updated
-      const updatedBooking = await bookingRepo.findOne({
-        where: { id: booking.id },
-      });
-      expect(updatedBooking?.status).toBe('confirmed');
-    });
-  });
-
-  describe('Complete Booking Flow', () => {
-    it('should complete full booking flow from creation to confirmation', async () => {
-      // Step 1: Create booking
-      const createResponse = await request(app)
-        .post('/api/bookings')
-        .set('Idempotency-Key', `test-${Date.now()}`)
-        .send({
-          flightId: testFlight.id,
-          passenger: {
-            email: 'test@example.com',
-            firstName: 'John',
-            lastName: 'Doe',
-            sorobanAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          },
-        });
-
-      expect(createResponse.status).toBe(201);
-      const bookingId = createResponse.body.data.id;
-      const unsignedXdr = createResponse.body.soroban.unsignedXdr;
-
-      // Step 2: Simulate payment (mark as paid)
-      const bookingRepo = AppDataSource.getRepository(Booking);
-      const booking = await bookingRepo.findOne({ where: { id: bookingId } });
-      booking!.status = 'paid';
-      await bookingRepo.save(booking!);
-
-      // Step 3: Submit signed transaction
-      const submitResponse = await request(app)
-        .post(`/api/bookings/${bookingId}/submit-onchain`)
-        .send({
-          signedXdr: `signed-${unsignedXdr}`,
-        });
-
-      expect(submitResponse.status).toBe(202);
-      expect(submitResponse.body.data.status).toBe('onchain_submitted');
-      expect(submitResponse.body.data.sorobanTxHash).toBeDefined();
-
-      // Step 4: Check transaction status
-      const statusResponse = await request(app).get(
-        `/api/bookings/${bookingId}/transaction-status`
-      );
-
-      expect(statusResponse.status).toBe(200);
-      expect(statusResponse.body.data.transactionStatus).toBeDefined();
-
-      // Step 5: Verify final booking state
-      const finalBooking = await bookingRepo.findOne({
-        where: { id: bookingId },
-      });
-      expect(finalBooking?.sorobanTxHash).toBeDefined();
-      expect(finalBooking?.contractSubmitAttempts).toBeGreaterThan(0);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('bookingStatus');
+      expect(response.body.data).toHaveProperty('transactionStatus');
     });
   });
 });

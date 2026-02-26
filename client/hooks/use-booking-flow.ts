@@ -1,7 +1,10 @@
-import { useState, useCallback } from 'react';
-import { apiClient, CreateBookingRequest, Booking, generateIdempotencyKey } from '@/lib/api';
-import { connectFreighterWallet, signTransactionWithFreighter, WalletConnection } from '@/lib/wallet';
-import { toast } from 'sonner';
+import { useState, useCallback } from "react";
+import { apiClient, CreateBookingRequest, Booking, generateIdempotencyKey } from "@/lib/api";
+// NEW: import WalletConnection type from updated wallet utils
+import type { WalletConnection } from "@/lib/wallet";
+// NEW: import real wallet store and signTransaction from stellar-wallet-connect
+import { useWalletStore, signTransaction } from "@/lib/stellar-wallet-connect";
+import { toast } from "sonner";
 
 export type BookingStep = 'details' | 'wallet' | 'payment' | 'signing' | 'submitting' | 'confirming' | 'success' | 'error';
 
@@ -45,16 +48,25 @@ export const useBookingFlow = (): [UseBookingFlowState, UseBookingFlowActions] =
     toast.error('Error', { description: error });
   }, []);
 
+  // NEW: connectWallet now reads from the Zustand store instead of calling the old Freighter-only function
   const connectWallet = useCallback(async (): Promise<boolean> => {
-    setProcessing(true, 'Connecting to wallet...');
+    setProcessing(true, 'Checking wallet connection...');
     
     try {
-      const wallet = await connectFreighterWallet();
-      
-      if (!wallet) {
-        setError('Failed to connect wallet');
+      // NEW: read the real wallet state from the stellar-wallet-connect Zustand store
+      const storeState = useWalletStore.getState();
+
+      if (!storeState.isConnected || !storeState.address) {
+        setError('No wallet connected. Please connect your wallet first.');
         return false;
       }
+
+      // NEW: map the store state to the legacy WalletConnection shape
+      const wallet: WalletConnection = {
+        publicKey: storeState.address,
+        isConnected: true,
+        walletType: storeState.walletType || null,
+      };
 
       setState(prev => ({
         ...prev,
@@ -111,13 +123,16 @@ export const useBookingFlow = (): [UseBookingFlowState, UseBookingFlowActions] =
     setProcessing(true, 'Waiting for signature...');
 
     try {
-      // Sign transaction with wallet
-      const signedXdr = await signTransactionWithFreighter(
-        state.unsignedXdr,
-        state.networkPassphrase
-      );
-
-      if (!signedXdr) {
+      // NEW: sign transaction using the stellar-wallet-connect signTransaction helper
+      // which works with any connected wallet (Freighter, Lobstr, xBull, Albedo, etc.)
+      const storeState = useWalletStore.getState();
+      let signedXdr: string;
+      try {
+        signedXdr = await signTransaction({
+          unsignedTransaction: state.unsignedXdr,
+          address: storeState.address,
+        });
+      } catch {
         setError('Transaction signing cancelled or failed');
         return false;
       }

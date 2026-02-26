@@ -1,15 +1,12 @@
 export const config = {
-  port: parseInt(process.env.PORT || "3001"),
-  environment: process.env.NODE_ENV || "development",
-  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:3000",
+  port: Number.parseInt(process.env.PORT || '3001', 10),
+  environment: process.env.NODE_ENV || 'development',
+  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
 
-  // Stellar configuration
-  stellarNetwork: process.env.STELLAR_NETWORK || "testnet",
-  horizonUrl: process.env.HORIZON_URL || "https://horizon-testnet.stellar.org",
-  sorobanRpcUrl:
-    process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org",
+  stellarNetwork: process.env.STELLAR_NETWORK || 'testnet',
+  horizonUrl: process.env.HORIZON_URL || 'https://horizon-testnet.stellar.org',
+  sorobanRpcUrl: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
 
-  // Contract IDs (to be filled after deployment)
   contracts: {
     booking: process.env.BOOKING_CONTRACT_ID || "",
     airline: process.env.AIRLINE_CONTRACT_ID || "",
@@ -24,22 +21,29 @@ export const config = {
   // Mongo connection string (optional, used for notifications/history etc)
   mongoUrl: process.env.MONGO_URI || '',
   redisUrl: process.env.REDIS_URL || '',
-  
-  // Authentication
-  jwtSecret: process.env.JWT_SECRET || "your-secret-key-change-in-production",
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
 
-  // Rate limiting
-  rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || "900000"), // 15 minutes
-  rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || "100"),
+  jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
 
-  // Logging
-  logLevel: process.env.LOG_LEVEL || "info",
+  adminApiKey: process.env.ADMIN_API_KEY || 'dev-admin-key',
 
-  // Notifications
-  sendgridApiKey: process.env.SENDGRID_API_KEY || "",
-  twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || "",
-  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || "",
-  twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER || "",
-  firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT || "",
+  rateLimitWindowSec: Number.parseInt(process.env.RATE_LIMIT_WINDOW_SEC || '60', 10),
+  rateLimitMax: Number.parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+  rateLimitPublicMax: Number.parseInt(process.env.RATE_LIMIT_PUBLIC_MAX || '60', 10),
+  rateLimitUserMax: Number.parseInt(process.env.RATE_LIMIT_USER_MAX || '120', 10),
+  rateLimitPremiumMax: Number.parseInt(process.env.RATE_LIMIT_PREMIUM_MAX || '300', 10),
+  ddosBurstMax: Number.parseInt(process.env.DDOS_BURST_MAX || '25', 10),
+  ddosBurstWindowSec: Number.parseInt(process.env.DDOS_BURST_WINDOW_SEC || '3', 10),
+  rateLimitBlockDurationSec: Number.parseInt(process.env.RATE_LIMIT_BLOCK_DURATION_SEC || '900', 10),
+  rateLimitBlockAfterViolations: Number.parseInt(process.env.RATE_LIMIT_BLOCK_AFTER_VIOLATIONS || '8', 10),
+  captchaAfterViolations: Number.parseInt(process.env.CAPTCHA_AFTER_VIOLATIONS || '3', 10),
+  trustProxy: process.env.TRUST_PROXY === 'true',
+  useCloudflareHeaders: process.env.USE_CLOUDFLARE_HEADERS === 'true',
+
+  flightSearchCacheTtlSeconds: Number.parseInt(
+    process.env.FLIGHT_SEARCH_CACHE_TTL_SECONDS || '300',
+    10
+  ),
+
+  logLevel: process.env.LOG_LEVEL || 'info',
 };

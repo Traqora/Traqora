@@ -8,6 +8,9 @@ import { Booking } from "./entities/Booking";
 import { Flight } from "./entities/Flight";
 import { Passenger } from "./entities/Passenger";
 import { IdempotencyKey } from "./entities/IdempotencyKey";
+import { AdminUser } from "./entities/AdminUser";
+import { AdminAuditLog } from "./entities/AdminAuditLog";
+import { Refund } from "./entities/Refund";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -25,6 +28,9 @@ export const AppDataSource = new DataSource(
           IdempotencyKey,
           UserPreference,
           NotificationLog,
+          AdminUser,
+          AdminAuditLog,
+          Refund,
         ],
         logging: false,
       }
@@ -40,6 +46,9 @@ export const AppDataSource = new DataSource(
           IdempotencyKey,
           UserPreference,
           NotificationLog,
+          AdminUser,
+          AdminAuditLog,
+          Refund,
         ],
         ssl:
           config.environment === "production"
@@ -51,7 +60,13 @@ export const AppDataSource = new DataSource(
 export const initDataSource = async () => {
   if (AppDataSource.isInitialized) return;
 
-  // If no database URL is configured, skip initialization (e.g. in test or dev without Postgres)
+  // In test mode use the in-memory SQLite datasource — no DATABASE_URL needed
+  if (isTest) {
+    await AppDataSource.initialize();
+    return;
+  }
+
+  // If no database URL is configured (dev without Postgres), skip initialization
   if (!config.databaseUrl) {
     logger.warn(
       "No Postgres DATABASE_URL provided, skipping TypeORM datasource initialization",

@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, token};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec, token};
 
 #[contracttype]
 #[derive(Clone)]
@@ -17,7 +17,25 @@ pub struct Booking {
     pub created_at: u64,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct BatchFailure {
+    pub index: u32,
+    pub booking_id: u64,
+    pub reason: Symbol,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct BatchCompleteBookingsResult {
+    pub completed_booking_ids: Vec<u64>,
+    pub failures: Vec<BatchFailure>,
+    pub total_released: i128,
+}
+
 pub struct BookingStorage;
+
+const MAX_BATCH_SIZE: u32 = 50;
 
 impl BookingStorage {
     pub fn get(env: &Env, booking_id: u64) -> Option<Booking> {
@@ -31,6 +49,8 @@ impl BookingStorage {
 
 #[contract]
 pub struct BookingContract;
+
+const MAX_BATCH_SIZE: u32 = 50;
 
 #[contractimpl]
 impl BookingContract {
@@ -193,5 +213,95 @@ impl BookingContract {
     pub fn complete_booking(env: Env, airline: Address, booking_id: u64) {
         airline.require_auth();
         Self::release_payment_to_airline(env, booking_id);
+    }
+
+    // Batch post-flight settlement with partial failure handling.
+    // Gas savings come from one auth check and a single transaction envelope.
+    pub fn batch_complete_bookings(
+        env: Env,
+        airline: Address,
+        booking_ids: Vec<u64>,
+    ) -> BatchCompleteBookingsResult {
+        airline.require_auth();
+        assert!(booking_ids.len() > 0, "Empty batch");
+        assert!(booking_ids.len() <= MAX_BATCH_SIZE, "Batch too large");
+
+        let mut completed_booking_ids = Vec::new(&env);
+        let mut failures = Vec::new(&env);
+        let mut total_released: i128 = 0;
+
+        let mut i: u32 = 0;
+        while i < booking_ids.len() {
+            let booking_id = booking_ids.get(i).unwrap();
+            let mut booking = match BookingStorage::get(&env, booking_id) {
+                Some(existing) => existing,
+                None => {
+                    failures.push_back(BatchFailure {
+                        index: i,
+                        booking_id,
+                        reason: symbol_short!("missing"),
+                    });
+                    i += 1;
+                    continue;
+                }
+            };
+
+            if booking.airline != airline {
+                failures.push_back(BatchFailure {
+                    index: i,
+                    booking_id,
+                    reason: symbol_short!("unauth"),
+                });
+                i += 1;
+                continue;
+            }
+
+            if booking.status != symbol_short!("confirmed") {
+                failures.push_back(BatchFailure {
+                    index: i,
+                    booking_id,
+                    reason: symbol_short!("bad_stat"),
+                });
+                i += 1;
+                continue;
+            }
+
+            if booking.amount_escrowed <= 0 {
+                failures.push_back(BatchFailure {
+                    index: i,
+                    booking_id,
+                    reason: symbol_short!("no_funds"),
+                });
+                i += 1;
+                continue;
+            }
+
+            let token_client = token::Client::new(&env, &booking.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &booking.airline,
+                &booking.amount_escrowed,
+            );
+
+            let released_amount = booking.amount_escrowed;
+            total_released += released_amount;
+            booking.amount_escrowed = 0;
+            booking.status = symbol_short!("completed");
+            BookingStorage::set(&env, booking_id, &booking);
+            completed_booking_ids.push_back(booking_id);
+
+            env.events().publish(
+                (symbol_short!("booking"), symbol_short!("released")),
+                (booking_id, released_amount),
+            );
+
+            i += 1;
+        }
+
+        BatchCompleteBookingsResult {
+            completed_booking_ids,
+            failures,
+            total_released,
+        }
     }
 }

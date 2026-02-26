@@ -1,9 +1,9 @@
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
 use proptest::prelude::*;
-use traqora_contracts::token::{TRQTokenContract, TRQTokenContractClient};
+use soroban_sdk::testutils::Ledger;
+use traqora_contracts::token::TRQTokenContract;
 
 mod common;
-use common::{new_env, generate_actors, register_contracts, initialize_token};
+use common::{generate_actors, initialize_token, new_env, register_contracts};
 
 proptest! {
     #[test]

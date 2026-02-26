@@ -10,7 +10,9 @@ export type BookingStatus =
   | 'onchain_pending'
   | 'onchain_submitted'
   | 'confirmed'
-  | 'failed';
+  | 'failed'
+  | 'refunded'
+  | 'refund_rejected';
 
 @Entity({ name: 'bookings' })
 export class Booking {
@@ -56,9 +58,9 @@ export class Booking {
   @Column({ type: 'text', nullable: true })
   lastError?: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   updatedAt!: Date;
 }

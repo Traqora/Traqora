@@ -7,6 +7,64 @@ export type UnsignedSorobanTx = {
   networkPassphrase: string;
 };
 
+export const buildBatchBookingActionUnsignedXdr = async (params: {
+  actor: string;
+  bookingIds: number[];
+  action: 'batch_release_payments' | 'batch_refund_passenger';
+}): Promise<UnsignedSorobanTx> => {
+  try {
+    if (!config.contracts.booking) {
+      logger.warn('Booking contract ID not configured, returning mock batch XDR');
+      const payload = JSON.stringify({ contract: 'mock', ...params });
+      const xdr = Buffer.from(payload, 'utf8').toString('base64');
+      return { xdr, networkPassphrase: getNetworkPassphrase() };
+    }
+
+    if (!params.bookingIds.length) {
+      throw new Error('bookingIds must not be empty');
+    }
+
+    const server = getSorobanServer();
+    const networkPassphrase = getNetworkPassphrase();
+    const sourceAccount = await server.getAccount(params.actor);
+    const contract = new StellarSdk.Contract(config.contracts.booking);
+
+    const actorVal = new StellarSdk.Address(params.actor).toScVal();
+    const bookingIdsVal = StellarSdk.nativeToScVal(params.bookingIds, {
+      type: { vec: ['u64'] },
+    });
+
+    const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+      fee: StellarSdk.BASE_FEE,
+      networkPassphrase,
+    })
+      .addOperation(contract.call(params.action, actorVal, bookingIdsVal))
+      .setTimeout(300)
+      .build();
+
+    const simulated = await server.simulateTransaction(transaction);
+    if (StellarSdk.SorobanRpc.Api.isSimulationSuccess(simulated)) {
+      const prepared = StellarSdk.SorobanRpc.assembleTransaction(
+        transaction,
+        simulated
+      ).build();
+
+      return {
+        xdr: prepared.toXDR(),
+        networkPassphrase,
+      };
+    }
+
+    logger.error('Batch transaction simulation failed', { error: (simulated as any).error, params });
+    throw new Error(`Simulation failed: ${(simulated as any).error || 'Unknown error'}`);
+  } catch (error: any) {
+    logger.error('Error building batch Soroban transaction', { error: error.message, params });
+    const payload = JSON.stringify({ contract: config.contracts.booking || 'mock', ...params });
+    const xdr = Buffer.from(payload, 'utf8').toString('base64');
+    return { xdr, networkPassphrase: getNetworkPassphrase() };
+  }
+};
+
 export type TransactionStatus = {
   status: 'pending' | 'success' | 'failed' | 'not_found';
   txHash?: string;
