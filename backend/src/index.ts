@@ -16,6 +16,7 @@ import { flightRoutes } from './api/routes/flights';
 import { subscriptionRoutes } from './api/routes/subscriptions';
 import { governanceRoutes } from './api/routes/governance';
 import { bookingRoutes } from './api/routes/bookings';
+import { metricsRoutes } from './api/routes/metrics';
 // import { airlineRoutes } from './api/routes/airlines';
 // import { userRoutes } from './api/routes/users';
 // import { refundRoutes } from './api/routes/refunds';
@@ -26,6 +27,10 @@ import { bookingRoutes } from './api/routes/bookings';
 import { connectDatabase } from './config/database';
 import { initWebSocket } from './websockets/server';
 import { initPriceMonitorCron } from './jobs/priceMonitor';
+
+// Monitoring
+import { metricsMiddleware } from './middleware/metricsMiddleware';
+import { contractMonitor, setupDefaultEventListeners, startWalletBalanceMonitoring } from './services/contractMonitor';
 
 dotenv.config();
 
@@ -43,6 +48,9 @@ app.use(cors({
   origin: config.corsOrigin || '*', // Fallback to * if config missing
   credentials: true,
 }));
+
+// Metrics middleware (before other middleware to capture all requests)
+app.use(metricsMiddleware);
 
 // Rate limiting
 // app.use(rateLimiter);
@@ -71,6 +79,7 @@ app.get('/health', (_req, res) => {
 });
 
 // API routes
+app.use('/metrics', metricsRoutes);
 app.use('/api/v1/flights', flightRoutes);
 app.use('/api/v1/subscriptions', subscriptionRoutes);
 app.use('/api/v1/governance', governanceRoutes);
@@ -100,6 +109,20 @@ if (process.env.NODE_ENV !== 'test') {
         logger.info(`🔗 Stellar Network: ${config.stellarNetwork}`);
         logger.info(`🔄 WebSocket Server initialized`);
         logger.info(`⏱️ Price Monitor Cron Job scheduled`);
+        
+        // Initialize contract monitoring
+        setupDefaultEventListeners();
+        contractMonitor.startMonitoring(5000);
+        logger.info(`📊 Contract event monitoring started`);
+        
+        // Start wallet balance monitoring
+        const wallets = [
+          { address: process.env.OPERATIONAL_WALLET_ADDRESS || '', type: 'operational' },
+        ].filter(w => w.address);
+        if (wallets.length > 0) {
+          startWalletBalanceMonitoring(wallets);
+          logger.info(`💰 Wallet balance monitoring started for ${wallets.length} wallet(s)`);
+        }
       });
     })
     .catch((err) => {
