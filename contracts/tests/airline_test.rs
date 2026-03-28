@@ -1,4 +1,4 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, Vec};
+use soroban_sdk::{testutils::{Address as _, Ledger, LedgerInfo}, Address, Env, Symbol, Vec};
 use traqora_contracts::airline::{
     AirlineContract,
     AirlineContractClient,
@@ -7,6 +7,8 @@ use traqora_contracts::airline::{
     Flight,
     FlightInput,
     FlightStatusUpdate,
+    PricingFactors,
+    PriceUpdateInput,
 };
 
 mod common;
@@ -222,4 +224,287 @@ fn test_batch_create_flights_enforces_max_batch_size() {
     }
 
     contracts.airline.batch_create_flights(&actors.airline, &batch);
+}
+
+// ── Dynamic pricing tests ─────────────────────────────────────────────────────
+
+fn advance_ledger(env: &Env, seconds: u64) {
+    env.ledger().set(LedgerInfo {
+        timestamp: env.ledger().timestamp() + seconds,
+        protocol_version: env.ledger().protocol_version(),
+        sequence_number: env.ledger().sequence() + 1,
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 16,
+        max_entry_ttl: 6312000,
+    });
+}
+
+#[test]
+fn test_initialize_pricing() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+
+    let oracle = Address::generate(&env);
+    contracts.airline.initialize_pricing(
+        &actors.admin,
+        &oracle,
+        &3600u64,       // cooldown: 1h
+        &2000i128,      // max_change_bps: 20%
+        &5000i128,      // max_demand_multiplier_bps: 50%
+    );
+}
+
+#[test]
+#[should_panic(expected = "Already initialized")]
+fn test_initialize_pricing_twice_panics() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+
+    let oracle = Address::generate(&env);
+    contracts.airline.initialize_pricing(&actors.admin, &oracle, &3600u64, &2000i128, &5000i128);
+    contracts.airline.initialize_pricing(&actors.admin, &oracle, &3600u64, &2000i128, &5000i128);
+}
+
+#[test]
+fn test_set_price_oracle() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+
+    let oracle = Address::generate(&env);
+    contracts.airline.initialize_pricing(&actors.admin, &oracle, &0u64, &2000i128, &5000i128);
+
+    let new_oracle = Address::generate(&env);
+    contracts.airline.set_price_oracle(&actors.admin, &new_oracle);
+}
+
+#[test]
+fn test_update_flight_price_within_guardrails() {
+    let env = new_env();
+    env.ledger().set_timestamp(1_000_000);
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+
+    let oracle = Address::generate(&env);
+    // cooldown = 0 so we can update immediately
+    contracts.airline.initialize_pricing(&actors.admin, &oracle, &0u64, &2000i128, &5000i128);
+
+    let initial_price = 100_0000000i128;
+    let flight_id = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ600"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LHR"),
+        &2_000_000_000u64,
+        &2_000_100_000u64,
+        &200u32,
+        &initial_price,
+        &Symbol::new(&env, "USDC"),
+    );
+
+    let input = PriceUpdateInput {
+        base_price: initial_price,
+        factors: PricingFactors {
+            demand_bps: 1000i128,  // +10%
+            competitor_bps: 0i128,
+            time_to_departure_bps: 0i128,
+        },
+    };
+
+    let new_price = contracts.airline.update_flight_price(&oracle, &flight_id, &input);
+
+    // Price should increase but capped at 20% max
+    assert!(new_price > initial_price);
+    assert!(new_price <= initial_price + initial_price * 2000 / 10_000);
+
+    let flight = contracts.airline.get_flight(&flight_id).unwrap();
+    assert_eq!(flight.price, new_price);
+}
+
+#[test]
+fn test_update_flight_price_capped_at_max_change() {
+    let env = new_env();
+    env.ledger().set_timestamp(1_000_000);
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+
+    let oracle = Address::generate(&env);
+    contracts.airline.initialize_pricing(&actors.admin, &oracle, &0u64, &2000i128, &5000i128);
+
+    let initial_price = 100_0000000i128;
+    let flight_id = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ601"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LHR"),
+        &2_000_000_000u64,
+        &2_000_100_000u64,
+        &200u32,
+        &initial_price,
+        &Symbol::new(&env, "USDC"),
+    );
+
+    // Request 50% increase, but cap is 20%
+    let input = PriceUpdateInput {
+        base_price: initial_price,
+        factors: PricingFactors {
+            demand_bps: 5000i128,  // +50% requested
+            competitor_bps: 0i128,
+            time_to_departure_bps: 0i128,
+        },
+    };
+
+    let new_price = contracts.airline.update_flight_price(&oracle, &flight_id, &input);
+    let expected_max = initial_price + initial_price * 2000 / 10_000; // 20% cap
+    assert_eq!(new_price, expected_max);
+}
+
+#[test]
+fn test_get_price_history() {
+    let env = new_env();
+    env.ledger().set_timestamp(1_000_000);
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+
+    let oracle = Address::generate(&env);
+    contracts.airline.initialize_pricing(&actors.admin, &oracle, &0u64, &2000i128, &5000i128);
+
+    let flight_id = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ602"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LHR"),
+        &2_000_000_000u64,
+        &2_000_100_000u64,
+        &200u32,
+        &100_0000000i128,
+        &Symbol::new(&env, "USDC"),
+    );
+
+    // Empty before any updates
+    let history_before = contracts.airline.get_price_history(&flight_id);
+    assert_eq!(history_before.len(), 0);
+
+    let input = PriceUpdateInput {
+        base_price: 100_0000000i128,
+        factors: PricingFactors { demand_bps: 500i128, competitor_bps: 0i128, time_to_departure_bps: 0i128 },
+    };
+    contracts.airline.update_flight_price(&oracle, &flight_id, &input);
+
+    advance_ledger(&env, 1);
+
+    let input2 = PriceUpdateInput {
+        base_price: 100_0000000i128,
+        factors: PricingFactors { demand_bps: -500i128, competitor_bps: 0i128, time_to_departure_bps: 0i128 },
+    };
+    contracts.airline.update_flight_price(&oracle, &flight_id, &input2);
+
+    let history = contracts.airline.get_price_history(&flight_id);
+    assert_eq!(history.len(), 2);
+    assert_eq!(history.get(0).unwrap().old_price, 100_0000000i128);
+}
+
+#[test]
+fn test_get_current_price_with_demand() {
+    let env = new_env();
+    env.ledger().set_timestamp(1_000_000);
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+
+    let oracle = Address::generate(&env);
+    contracts.airline.initialize_pricing(&actors.admin, &oracle, &0u64, &2000i128, &5000i128);
+
+    let price = 100_0000000i128;
+    let departure = 1_000_000u64 + 24 * 3600; // 24h from now (within 48h time boost)
+    let flight_id = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ603"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LHR"),
+        &departure,
+        &(departure + 7200),
+        &100u32,
+        &price,
+        &Symbol::new(&env, "USDC"),
+    );
+
+    let live_price = contracts.airline.get_current_price(&flight_id);
+    // Due to time boost, live price should be >= stored price
+    assert!(live_price >= price);
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized")]
+fn test_update_flight_price_wrong_oracle_panics() {
+    let env = new_env();
+    env.ledger().set_timestamp(1_000_000);
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+
+    let oracle = Address::generate(&env);
+    contracts.airline.initialize_pricing(&actors.admin, &oracle, &0u64, &2000i128, &5000i128);
+
+    let flight_id = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ604"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LHR"),
+        &2_000_000_000u64,
+        &2_000_100_000u64,
+        &200u32,
+        &100_0000000i128,
+        &Symbol::new(&env, "USDC"),
+    );
+
+    let wrong_oracle = Address::generate(&env);
+    let input = PriceUpdateInput {
+        base_price: 100_0000000i128,
+        factors: PricingFactors { demand_bps: 0i128, competitor_bps: 0i128, time_to_departure_bps: 0i128 },
+    };
+    contracts.airline.update_flight_price(&wrong_oracle, &flight_id, &input);
+}
+
+#[test]
+#[should_panic(expected = "Cooldown active")]
+fn test_update_flight_price_cooldown_enforced() {
+    let env = new_env();
+    env.ledger().set_timestamp(1_000_000);
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+
+    let oracle = Address::generate(&env);
+    contracts.airline.initialize_pricing(&actors.admin, &oracle, &3600u64, &2000i128, &5000i128);
+
+    let flight_id = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ605"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LHR"),
+        &2_000_000_000u64,
+        &2_000_100_000u64,
+        &200u32,
+        &100_0000000i128,
+        &Symbol::new(&env, "USDC"),
+    );
+
+    let input = PriceUpdateInput {
+        base_price: 100_0000000i128,
+        factors: PricingFactors { demand_bps: 0i128, competitor_bps: 0i128, time_to_departure_bps: 0i128 },
+    };
+    contracts.airline.update_flight_price(&oracle, &flight_id, &input);
+    // Immediately try again — cooldown is 1h
+    contracts.airline.update_flight_price(&oracle, &flight_id, &input);
 }

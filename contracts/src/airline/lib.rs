@@ -99,6 +99,13 @@ pub struct BatchUpdateFlightStatusResult {
 
 #[contracttype]
 #[derive(Clone)]
+pub struct PriceUpdateInput {
+    pub base_price: i128,
+    pub factors: PricingFactors,
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct PriceHistoryEntry {
     pub timestamp: u64,
     pub old_price: i128,

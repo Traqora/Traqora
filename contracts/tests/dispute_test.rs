@@ -33,17 +33,6 @@ fn advance_ledger(env: &Env, seconds: u64) {
     });
 }
 
-// Helper function to compute commit hash
-fn compute_commit_hash(env: &Env, vote_for_passenger: bool, salt: &BytesN<32>) -> BytesN<32> {
-    let mut hash_bytes = Bytes::new(env);
-    hash_bytes.push_back(if vote_for_passenger { 1u8 } else { 0u8 });
-    let salt_bytes = salt.to_array();
-    for byte in salt_bytes.iter() {
-        hash_bytes.push_back(*byte);
-    }
-    env.crypto().keccak256(&hash_bytes).into()
-}
-
 #[test]
 fn test_initialize() {
     let env = Env::default();
