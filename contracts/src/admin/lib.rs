@@ -1,5 +1,6 @@
 use soroban_sdk::{
-    contract, contractimpl, contractmeta, contracttype, symbol_short, Address, Env, Symbol, Vec,
+    contract, contractimpl, contractmeta, contracttype, symbol_short, Address, BytesN, Env, Symbol,
+    Vec,
 };
 
 // Contract metadata
@@ -475,5 +476,16 @@ impl AdminMultisig {
         } else {
             false
         }
+    }
+
+    pub fn schedule_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        admin.require_auth();
+        let config = AdminStorage::get_multisig_config(&env).expect("Not initialized");
+        assert!(Self::is_signer(&config, &admin), "Unauthorized");
+        crate::upgrade_timelock::schedule_upgrade_authorized(&env, new_wasm_hash);
+    }
+
+    pub fn execute_upgrade(env: Env) {
+        crate::upgrade_timelock::execute_scheduled_upgrade(&env);
     }
 }

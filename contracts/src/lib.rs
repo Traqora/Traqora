@@ -32,3 +32,5 @@ pub mod oracle;
 
 #[path = "admin/lib.rs"]
 pub mod admin;
+
+pub mod upgrade_timelock;

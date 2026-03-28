@@ -422,6 +422,17 @@ impl ContractProxy {
         config.state == ProxyState::Upgrading
     }
 
+    pub fn schedule_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        admin.require_auth();
+        let config = ProxyStorage::get_config(&env).expect("Not initialized");
+        assert!(config.admin == admin, "Unauthorized");
+        crate::upgrade_timelock::schedule_upgrade_authorized(&env, new_wasm_hash);
+    }
+
+    pub fn execute_upgrade(env: Env) {
+        crate::upgrade_timelock::execute_scheduled_upgrade(&env);
+    }
+
     fn is_signer(multisig: &MultisigConfig, address: &Address) -> bool {
         for signer in multisig.signers.iter() {
             if signer == *address {

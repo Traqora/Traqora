@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Symbol};
 
 #[contracttype]
 #[derive(Clone)]
@@ -383,5 +383,23 @@ impl GovernanceContract {
 
     pub fn get_vote_record(env: Env, voter: Address, proposal_id: u64) -> Option<Vote> {
         GovernanceStorageKey::get_vote_record(&env, &voter, proposal_id)
+    }
+
+    pub fn init_upgrade_owner(env: Env, admin: Address) {
+        admin.require_auth();
+        crate::upgrade_timelock::try_init_upgrade_owner(&env, admin);
+    }
+
+    pub fn schedule_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        admin.require_auth();
+        assert!(
+            crate::upgrade_timelock::get_upgrade_owner(&env).as_ref() == Some(&admin),
+            "Unauthorized"
+        );
+        crate::upgrade_timelock::schedule_upgrade_authorized(&env, new_wasm_hash);
+    }
+
+    pub fn execute_upgrade(env: Env) {
+        crate::upgrade_timelock::execute_scheduled_upgrade(&env);
     }
 }

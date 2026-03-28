@@ -103,6 +103,17 @@ pub struct FlightOracle;
 
 #[contractimpl]
 impl FlightOracle {
+    pub fn schedule_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        admin.require_auth();
+        let cfg = OracleStorage::get_config(&env).expect("Not initialized");
+        assert!(cfg.admin == admin, "Unauthorized");
+        crate::upgrade_timelock::schedule_upgrade_authorized(&env, new_wasm_hash);
+    }
+
+    pub fn execute_upgrade(env: Env) {
+        crate::upgrade_timelock::execute_scheduled_upgrade(&env);
+    }
+
     pub fn initialize(
         env: Env,
         admin: Address,

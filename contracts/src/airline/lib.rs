@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol, Vec,
+    contract, contractimpl, contracttype, symbol_short, vec, Address, BytesN, Env, Symbol, Vec,
 };
 
 #[contracttype]
@@ -643,5 +643,16 @@ impl AirlineContract {
             .checked_mul(demand_multiplier_bps)
             .expect("Math overflow")
             / 10_000i128
+    }
+
+    pub fn schedule_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        admin.require_auth();
+        let cfg = PricingStorage::get_config(&env).expect("Not initialized");
+        assert!(cfg.admin == admin, "Unauthorized");
+        crate::upgrade_timelock::schedule_upgrade_authorized(&env, new_wasm_hash);
+    }
+
+    pub fn execute_upgrade(env: Env) {
+        crate::upgrade_timelock::execute_scheduled_upgrade(&env);
     }
 }

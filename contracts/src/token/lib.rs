@@ -1,5 +1,5 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol,
+    contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env, String, Symbol,
 };
 
 // TRQ Token - Traqora Governance and Loyalty Token
@@ -225,5 +225,18 @@ impl TRQTokenContract {
         TokenStorage::get_metadata(&env)
             .map(|m| m.symbol)
             .expect("Not initialized")
+    }
+
+    pub fn schedule_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        admin.require_auth();
+        assert!(
+            TokenStorage::get_admin(&env).as_ref() == Some(&admin),
+            "Unauthorized"
+        );
+        crate::upgrade_timelock::schedule_upgrade_authorized(&env, new_wasm_hash);
+    }
+
+    pub fn execute_upgrade(env: Env) {
+        crate::upgrade_timelock::execute_scheduled_upgrade(&env);
     }
 }
