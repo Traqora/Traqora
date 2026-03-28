@@ -1,9 +1,11 @@
 import { NextFunction, Request, Response } from 'express';
 import { logger } from './logger';
+import { mapStellarError } from './stellarErrors';
 
 export interface ApiError extends Error {
   statusCode?: number;
   code?: string;
+  details?: unknown;
 }
 
 export const errorHandler = (
@@ -13,7 +15,14 @@ export const errorHandler = (
   _next: NextFunction
 ) => {
   const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal Server Error';
+  const stellarMapping = mapStellarError(err);
+  const message =
+    stellarMapping?.message || err.message || 'Internal Server Error';
+  const code = stellarMapping?.code || err.code || 'INTERNAL_ERROR';
+  const details =
+    stellarMapping?.details ||
+    err.details ||
+    (process.env.NODE_ENV === 'development' ? { stack: err.stack } : undefined);
 
   logger.error({
     error: err.message,
@@ -26,9 +35,9 @@ export const errorHandler = (
 
   res.status(statusCode).json({
     error: {
+      code,
       message,
-      code: err.code || 'INTERNAL_ERROR',
-      ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+      ...(details ? { details } : {}),
     },
   });
 };

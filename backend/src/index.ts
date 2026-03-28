@@ -4,6 +4,7 @@ import { logger } from './utils/logger';
 import { errorHandler } from './utils/errorHandler';
 // import { rateLimiter } from './utils/rateLimiter';
 import { initDataSource } from './db/dataSource';
+import { AppDataSource } from './db/dataSource';
 
 // Route imports
 import { flightRoutes } from './api/routes/flights';
@@ -24,6 +25,7 @@ import { initPriceMonitorCron } from './jobs/priceMonitor';
 
 // Monitoring
 import { metricsMiddleware } from './middleware/metricsMiddleware';
+import { requestLogger } from './middleware/requestLogger';
 import { contractMonitor, setupDefaultEventListeners, startWalletBalanceMonitoring } from './services/contractMonitor';
 import morgan from 'morgan';
 
@@ -51,6 +53,7 @@ app.use(metricsMiddleware);
 // app.use(rateLimiter);
 
 // Logging
+app.use(requestLogger);
 app.use(morgan('combined', { stream: { write: (msg: string) => logger.info(msg.trim()) } }));
 
 // Body parsing
@@ -71,6 +74,26 @@ app.get('/health', (_req, res) => {
       cron: 'scheduled'
     }
   });
+});
+
+app.get('/readiness', async (_req, res) => {
+  try {
+    if (!AppDataSource.isInitialized && config.databaseUrl) {
+      return res.status(503).json({
+        status: 'unready',
+        reason: 'Database not initialized',
+      });
+    }
+    if (AppDataSource.isInitialized) {
+      await AppDataSource.query('SELECT 1');
+    }
+    return res.json({ status: 'ready' });
+  } catch (error: any) {
+    return res.status(503).json({
+      status: 'unready',
+      reason: error?.message || 'Database unavailable',
+    });
+  }
 });
 
 // API routes
@@ -107,7 +130,12 @@ app.use(errorHandler);
 
 // 404 handler
 app.use((_req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
+  res.status(404).json({
+    error: {
+      code: 'NOT_FOUND',
+      message: 'Endpoint not found',
+    },
+  });
 });
 
 const PORT = config.port || 3001;
