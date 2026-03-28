@@ -1,4 +1,4 @@
-use soroban_sdk::{String, Symbol};
+use soroban_sdk::{Env, String, Symbol};
 use traqora_contracts::token::TRQTokenContract;
 
 mod common;
@@ -142,4 +142,72 @@ fn test_transfer_from_insufficient_allowance_should_panic() {
     contracts
         .token
         .transfer_from(&actors.airline, &actors.passenger, &actors.airline, &1);
+}
+
+#[test]
+fn test_metadata_queries() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    assert_eq!(contracts.token.decimals(), 7u32);
+    assert_eq!(contracts.token.name(), String::from_str(&env, "TRQ"));
+    assert_eq!(contracts.token.symbol(), Symbol::new(&env, "TRQ"));
+    assert_eq!(contracts.token.total_supply(), 0);
+}
+
+#[test]
+fn test_total_supply_tracks_mints() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    contracts.token.mint(&actors.admin, &actors.passenger, &1000);
+    contracts.token.mint(&actors.admin, &actors.airline, &500);
+    assert_eq!(contracts.token.total_supply(), 1500);
+}
+
+#[test]
+#[should_panic(expected = "Unauthorized")]
+fn test_mint_by_non_admin_panics() {
+    // With mock_all_auths, auth passes but the admin check fails
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    // passenger is authorized via mock but is not the stored admin
+    contracts.token.mint(&actors.passenger, &actors.passenger, &1000);
+}
+
+#[test]
+fn test_allowance_expired_returns_zero() {
+    use soroban_sdk::testutils::{Ledger, LedgerInfo};
+
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    contracts.token.mint(&actors.admin, &actors.passenger, &500);
+    // Approve with expiration at ledger sequence 1
+    contracts.token.approve(&actors.passenger, &actors.airline, &300, &1u32);
+    assert_eq!(contracts.token.allowance(&actors.passenger, &actors.airline), 300);
+
+    // Advance ledger sequence past expiration
+    env.ledger().set(LedgerInfo {
+        timestamp: 0,
+        protocol_version: env.ledger().protocol_version(),
+        sequence_number: 2, // past expiration_ledger=1
+        network_id: Default::default(),
+        base_reserve: 10,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 16,
+        max_entry_ttl: 6312000,
+    });
+
+    // Expired allowance should read as 0
+    assert_eq!(contracts.token.allowance(&actors.passenger, &actors.airline), 0);
 }
