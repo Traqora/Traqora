@@ -1,5 +1,7 @@
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
+const MIN_REDEEM_POINTS: i128 = 100;
+
 #[contracttype]
 #[derive(Clone)]
 pub struct LoyaltyAccount {
@@ -152,12 +154,33 @@ impl LoyaltyContract {
         earned_points
     }
 
+    // Accrue points for a passenger flight.
+    pub fn accrue_points(env: Env, passenger: Address, flight_id: Symbol, amount: i128) -> i128 {
+        passenger.require_auth();
+        assert!(amount > 0, "Invalid points amount");
+
+        let mut account = Self::get_or_create_account(env.clone(), passenger.clone());
+        account.total_points += amount;
+        LoyaltyStorageKey::set_account(&env, &passenger, &account);
+
+        env.events().publish(
+            (Symbol::new(&env, "PointsAccrued"),),
+            (passenger, flight_id, amount),
+        );
+
+        amount
+    }
+
     // Redeem points for discount
     pub fn redeem_points(env: Env, user: Address, points: i128) -> i128 {
         user.require_auth();
 
         let mut account = LoyaltyStorageKey::get_account(&env, &user).expect("Account not found");
 
+        assert!(
+            points >= MIN_REDEEM_POINTS,
+            "Below minimum redeemable points"
+        );
         assert!(account.total_points >= points, "Insufficient points");
         assert!(points > 0, "Invalid points amount");
 
@@ -168,8 +191,8 @@ impl LoyaltyContract {
         LoyaltyStorageKey::set_account(&env, &user, &account);
 
         env.events().publish(
-            (symbol_short!("points"), symbol_short!("redeemed")),
-            (user, points, discount),
+            (Symbol::new(&env, "PointsRedeemed"),),
+            (user, points),
         );
 
         discount
