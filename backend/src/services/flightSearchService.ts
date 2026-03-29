@@ -6,7 +6,17 @@ import {
   InMemoryFlightRepository,
   PostgresFlightRepository,
 } from '../repositories/flightRepository';
-import { FlightSearchCriteria, FlightSearchResponse, SortOrder } from '../types/flight';
+import {
+  EnrichedFlight,
+  FlightSearchCriteria,
+  FlightSearchResponse,
+  SortOrder,
+} from '../types/flight';
+import {
+  OffchainFlightDataProvider,
+  RepositoryOffchainFlightDataProvider,
+} from './offchainFlightDataProvider';
+import { createFlightRegistryService, FlightRegistryService } from './flightRegistryService';
 
 interface CursorPayload {
   offset: number;
@@ -51,15 +61,34 @@ const buildCacheKey = (criteria: FlightSearchCriteria): string => {
   return `flight-search:${Buffer.from(JSON.stringify(criteria), 'utf8').toString('base64url')}`;
 };
 
+const toXlm = (usdPrice: number, xlmUsdRate: number): number => {
+  if (xlmUsdRate <= 0) {
+    return 0;
+  }
+
+  return Number((usdPrice / xlmUsdRate).toFixed(2));
+};
+
 export class FlightSearchService {
-  private readonly repository: FlightRepository;
+  private readonly provider: OffchainFlightDataProvider;
+  private readonly registryService: FlightRegistryService;
   private readonly cache: SearchCache;
   private readonly cacheTtlSeconds: number;
+  private readonly xlmUsdRate: number;
 
-  constructor(repository: FlightRepository, cache: SearchCache, cacheTtlSeconds = 300) {
-    this.repository = repository;
+  constructor(
+    repository: FlightRepository,
+    cache: SearchCache,
+    cacheTtlSeconds = 300,
+    provider?: OffchainFlightDataProvider,
+    registryService?: FlightRegistryService,
+    xlmUsdRate = Number.parseFloat(process.env.XLM_USD_RATE || '0.12')
+  ) {
+    this.provider = provider || new RepositoryOffchainFlightDataProvider(repository);
+    this.registryService = registryService || createFlightRegistryService();
     this.cache = cache;
     this.cacheTtlSeconds = cacheTtlSeconds;
+    this.xlmUsdRate = xlmUsdRate;
   }
 
   async searchFlights(criteria: FlightSearchCriteria): Promise<FlightSearchResponse> {
@@ -73,16 +102,41 @@ export class FlightSearchService {
 
     const { offset } = decodeCursor(normalizedCriteria.cursor);
 
-    const flights = await this.repository.searchFlights(normalizedCriteria, {
+    const flights = await this.provider.search(normalizedCriteria, {
       limit: normalizedCriteria.pageSize + 1,
       offset,
     });
 
     const hasMore = flights.length > normalizedCriteria.pageSize;
-    const data = hasMore ? flights.slice(0, normalizedCriteria.pageSize) : flights;
+    const pageFlights = hasMore ? flights.slice(0, normalizedCriteria.pageSize) : flights;
+
+    const onChainStates = await this.registryService.getStates(pageFlights);
+    const enrichedFlights: EnrichedFlight[] = pageFlights.reduce<EnrichedFlight[]>((acc, flight) => {
+      const state = onChainStates[flight.id];
+      if (!state?.listed || !state.reservable || state.available_seats < normalizedCriteria.passengers) {
+        return acc;
+      }
+
+      acc.push({
+        ...flight,
+        pricing: {
+          usd: flight.price,
+          xlm: toXlm(flight.price, this.xlmUsdRate),
+          xlm_usd_rate: this.xlmUsdRate,
+        },
+        on_chain: {
+          listed: state.listed,
+          reservable: state.reservable,
+          contract_flight_id: state.contract_flight_id,
+          available_seats: state.available_seats,
+        },
+      });
+
+      return acc;
+    }, []);
 
     const response: FlightSearchResponse = {
-      data,
+      data: enrichedFlights,
       pagination: {
         next_cursor: hasMore
           ? encodeCursor({ offset: offset + normalizedCriteria.pageSize })
