@@ -80,8 +80,8 @@ const seedFlights: Flight[] = [
 ];
 
 const baseQuery = {
-  from: 'JFK',
-  to: 'LAX',
+  origin: 'JFK',
+  destination: 'LAX',
   date: '2026-05-01',
   passengers: '2',
   class: 'economy',
@@ -105,6 +105,18 @@ const buildTestContext = (searchPoints = 100) => {
 };
 
 describe('GET /api/v1/flights/search', () => {
+
+  it('supports /api/flights/search with enriched pricing and on-chain fields', async () => {
+    const { app } = buildTestContext();
+
+    const response = await request(app).get('/api/flights/search').query(baseQuery);
+
+    expect(response.status).toBe(200);
+    expect(response.body.data[0].pricing.usd).toBeDefined();
+    expect(response.body.data[0].pricing.xlm).toBeDefined();
+    expect(response.body.data[0].on_chain.listed).toBe(true);
+    expect(response.body.data[0].on_chain.contract_flight_id).toBe(response.body.data[0].id);
+  });
   it('returns filtered and sorted results', async () => {
     const { app } = buildTestContext();
 
