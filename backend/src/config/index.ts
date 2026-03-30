@@ -14,6 +14,7 @@ export const config = {
     loyalty: process.env.LOYALTY_CONTRACT_ID || "",
     governance: process.env.GOVERNANCE_CONTRACT_ID || "",
     token: process.env.TOKEN_CONTRACT_ID || "",
+    flightRegistry: process.env.FLIGHT_REGISTRY_CONTRACT_ID || "",
   },
 
   // Database

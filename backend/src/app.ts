@@ -148,6 +148,7 @@ export const createApp = (options: AppOptions = {}) => {
 
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
+  app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/v1/bookings', requireAuth, bookingRoutes);
   app.use('/api/v1/refunds', requireAuth, refundRoutes);
   app.use('/api/v1/security', requireAuth, securityRoutes);

@@ -19,6 +19,20 @@ export interface Flight {
   class: CabinClass;
 }
 
+export interface EnrichedFlight extends Flight {
+  pricing: {
+    usd: number;
+    xlm: number;
+    xlm_usd_rate: number;
+  };
+  on_chain: {
+    listed: boolean;
+    reservable: boolean;
+    contract_flight_id: string;
+    available_seats: number;
+  };
+}
+
 export interface FlightSearchCriteria {
   from: string;
   to: string;
@@ -37,7 +51,7 @@ export interface FlightSearchCriteria {
 }
 
 export interface FlightSearchResponse {
-  data: Flight[];
+  data: EnrichedFlight[];
   pagination: {
     next_cursor: string | null;
     has_more: boolean;
