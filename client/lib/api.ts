@@ -1,172 +1,156 @@
-// API client for Traqora backend
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
-export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: {
-    message: string;
-    code: string;
-    details?: any;
-  };
+export interface FlightSearchParams {
+  from: string
+  to: string
+  date: string
+  passengers: number
+  class: "economy" | "premium_economy" | "business" | "first"
+  price_min?: number
+  price_max?: number
+  airlines?: string[]
+  stops?: number
+  duration_max?: number
+  sort?: "price" | "duration" | "departure_time" | "rating"
+  sort_order?: "asc" | "desc"
+  cursor?: string
+  page_size?: number
 }
 
-export interface Flight {
-  id: string;
-  airline: string;
-  flightNumber: string;
-  fromAirport: string;
-  toAirport: string;
-  departureTime: Date;
-  arrivalTime: Date;
-  priceCents: number;
-  currency: string;
-  seatsAvailable: number;
-  airlineSorobanAddress: string;
+export interface FlightSearchResponse {
+  data: Array<{
+    id: string
+    from: string
+    to: string
+    departure_time: string
+    arrival_time?: string
+    airline: string
+    stops: number
+    duration: number
+    price: number
+    rating: number
+    available_seats: number
+    class: "economy" | "premium_economy" | "business" | "first"
+  }>
+  pagination: {
+    next_cursor: string | null
+    has_more: boolean
+    page_size: number
+  }
 }
 
-export interface Passenger {
-  email: string;
-  firstName: string;
-  lastName: string;
-  phone?: string;
-  sorobanAddress: string;
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
 }
 
-export interface Booking {
-  id: string;
-  flight: Flight;
-  passenger: Passenger;
-  status: string;
-  amountCents: number;
-  stripePaymentIntentId?: string;
-  stripeClientSecret?: string;
-  sorobanUnsignedXdr?: string;
-  sorobanTxHash?: string;
-  sorobanBookingId?: string;
-  contractSubmitAttempts: number;
-  lastError?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface CreateBookingRequest {
-  flightId: string;
-  passenger: Passenger;
-}
-
-export interface CreateBookingResponse {
-  data: Booking;
-  payment: {
-    paymentIntentId: string;
-    clientSecret: string;
-  };
-  soroban: {
-    unsignedXdr: string;
-    networkPassphrase: string;
-  };
-}
-
-export interface TransactionStatus {
-  bookingStatus: string;
-  transactionStatus: {
-    status: 'pending' | 'success' | 'failed' | 'not_found';
-    txHash?: string;
-    result?: any;
-    error?: string;
-  } | null;
-}
-
-class ApiClient {
-  private baseUrl: string;
-
-  constructor(baseUrl: string = API_BASE_URL) {
-    this.baseUrl = baseUrl;
+export async function searchFlights(params: FlightSearchParams): Promise<FlightSearchResponse> {
+  const searchParams = new URLSearchParams()
+  
+  // Add required params
+  searchParams.append('from', params.from)
+  searchParams.append('to', params.to)
+  searchParams.append('date', params.date)
+  searchParams.append('passengers', params.passengers.toString())
+  searchParams.append('class', params.class)
+  
+  // Add optional params
+  if (params.price_min !== undefined) {
+    searchParams.append('price_min', params.price_min.toString())
+  }
+  if (params.price_max !== undefined) {
+    searchParams.append('price_max', params.price_max.toString())
+  }
+  if (params.airlines && params.airlines.length > 0) {
+    searchParams.append('airlines', params.airlines.join(','))
+  }
+  if (params.stops !== undefined) {
+    searchParams.append('stops', params.stops.toString())
+  }
+  if (params.duration_max !== undefined) {
+    searchParams.append('duration_max', params.duration_max.toString())
+  }
+  if (params.sort) {
+    searchParams.append('sort', params.sort)
+  }
+  if (params.sort_order) {
+    searchParams.append('sort_order', params.sort_order)
+  }
+  if (params.cursor) {
+    searchParams.append('cursor', params.cursor)
+  }
+  if (params.page_size) {
+    searchParams.append('page_size', params.page_size.toString())
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<ApiResponse<T>> {
-    const url = `${this.baseUrl}${endpoint}`;
-    
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        return {
-          success: false,
-          error: data.error || {
-            message: 'Request failed',
-            code: 'REQUEST_FAILED',
-          },
-        };
-      }
-
-      return data;
-    } catch (error: any) {
-      console.error('API request failed:', error);
-      return {
-        success: false,
-        error: {
-          message: error.message || 'Network error',
-          code: 'NETWORK_ERROR',
-        },
-      };
-    }
-  }
-
-  async createBooking(
-    request: CreateBookingRequest,
-    idempotencyKey: string
-  ): Promise<ApiResponse<CreateBookingResponse>> {
-    return this.request<CreateBookingResponse>('/api/bookings', {
-      method: 'POST',
+  const url = `${API_BASE_URL}/api/flights/search?${searchParams.toString()}`
+  
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
       headers: {
-        'Idempotency-Key': idempotencyKey,
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify(request),
-    });
-  }
+    })
 
-  async getBooking(bookingId: string): Promise<ApiResponse<Booking>> {
-    return this.request<Booking>(`/api/bookings/${bookingId}`);
-  }
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new ApiError(
+        errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`,
+        response.status,
+        errorData.error?.code
+      )
+    }
 
-  async submitSignedTransaction(
-    bookingId: string,
-    signedXdr: string
-  ): Promise<ApiResponse<Booking>> {
-    return this.request<Booking>(`/api/bookings/${bookingId}/submit-onchain`, {
-      method: 'POST',
-      body: JSON.stringify({ signedXdr }),
-    });
-  }
-
-  async getTransactionStatus(
-    bookingId: string
-  ): Promise<ApiResponse<TransactionStatus>> {
-    return this.request<TransactionStatus>(
-      `/api/bookings/${bookingId}/transaction-status`
-    );
-  }
-
-  async getFlight(flightId: string): Promise<ApiResponse<Flight>> {
-    return this.request<Flight>(`/api/flights/${flightId}`);
+    return await response.json()
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error
+    }
+    
+    // Network or other errors
+    throw new ApiError(
+      error instanceof Error ? error.message : 'An unexpected error occurred',
+      0
+    )
   }
 }
 
-export const apiClient = new ApiClient();
+export async function getFlight(id: string) {
+  const url = `${API_BASE_URL}/api/flights/${id}`
+  
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
 
-// Utility function to generate idempotency key
-export const generateIdempotencyKey = (): string => {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-};
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new ApiError(
+        errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`,
+        response.status,
+        errorData.error?.code
+      )
+    }
+
+    return await response.json()
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error
+    }
+    
+    throw new ApiError(
+      error instanceof Error ? error.message : 'An unexpected error occurred',
+      0
+    )
+  }
+}
