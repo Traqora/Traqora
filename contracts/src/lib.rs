@@ -9,6 +9,9 @@ pub mod storage_version;
 #[path = "airline/lib.rs"]
 pub mod airline;
 
+#[path = "flight_registry/lib.rs"]
+pub mod flight_registry;
+
 #[path = "booking/lib.rs"]
 pub mod booking;
 
