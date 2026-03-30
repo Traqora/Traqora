@@ -30,6 +30,9 @@ pub mod loyalty;
 #[path = "refund/lib.rs"]
 pub mod refund;
 
+#[path = "refund_automation/lib.rs"]
+pub mod refund_automation;
+
 #[path = "token/lib.rs"]
 pub mod token;
 
