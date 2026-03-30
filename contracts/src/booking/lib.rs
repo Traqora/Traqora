@@ -50,8 +50,6 @@ impl BookingStorage {
 #[contract]
 pub struct BookingContract;
 
-const MAX_BATCH_SIZE: u32 = 50;
-
 #[contractimpl]
 impl BookingContract {
     // Initialize booking - starts in "pending" status until paid
@@ -213,6 +211,75 @@ impl BookingContract {
     pub fn complete_booking(env: Env, airline: Address, booking_id: u64) {
         airline.require_auth();
         Self::release_payment_to_airline(env, booking_id);
+    }
+
+    // Settle cancellation payouts from escrow according to refund basis points.
+    // `passenger_refund_bps` is in basis points (10000 = 100%).
+    pub fn settle_cancellation(
+        env: Env,
+        booking_id: u64,
+        caller: Address,
+        passenger_refund_bps: u32,
+    ) -> (i128, i128) {
+        assert!(passenger_refund_bps <= 10_000, "Invalid refund bps");
+
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+
+        assert!(
+            booking.status != symbol_short!("cancelled")
+                && booking.status != symbol_short!("refunded")
+                && booking.status != symbol_short!("completed"),
+            "Booking cannot be cancelled"
+        );
+
+        caller.require_auth();
+        assert!(
+            caller == booking.passenger || caller == booking.airline,
+            "Not authorized to cancel"
+        );
+
+        assert!(
+            booking.status == symbol_short!("confirmed") || booking.status == symbol_short!("pending"),
+            "Invalid booking status"
+        );
+
+        let escrowed = booking.amount_escrowed;
+        let mut passenger_refund = 0i128;
+        let mut airline_amount = 0i128;
+
+        if escrowed > 0 {
+            passenger_refund = escrowed * (passenger_refund_bps as i128) / 10_000;
+            airline_amount = escrowed - passenger_refund;
+
+            let token_client = token::Client::new(&env, &booking.token);
+
+            if passenger_refund > 0 {
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &booking.passenger,
+                    &passenger_refund,
+                );
+            }
+
+            if airline_amount > 0 {
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &booking.airline,
+                    &airline_amount,
+                );
+            }
+        }
+
+        booking.amount_escrowed = 0;
+        booking.status = symbol_short!("cancelled");
+        BookingStorage::set(&env, booking_id, &booking);
+
+        env.events().publish(
+            (symbol_short!("booking"), symbol_short!("cancelled")),
+            (booking_id, passenger_refund, airline_amount),
+        );
+
+        (passenger_refund, airline_amount)
     }
 
     // Batch post-flight settlement with partial failure handling.

@@ -4,6 +4,10 @@ use traqora_contracts::booking::{BookingContract, BookingContractClient};
 use traqora_contracts::governance::{GovernanceContract, GovernanceContractClient};
 use traqora_contracts::loyalty::{LoyaltyContract, LoyaltyContractClient};
 use traqora_contracts::refund::{RefundContract, RefundContractClient};
+use traqora_contracts::refund_automation::{
+    RefundAutomationContract,
+    RefundAutomationContractClient,
+};
 use traqora_contracts::token::{TRQTokenContract, TRQTokenContractClient};
 
 pub struct Contracts<'a> {
@@ -13,6 +17,7 @@ pub struct Contracts<'a> {
     pub loyalty: LoyaltyContractClient<'a>,
     pub governance: GovernanceContractClient<'a>,
     pub refund: RefundContractClient<'a>,
+    pub refund_automation: RefundAutomationContractClient<'a>,
 }
 
 pub struct Actors {
@@ -42,6 +47,7 @@ pub fn register_contracts<'a>(env: &'a Env) -> Contracts<'a> {
     let loyalty_id = env.register(LoyaltyContract, ());
     let governance_id = env.register(GovernanceContract, ());
     let refund_id = env.register(RefundContract, ());
+    let refund_automation_id = env.register(RefundAutomationContract, ());
 
     Contracts {
         token: TRQTokenContractClient::new(env, &token_id),
@@ -50,6 +56,7 @@ pub fn register_contracts<'a>(env: &'a Env) -> Contracts<'a> {
         loyalty: LoyaltyContractClient::new(env, &loyalty_id),
         governance: GovernanceContractClient::new(env, &governance_id),
         refund: RefundContractClient::new(env, &refund_id),
+        refund_automation: RefundAutomationContractClient::new(env, &refund_automation_id),
     }
 }
 
