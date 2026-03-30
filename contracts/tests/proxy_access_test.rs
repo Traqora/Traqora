@@ -40,3 +40,23 @@ fn test_proxy_set_role_unauthorized() {
     let res = client.try_set_role(&random, &target, &1u32, &true);
     assert!(res.is_err());
 }
+
+#[test]
+fn test_proxy_transfer_ownership_updates_config_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, ContractProxy);
+    let client = ContractProxyClient::new(&env, &contract_id);
+
+    let owner = Address::generate(&env);
+    let new_owner = Address::generate(&env);
+
+    client.init_proxy(&owner, &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]), &soroban_sdk::Vec::new(&env), &1);
+
+    // Owner transfers ownership to new_owner
+    client.transfer_ownership(&owner, &new_owner);
+
+    // Proxy's owner should reflect the new owner
+    assert_eq!(client.get_owner(), new_owner);
+}
