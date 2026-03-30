@@ -4,9 +4,11 @@ use soroban_sdk::{
 };
 use traqora_contracts::flight_registry::{FlightRegistryContract, FlightRegistryContractClient};
 
-fn setup_registry<'a>(env: &'a Env) -> FlightRegistryContractClient<'a> {
+fn setup_registry<'a>(env: &'a Env, owner: &Address) -> FlightRegistryContractClient<'a> {
     let contract_id = env.register(FlightRegistryContract, ());
-    FlightRegistryContractClient::new(env, &contract_id)
+    let client = FlightRegistryContractClient::new(env, &contract_id);
+    client.initialize(owner);
+    client
 }
 
 fn sample_metadata(env: &Env, route: &str, aircraft: &str) -> Map<Symbol, Val> {
@@ -27,12 +29,14 @@ fn test_register_airline_and_get_flight() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let client = setup_registry(&env);
+    let owner = Address::generate(&env);
+    let client = setup_registry(&env, &owner);
     let airline_admin = Address::generate(&env);
     let airline_id = Symbol::new(&env, "TRAQ");
     let flight_id = Symbol::new(&env, "TRAQ100");
 
     client.register_airline(
+        &owner,
         &airline_admin,
         &airline_id,
         &Symbol::new(&env, "TraqoraAir"),
@@ -65,12 +69,13 @@ fn test_same_airline_admin_can_update_flight_metadata() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let client = setup_registry(&env);
+    let owner = Address::generate(&env);
+    let client = setup_registry(&env, &owner);
     let airline_admin = Address::generate(&env);
     let airline_id = Symbol::new(&env, "SKY");
     let flight_id = Symbol::new(&env, "SKY200");
 
-    client.register_airline(&airline_admin, &airline_id, &Symbol::new(&env, "SkyBridge"));
+    client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "SkyBridge"));
     client.add_flight(
         &airline_admin,
         &flight_id,
@@ -102,7 +107,8 @@ fn test_add_flight_requires_registered_airline() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let client = setup_registry(&env);
+    let owner = Address::generate(&env);
+    let client = setup_registry(&env, &owner);
     let airline_admin = Address::generate(&env);
 
     client.add_flight(
@@ -118,17 +124,20 @@ fn test_other_airline_admin_cannot_modify_existing_flight() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let client = setup_registry(&env);
+    let owner = Address::generate(&env);
+    let client = setup_registry(&env, &owner);
     let first_admin = Address::generate(&env);
     let second_admin = Address::generate(&env);
     let flight_id = Symbol::new(&env, "MUX100");
 
     client.register_airline(
+        &owner,
         &first_admin,
         &Symbol::new(&env, "MUXA"),
         &Symbol::new(&env, "MuxAir"),
     );
     client.register_airline(
+        &owner,
         &second_admin,
         &Symbol::new(&env, "MUXB"),
         &Symbol::new(&env, "MuxJet"),
@@ -151,12 +160,13 @@ fn test_register_airline_and_add_flight_emit_events() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let client = setup_registry(&env);
+    let owner = Address::generate(&env);
+    let client = setup_registry(&env, &owner);
     let airline_admin = Address::generate(&env);
     let airline_id = Symbol::new(&env, "EVNT");
     let flight_id = Symbol::new(&env, "EVNT900");
 
-    client.register_airline(&airline_admin, &airline_id, &Symbol::new(&env, "EventAir"));
+    client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "EventAir"));
     client.add_flight(
         &airline_admin,
         &flight_id,
@@ -164,6 +174,9 @@ fn test_register_airline_and_add_flight_emit_events() {
     );
 
     let events = env.events().all();
+    // 3 events: 1 from AccessControl::init_owner, 1 from FlightRegistry::register_airline (AccessControl::require_admin), 1 from FlightRegistry::add_flight
+    // Wait, AccessControl::init_owner doesn't emit event by default.
+    // Let's re-check events.
     assert_eq!(events.len(), 2);
 
     let airline_event = events.get(0).unwrap();

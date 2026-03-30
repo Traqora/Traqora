@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod access;
+
 #[path = "proxy/lib.rs"]
 pub mod proxy;
 

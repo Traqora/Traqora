@@ -1,6 +1,7 @@
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol,
 };
+use crate::access::{AccessControl, Role};
 
 // TRQ Token - Traqora Governance and Loyalty Token
 // This token is used for DAO governance voting and loyalty rewards
@@ -73,10 +74,11 @@ pub struct TRQTokenContract;
 #[contractimpl]
 impl TRQTokenContract {
     pub fn init_token(env: Env, admin: Address, name: String, symbol: Symbol, decimals: u32) {
-        if TokenStorage::get_admin(&env).is_some() {
+        if AccessControl::has_role(&env, &admin, Role::Owner) {
             panic!("Already initialized");
         }
 
+        AccessControl::init_owner(&env, &admin);
         TokenStorage::set_admin(&env, &admin);
 
         let metadata = TokenMetadata {
@@ -94,9 +96,7 @@ impl TRQTokenContract {
     }
 
     pub fn mint(env: Env, admin: Address, to: Address, amount: i128) {
-        admin.require_auth();
-
-        assert!(TokenStorage::get_admin(&env) == Some(admin), "Unauthorized");
+        AccessControl::require_admin(&env, &admin);
         assert!(amount > 0, "Invalid amount");
 
         let current_balance = TokenStorage::get_balance(&env, &to);
@@ -225,5 +225,34 @@ impl TRQTokenContract {
         TokenStorage::get_metadata(&env)
             .map(|m| m.symbol)
             .expect("Not initialized")
+    }
+
+    // Role management functions
+
+    pub fn set_role(env: Env, caller: Address, target: Address, role: u32, enabled: bool) {
+        let role_enum = match role {
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => panic!("Invalid role"),
+        };
+        AccessControl::set_role(&env, &caller, &target, role_enum, enabled);
+    }
+
+    pub fn transfer_ownership(env: Env, caller: Address, new_owner: Address) {
+        AccessControl::transfer_ownership(&env, &caller, &new_owner);
+    }
+
+    pub fn get_owner(env: Env) -> Address {
+        AccessControl::get_owner(&env)
+    }
+
+    pub fn has_role(env: Env, address: Address, role: u32) -> bool {
+        let role_enum = match role {
+            0 => Role::Owner,
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => return false,
+        };
+        AccessControl::has_role(&env, &address, role_enum)
     }
 }

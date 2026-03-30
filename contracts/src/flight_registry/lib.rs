@@ -1,6 +1,7 @@
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol, Val,
 };
+use crate::access::{AccessControl, Role};
 
 #[contracttype]
 #[derive(Clone)]
@@ -64,7 +65,12 @@ pub struct FlightRegistryContract;
 
 #[contractimpl]
 impl FlightRegistryContract {
-    pub fn register_airline(env: Env, admin: Address, airline_id: Symbol, name: Symbol) {
+    pub fn initialize(env: Env, owner: Address) {
+        AccessControl::init_owner(&env, &owner);
+    }
+
+    pub fn register_airline(env: Env, executor: Address, admin: Address, airline_id: Symbol, name: Symbol) {
+        AccessControl::require_admin(&env, &executor);
         admin.require_auth();
 
         assert!(
@@ -127,5 +133,34 @@ impl FlightRegistryContract {
 
     pub fn get_flight(env: Env, flight_id: Symbol) -> Option<FlightRecord> {
         FlightRegistryStorage::get_flight(&env, &flight_id)
+    }
+
+    // Role management functions
+
+    pub fn set_role(env: Env, caller: Address, target: Address, role: u32, enabled: bool) {
+        let role_enum = match role {
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => panic!("Invalid role"),
+        };
+        AccessControl::set_role(&env, &caller, &target, role_enum, enabled);
+    }
+
+    pub fn transfer_ownership(env: Env, caller: Address, new_owner: Address) {
+        AccessControl::transfer_ownership(&env, &caller, &new_owner);
+    }
+
+    pub fn get_owner(env: Env) -> Address {
+        AccessControl::get_owner(&env)
+    }
+
+    pub fn has_role(env: Env, address: Address, role: u32) -> bool {
+        let role_enum = match role {
+            0 => Role::Owner,
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => return false,
+        };
+        AccessControl::has_role(&env, &address, role_enum)
     }
 }

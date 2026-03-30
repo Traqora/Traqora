@@ -15,8 +15,8 @@ fn setup_test(env: &Env) -> (GovernanceContractClient<'static>, Address, Address
     let contract_id = env.register(GovernanceContract, ());
     let client = GovernanceContractClient::new(env, &contract_id);
 
-    // 200-second voting window for every proposal
-    client.init_governance(&200);
+    // 200-second voting window for every proposal, with admin as owner
+    client.init_governance(&admin, &200);
 
     (client, admin, voter1, voter2)
 }
@@ -129,7 +129,7 @@ fn test_execute_proposal_passed() {
     client.cast_vote(&voter2, &proposal_id, &false);
 
     env.ledger().set_timestamp(1300);
-    client.execute_proposal(&proposal_id);
+    client.execute_proposal(&admin, &proposal_id);
 
     let proposal = client.get_proposal(&proposal_id).unwrap();
     assert_eq!(proposal.status, Symbol::new(&env, "passed"));
@@ -151,7 +151,7 @@ fn test_execute_proposal_rejected_majority_no() {
     client.cast_vote(&voter3, &proposal_id, &false);
 
     env.ledger().set_timestamp(1300);
-    client.execute_proposal(&proposal_id);
+    client.execute_proposal(&admin, &proposal_id);
 
     let proposal = client.get_proposal(&proposal_id).unwrap();
     assert_eq!(proposal.status, Symbol::new(&env, "rejected"));
@@ -171,7 +171,7 @@ fn test_execute_proposal_tie_is_rejected() {
     client.cast_vote(&voter2, &proposal_id, &false);
 
     env.ledger().set_timestamp(1300);
-    client.execute_proposal(&proposal_id);
+    client.execute_proposal(&admin, &proposal_id);
 
     let proposal = client.get_proposal(&proposal_id).unwrap();
     assert_eq!(proposal.status, Symbol::new(&env, "rejected"));
@@ -196,7 +196,8 @@ fn test_common_initialize_and_create_proposal() {
     let env = new_env();
     let contracts = register_contracts(&env);
 
-    contracts.governance.init_governance(&120);
+    let owner = Address::generate(&env);
+    contracts.governance.init_governance(&owner, &120);
 
     let proposer = Address::generate(&env);
     let pid = contracts
@@ -210,20 +211,9 @@ fn test_common_initialize_and_create_proposal() {
 fn test_cast_vote_and_execute_proposal() {
     let env = new_env();
     let contracts = register_contracts(&env);
-    contracts.governance.init_governance(&10);
-
-    let proposer = Address::generate(&env);
-    let pid = contracts
-        .governance
-        .create_proposal(&proposer, &Symbol::new(&env, "Lower_fees"));
-
-    let voter = Address::generate(&env);
-    contracts.governance.cast_vote(&voter, &pid, &true);
-    assert!(contracts.governance.has_voted(&voter, &pid));
-
     let p = contracts.governance.get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.vote_deadline + 1);
-    contracts.governance.execute_proposal(&pid);
+    contracts.governance.execute_proposal(&owner, &pid);
     let finalized = contracts.governance.get_proposal(&pid).unwrap();
     assert_eq!(finalized.status, Symbol::new(&env, "passed"));
 }

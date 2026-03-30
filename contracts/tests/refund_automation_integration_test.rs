@@ -14,7 +14,7 @@ fn test_cancel_booking_full_refund_over_72_hours() {
 
     contracts
         .refund_automation
-        .initialize(&contracts.booking.address);
+        .initialize(&actors.admin, &contracts.booking.address);
 
     let price = 100_0000000i128;
     let departure = env.ledger().timestamp() + (73 * 60 * 60);
@@ -36,7 +36,7 @@ fn test_cancel_booking_full_refund_over_72_hours() {
     let booking_symbol = Symbol::new(&env, "BKFULL1");
     contracts
         .refund_automation
-        .register_booking(&booking_symbol, &booking_numeric_id);
+        .register_booking(&actors.admin, &booking_symbol, &booking_numeric_id);
 
     let result = contracts
         .refund_automation
@@ -65,7 +65,7 @@ fn test_cancel_booking_partial_refund_between_24_and_72_hours() {
 
     contracts
         .refund_automation
-        .initialize(&contracts.booking.address);
+        .initialize(&actors.admin, &contracts.booking.address);
 
     let price = 100_0000000i128;
     let departure = env.ledger().timestamp() + (48 * 60 * 60);
@@ -87,7 +87,7 @@ fn test_cancel_booking_partial_refund_between_24_and_72_hours() {
     let booking_symbol = Symbol::new(&env, "BKPART1");
     contracts
         .refund_automation
-        .register_booking(&booking_symbol, &booking_numeric_id);
+        .register_booking(&actors.admin, &booking_symbol, &booking_numeric_id);
 
     let result = contracts
         .refund_automation
@@ -113,7 +113,7 @@ fn test_cancel_booking_no_refund_below_24_hours() {
 
     contracts
         .refund_automation
-        .initialize(&contracts.booking.address);
+        .initialize(&actors.admin, &contracts.booking.address);
 
     let price = 100_0000000i128;
     let departure = env.ledger().timestamp() + (10 * 60 * 60);
@@ -135,7 +135,7 @@ fn test_cancel_booking_no_refund_below_24_hours() {
     let booking_symbol = Symbol::new(&env, "BKNONE1");
     contracts
         .refund_automation
-        .register_booking(&booking_symbol, &booking_numeric_id);
+        .register_booking(&actors.admin, &booking_symbol, &booking_numeric_id);
 
     let result = contracts
         .refund_automation
@@ -162,7 +162,7 @@ fn test_cancel_booking_prevents_double_cancellation() {
 
     contracts
         .refund_automation
-        .initialize(&contracts.booking.address);
+        .initialize(&actors.admin, &contracts.booking.address);
 
     let price = 100_0000000i128;
     let departure = env.ledger().timestamp() + (80 * 60 * 60);
@@ -184,7 +184,7 @@ fn test_cancel_booking_prevents_double_cancellation() {
     let booking_symbol = Symbol::new(&env, "BKGUARD");
     contracts
         .refund_automation
-        .register_booking(&booking_symbol, &booking_numeric_id);
+        .register_booking(&actors.admin, &booking_symbol, &booking_numeric_id);
 
     contracts
         .refund_automation

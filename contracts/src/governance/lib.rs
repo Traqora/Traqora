@@ -1,4 +1,5 @@
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
+use crate::access::{AccessControl, Role};
 
 /// On-chain governance proposal: one vote per address per proposal (1 token-holder = 1 vote).
 #[contracttype]
@@ -75,13 +76,16 @@ pub struct GovernanceContract;
 
 #[contractimpl]
 impl GovernanceContract {
-    /// Initialize governance with a fixed voting duration for all proposals.
-    pub fn init_governance(env: Env, voting_period_secs: u64) {
+    /// Initialize governance with a fixed voting duration for all proposals and an owner.
+    pub fn init_governance(env: Env, owner: Address, voting_period_secs: u64) {
         assert!(voting_period_secs > 0, "Invalid voting period");
         assert!(
             GovernanceStorageKey::get_config(&env).is_none(),
             "Already initialized"
         );
+        
+        AccessControl::init_owner(&env, &owner);
+        
         GovernanceStorageKey::set_config(
             &env,
             &GovernanceConfig {
@@ -158,8 +162,11 @@ impl GovernanceContract {
         );
     }
 
-    /// Close voting after the deadline and record outcome (passed if yes > no, else rejected).
-    pub fn execute_proposal(env: Env, proposal_id: u32) {
+    /// Close voting after the deadline and record outcome.
+    /// Only an admin can execute the outcome.
+    pub fn execute_proposal(env: Env, executor: Address, proposal_id: u32) {
+        AccessControl::require_admin(&env, &executor);
+
         let mut proposal =
             GovernanceStorageKey::get_proposal(&env, proposal_id).expect("Proposal not found");
 
@@ -183,6 +190,35 @@ impl GovernanceContract {
             (symbol_short!("proposal"), symbol_short!("executed")),
             (proposal_id, proposal.status.clone()),
         );
+    }
+
+    // Role management functions
+
+    pub fn set_role(env: Env, caller: Address, target: Address, role: u32, enabled: bool) {
+        let role_enum = match role {
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => panic!("Invalid role"),
+        };
+        AccessControl::set_role(&env, &caller, &target, role_enum, enabled);
+    }
+
+    pub fn transfer_ownership(env: Env, caller: Address, new_owner: Address) {
+        AccessControl::transfer_ownership(&env, &caller, &new_owner);
+    }
+
+    pub fn get_owner(env: Env) -> Address {
+        AccessControl::get_owner(&env)
+    }
+
+    pub fn has_role(env: Env, address: Address, role: u32) -> bool {
+        let role_enum = match role {
+            0 => Role::Owner,
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => return false,
+        };
+        AccessControl::has_role(&env, &address, role_enum)
     }
 
     pub fn get_proposal(env: Env, proposal_id: u32) -> Option<Proposal> {
