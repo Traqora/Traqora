@@ -1,7 +1,15 @@
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import app from '../src/index';
 import { AppDataSource, initDataSource } from '../src/db/dataSource';
 import { Flight } from '../src/db/entities/Flight';
+import { config } from '../src/config';
+
+const validToken = jwt.sign(
+  { walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZA', walletType: 'freighter' },
+  config.jwtSecret,
+  { expiresIn: '1h' }
+);
 
 jest.mock('../src/services/stripe', () => {
   let callCount = 0;
@@ -34,6 +42,15 @@ jest.mock('../src/services/soroban', () => {
 });
 
 describe('Booking flow', () => {
+  it('rejects booking creation without auth token', async () => {
+    const res = await request(app)
+      .post('/api/v1/bookings')
+      .set('Idempotency-Key', 'idem-auth-fail')
+      .send({})
+      .expect(401);
+    expect(res.body.error).toBe('Unauthorized');
+  });
+
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     await initDataSource();
@@ -72,6 +89,7 @@ describe('Booking flow', () => {
 
     const res1 = await request(app)
       .post('/api/v1/bookings')
+      .set('Authorization', `Bearer ${validToken}`)
       .set('Idempotency-Key', 'idem-1')
       .send(body)
       .expect(201);
@@ -82,6 +100,7 @@ describe('Booking flow', () => {
 
     const res2 = await request(app)
       .post('/api/v1/bookings')
+      .set('Authorization', `Bearer ${validToken}`)
       .set('Idempotency-Key', 'idem-1')
       .send(body)
       .expect(200);
@@ -95,6 +114,7 @@ describe('Booking flow', () => {
 
     const createRes = await request(app)
       .post('/api/v1/bookings')
+      .set('Authorization', `Bearer ${validToken}`)
       .set('Idempotency-Key', 'idem-2')
       .send({
         flightId: flight!.id,
@@ -124,11 +144,15 @@ describe('Booking flow', () => {
       )
       .expect(200);
 
-    const afterWebhook = await request(app).get(`/api/v1/bookings/${bookingId}`).expect(200);
+    const afterWebhook = await request(app)
+      .get(`/api/v1/bookings/${bookingId}`)
+      .set('Authorization', `Bearer ${validToken}`)
+      .expect(200);
     expect(afterWebhook.body.data.status).toBe('paid');
 
     const submitRes = await request(app)
       .post(`/api/v1/bookings/${bookingId}/submit-onchain`)
+      .set('Authorization', `Bearer ${validToken}`)
       .send({ signedXdr: 'signed_xdr_test' })
       .expect(202);
 

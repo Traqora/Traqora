@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
+import { requireAuth } from "../../middleware/authMiddleware";
 import { asyncHandler } from "../../utils/errorHandler";
 import { initDataSource, AppDataSource } from "../../db/dataSource";
 import { Flight } from "../../db/entities/Flight";
@@ -38,6 +39,7 @@ const createBookingSchema = z.object({
 
 router.post(
   "/",
+  requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     await initDataSource();
 
@@ -190,6 +192,7 @@ router.post(
 
 router.get(
   "/:id",
+  requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     await initDataSource();
     const bookingRepo = AppDataSource.getRepository(Booking);
@@ -208,6 +211,7 @@ router.get(
 
 router.post(
   "/:id/submit-onchain",
+  requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     await initDataSource();
     const schema = z.object({ signedXdr: z.string().min(1) });
@@ -339,6 +343,7 @@ router.post(
 
 router.get(
   "/:id/transaction-status",
+  requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     await initDataSource();
     const bookingRepo = AppDataSource.getRepository(Booking);
