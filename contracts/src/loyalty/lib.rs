@@ -103,6 +103,11 @@ impl LoyaltyContract {
         for config in tiers.iter() {
             LoyaltyStorageKey::set_tier_config(&env, &config.tier, config);
         }
+
+        env.events().publish(
+            (symbol_short!("loyalty"), symbol_short!("init")),
+            env.ledger().timestamp(),
+        );
     }
 
     // Get or create loyalty account
@@ -148,7 +153,7 @@ impl LoyaltyContract {
 
         env.events().publish(
             (symbol_short!("points"), symbol_short!("earned")),
-            (user, earned_points, booking_id),
+            (user.clone(), env.ledger().timestamp(), earned_points, booking_id),
         );
 
         earned_points
@@ -164,8 +169,8 @@ impl LoyaltyContract {
         LoyaltyStorageKey::set_account(&env, &passenger, &account);
 
         env.events().publish(
-            (Symbol::new(&env, "PointsAccrued"),),
-            (passenger, flight_id, amount),
+            (symbol_short!("points"), symbol_short!("accrued")),
+            (passenger.clone(), env.ledger().timestamp(), amount, flight_id),
         );
 
         amount
@@ -191,8 +196,8 @@ impl LoyaltyContract {
         LoyaltyStorageKey::set_account(&env, &user, &account);
 
         env.events().publish(
-            (Symbol::new(&env, "PointsRedeemed"),),
-            (user, points),
+            (symbol_short!("points"), symbol_short!("redeemed")),
+            (user.clone(), env.ledger().timestamp(), points, discount),
         );
 
         discount
@@ -219,7 +224,7 @@ impl LoyaltyContract {
 
                     env.events().publish(
                         (symbol_short!("tier"), symbol_short!("upgrade")),
-                        (&account.user, tier),
+                        (account.user.clone(), env.ledger().timestamp(), tier.clone()),
                     );
                 }
                 break;

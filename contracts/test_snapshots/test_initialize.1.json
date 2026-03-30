@@ -1,9 +1,13 @@
 {
   "generators": {
-    "address": 1,
+    "address": 5,
     "nonce": 0
   },
   "auth": [
+    [],
+    [],
+    [],
+    [],
     [],
     [],
     []
@@ -49,66 +53,89 @@
                           "map": [
                             {
                               "key": {
-                                "symbol": "appeal_period"
+                                "symbol": "admin"
                               },
                               "val": {
-                                "u64": 86400
+                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                               }
                             },
                             {
                               "key": {
-                                "symbol": "appeal_stake_multiplier"
+                                "symbol": "implementation"
                               },
                               "val": {
-                                "u32": 5000
+                                "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
                               }
                             },
                             {
                               "key": {
-                                "symbol": "evidence_period"
+                                "symbol": "state"
                               },
                               "val": {
-                                "u64": 86400
+                                "vec": [
+                                  {
+                                    "symbol": "Active"
+                                  }
+                                ]
                               }
                             },
                             {
                               "key": {
-                                "symbol": "jury_reward_pool_percentage"
+                                "symbol": "storage_version"
                               },
                               "val": {
-                                "u32": 2000
+                                "u32": 1
                               }
                             },
                             {
                               "key": {
-                                "symbol": "jury_size"
+                                "symbol": "version"
                               },
                               "val": {
-                                "u32": 5
+                                "u32": 1
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "symbol": "multisig"
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "proposal_count"
+                              },
+                              "val": {
+                                "u64": 0
                               }
                             },
                             {
                               "key": {
-                                "symbol": "min_stake_percentage"
+                                "symbol": "signers"
                               },
                               "val": {
-                                "u32": 2000
+                                "vec": [
+                                  {
+                                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                                  },
+                                  {
+                                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                                  },
+                                  {
+                                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                                  }
+                                ]
                               }
                             },
                             {
                               "key": {
-                                "symbol": "reveal_period"
+                                "symbol": "threshold"
                               },
                               "val": {
-                                "u64": 86400
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "voting_period"
-                              },
-                              "val": {
-                                "u64": 86400
+                                "u32": 2
                               }
                             }
                           ]
