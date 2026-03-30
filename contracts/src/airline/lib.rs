@@ -249,7 +249,10 @@ impl AirlineContract {
         admin.require_auth();
 
         let mut cfg = PricingStorage::get_config(&env).expect("Not initialized");
-        assert!(cfg.admin == admin, "Unauthorized");
+        // Allow either the pricing config's admin or any contract Admin role
+        if !(cfg.admin == admin || AccessControl::has_role(&env, &admin, Role::Admin)) {
+            panic!("Unauthorized");
+        }
         cfg.oracle = oracle.clone();
         PricingStorage::set_config(&env, &cfg);
 
