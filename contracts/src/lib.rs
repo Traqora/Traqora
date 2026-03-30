@@ -15,6 +15,9 @@ pub mod flight_registry;
 #[path = "booking/lib.rs"]
 pub mod booking;
 
+#[path = "flight_booking/lib.rs"]
+pub mod flight_booking;
+
 #[path = "dispute/lib.rs"]
 pub mod dispute;
 
