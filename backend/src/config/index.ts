@@ -4,6 +4,7 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
 
   stellarNetwork: process.env.STELLAR_NETWORK || 'testnet',
+  stellarSecretKey: process.env.STELLAR_SECRET_KEY || 'SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // Default for dev
   horizonUrl: process.env.HORIZON_URL || 'https://horizon-testnet.stellar.org',
   sorobanRpcUrl: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
 
@@ -14,6 +15,7 @@ export const config = {
     loyalty: process.env.LOYALTY_CONTRACT_ID || "",
     governance: process.env.GOVERNANCE_CONTRACT_ID || "",
     token: process.env.TOKEN_CONTRACT_ID || "",
+    flightRegistry: process.env.FLIGHT_REGISTRY_CONTRACT_ID || "",
   },
 
   // Database

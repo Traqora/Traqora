@@ -9,6 +9,7 @@ fn test_set_policy_and_calculate_refund() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
+    contracts.refund.initialize(&actors.admin);
 
     contracts.refund.set_refund_policy(
         &actors.airline,
@@ -46,6 +47,7 @@ fn test_request_and_process_refund() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
+    contracts.refund.initialize(&actors.admin);
 
     let rid = contracts.refund.request_refund(
         &actors.passenger,

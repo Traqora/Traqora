@@ -1,6 +1,7 @@
 import { config } from '../config';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { logger } from '../utils/logger';
+import crypto from 'crypto';
 
 export type UnsignedSorobanTx = {
   xdr: string;
@@ -161,6 +162,80 @@ export const buildCreateBookingUnsignedXdr = async (params: {
     const payload = JSON.stringify({ contract: config.contracts.booking || 'mock', ...params });
     const xdr = Buffer.from(payload, 'utf8').toString('base64');
     return { xdr, networkPassphrase: getNetworkPassphrase() };
+  }
+};
+
+export const signAndSubmitCreateBooking = async (params: {
+  passenger: string;
+  airline: string;
+  flightNumber: string;
+  fromAirport: string;
+  toAirport: string;
+  departureTime: number;
+  price: bigint;
+  token: string;
+}): Promise<{ txHash: string; bookingId?: string }> => {
+  try {
+    if (!config.contracts.booking) {
+      logger.warn('Booking contract ID not configured, returning mock hash');
+      const txHash = '0x' + crypto.randomBytes(32).toString('hex');
+      return { txHash, bookingId: 'mock-' + Date.now() };
+    }
+
+    const server = getSorobanServer();
+    const networkPassphrase = getNetworkPassphrase();
+    const sourceKeypair = StellarSdk.Keypair.fromSecret(config.stellarSecretKey);
+    const sourceAccount = await server.getAccount(sourceKeypair.publicKey());
+
+    // Build contract invocation
+    const contract = new StellarSdk.Contract(config.contracts.booking);
+    
+    // Convert parameters to Soroban types
+    const contractParams = [
+      new StellarSdk.Address(params.passenger).toScVal(),
+      new StellarSdk.Address(params.airline).toScVal(),
+      StellarSdk.nativeToScVal(params.flightNumber, { type: 'symbol' }),
+      StellarSdk.nativeToScVal(params.fromAirport, { type: 'symbol' }),
+      StellarSdk.nativeToScVal(params.toAirport, { type: 'symbol' }),
+      StellarSdk.nativeToScVal(params.departureTime, { type: 'u64' }),
+      StellarSdk.nativeToScVal(params.price.toString(), { type: 'u64' }),
+      StellarSdk.nativeToScVal(params.token, { type: 'symbol' }),
+    ];
+
+    // Build the transaction
+    const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+      fee: StellarSdk.BASE_FEE,
+      networkPassphrase,
+    })
+      .addOperation(
+        contract.call('create_booking', ...contractParams)
+      )
+      .setTimeout(300)
+      .build();
+
+    // Simulate and prepare
+    const simulated = await server.simulateTransaction(transaction);
+    if (!StellarSdk.SorobanRpc.Api.isSimulationSuccess(simulated)) {
+      throw new Error(`Simulation failed: ${simulated.error || 'Unknown error'}`);
+    }
+
+    const prepared = StellarSdk.SorobanRpc.assembleTransaction(transaction, simulated).build();
+    prepared.sign(sourceKeypair);
+
+    // Submit
+    const response = await server.sendTransaction(prepared);
+    if (response.status === 'ERROR') {
+      throw new Error(`Submission failed: ${response.status}`);
+    }
+
+    // Note: We don't wait for completion here, we return the hash.
+    // The orchestration service will poll for status.
+    return {
+      txHash: response.hash,
+    };
+  } catch (error: any) {
+    logger.error('Error in signAndSubmitCreateBooking', { error: error.message });
+    throw error;
   }
 };
 

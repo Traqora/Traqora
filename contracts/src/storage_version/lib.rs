@@ -150,7 +150,6 @@ impl VersionedStorage {
         _migrator: &Address,
     ) -> bool {
         let _step_key = (symbol_short!("mig_step"), contract_type, from, to);
-
         env.events().publish(
             (symbol_short!("mig"), symbol_short!("step_beg")),
             (contract_type.clone(), from, to),

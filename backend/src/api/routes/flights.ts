@@ -9,31 +9,45 @@ const router = Router();
 
 export const flightRoutes = router;
 
-const searchQuerySchema = z.object({
-  from: z.string().min(3).max(3),
-  to: z.string().min(3).max(3),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  passengers: z.coerce.number().int().min(1).max(9),
-  class: z.enum(["economy", "premium_economy", "business", "first"]),
-  price_min: z.coerce.number().int().nonnegative().optional(),
-  price_max: z.coerce.number().int().nonnegative().optional(),
-  airlines: z
-    .string()
-    .optional()
-    .transform((value: string | undefined) =>
-      value
-        ? value.split(",").map((airline: string) => airline.trim())
-        : undefined,
-    ),
-  stops: z.coerce.number().int().min(0).max(2).optional(),
-  duration_max: z.coerce.number().int().min(30).max(2000).optional(),
-  sort: z
-    .enum(["price", "duration", "departure_time", "rating"])
-    .default("price"),
-  sort_order: z.enum(["asc", "desc"]).optional(),
-  cursor: z.string().optional(),
-  page_size: z.coerce.number().int().min(1).max(100).default(20),
-});
+const searchQuerySchema = z
+  .object({
+    from: z.string().min(3).max(3).optional(),
+    to: z.string().min(3).max(3).optional(),
+    origin: z.string().min(3).max(3).optional(),
+    destination: z.string().min(3).max(3).optional(),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    passengers: z.coerce.number().int().min(1).max(9),
+    class: z.enum(["economy", "premium_economy", "business", "first"]).default("economy"),
+    price_min: z.coerce.number().int().nonnegative().optional(),
+    price_max: z.coerce.number().int().nonnegative().optional(),
+    airlines: z
+      .string()
+      .optional()
+      .transform((value: string | undefined) =>
+        value
+          ? value.split(",").map((airline: string) => airline.trim())
+          : undefined,
+      ),
+    stops: z.coerce.number().int().min(0).max(2).optional(),
+    duration_max: z.coerce.number().int().min(30).max(2000).optional(),
+    sort: z
+      .enum(["price", "duration", "departure_time", "rating"])
+      .default("price"),
+    sort_order: z.enum(["asc", "desc"]).optional(),
+    cursor: z.string().optional(),
+    page_size: z.coerce.number().int().min(1).max(100).default(20),
+  })
+  .superRefine((query, ctx) => {
+    const hasFromTo = Boolean(query.from && query.to);
+    const hasOriginDestination = Boolean(query.origin && query.destination);
+
+    if (!hasFromTo && !hasOriginDestination) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide either from/to or origin/destination",
+      });
+    }
+  });
 
 export const createFlightRoutes = (
   flightSearchService: FlightSearchService,
@@ -73,8 +87,8 @@ export const createFlightRoutes = (
 
     try {
       const result = await flightSearchService.searchFlights({
-        from: q.from,
-        to: q.to,
+        from: (q.origin || q.from || "").toUpperCase(),
+        to: (q.destination || q.to || "").toUpperCase(),
         date: q.date,
         passengers: q.passengers,
         travelClass: q.class,

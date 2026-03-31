@@ -2,6 +2,7 @@ use soroban_sdk::{
     contract, contractimpl, contractmeta, contracttype, symbol_short, Address, BytesN, Env, Symbol,
     Vec,
 };
+use crate::access::{AccessControl, Role};
 
 // Contract meta for version tracking
 contractmeta!(key = "version", val = "1.0.0");
@@ -157,6 +158,9 @@ impl ContractProxy {
         );
         assert!(threshold > 0, "Threshold must be > 0");
 
+        // Initialize shared access control owner
+        AccessControl::init_owner(&env, &admin);
+
         let config = ProxyConfig {
             admin: admin.clone(),
             implementation: implementation.clone(),
@@ -308,9 +312,12 @@ impl ContractProxy {
     pub fn pause_contract(env: Env, admin: Address) {
         admin.require_auth();
 
-        let mut config = ProxyStorage::get_config(&env).expect("Not initialized");
-        assert!(config.admin == admin, "Unauthorized");
+        // Admins (or owner) are allowed to pause the contract
+        if !AccessControl::has_role(&env, &admin, Role::Admin) {
+            panic!("Unauthorized");
+        }
 
+        let mut config = ProxyStorage::get_config(&env).expect("Not initialized");
         config.state = ProxyState::Paused;
         ProxyStorage::set_config(&env, &config);
 
@@ -321,9 +328,11 @@ impl ContractProxy {
     pub fn unpause_contract(env: Env, admin: Address) {
         admin.require_auth();
 
-        let mut config = ProxyStorage::get_config(&env).expect("Not initialized");
-        assert!(config.admin == admin, "Unauthorized");
+        if !AccessControl::has_role(&env, &admin, Role::Admin) {
+            panic!("Unauthorized");
+        }
 
+        let mut config = ProxyStorage::get_config(&env).expect("Not initialized");
         config.state = ProxyState::Active;
         ProxyStorage::set_config(&env, &config);
 
@@ -334,8 +343,11 @@ impl ContractProxy {
     pub fn migrate_storage(env: Env, migrator: Address, from_version: u32, to_version: u32) {
         migrator.require_auth();
 
+        if !AccessControl::has_role(&env, &migrator, Role::Admin) {
+            panic!("Unauthorized");
+        }
+
         let config = ProxyStorage::get_config(&env).expect("Not initialized");
-        assert!(config.admin == migrator, "Unauthorized");
         assert!(
             config.state == ProxyState::Upgrading || config.state == ProxyState::Paused,
             "Contract must be paused or upgrading"
@@ -363,8 +375,10 @@ impl ContractProxy {
     ) {
         admin.require_auth();
 
-        let config = ProxyStorage::get_config(&env).expect("Not initialized");
-        assert!(config.admin == admin, "Unauthorized");
+        // Require admin role for multisig updates
+        if !AccessControl::has_role(&env, &admin, Role::Admin) {
+            panic!("Unauthorized");
+        }
 
         assert!(
             new_signers.len() >= new_threshold as u32,
@@ -382,6 +396,40 @@ impl ContractProxy {
             (symbol_short!("multisig"), symbol_short!("updated")),
             new_threshold,
         );
+    }
+
+    // Role management helpers integrated with shared AccessControl
+    pub fn set_role(env: Env, caller: Address, target: Address, role: u32, enabled: bool) {
+        let role_enum = match role {
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => panic!("Invalid role"),
+        };
+        AccessControl::set_role(&env, &caller, &target, role_enum, enabled);
+    }
+
+    pub fn transfer_ownership(env: Env, caller: Address, new_owner: Address) {
+        AccessControl::transfer_ownership(&env, &caller, &new_owner);
+
+        // Also update local admin field for backward compatibility
+        if let Some(mut config) = ProxyStorage::get_config(&env) {
+            config.admin = new_owner.clone();
+            ProxyStorage::set_config(&env, &config);
+        }
+    }
+
+    pub fn get_owner(env: Env) -> Address {
+        AccessControl::get_owner(&env)
+    }
+
+    pub fn has_role(env: Env, address: Address, role: u32) -> bool {
+        let role_enum = match role {
+            0 => Role::Owner,
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => return false,
+        };
+        AccessControl::has_role(&env, &address, role_enum)
     }
 
     pub fn get_implementation(env: Env) -> BytesN<32> {

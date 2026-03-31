@@ -1,4 +1,8 @@
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN, Env, Symbol, Vec};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN, Env, Symbol,
+    Vec,
+};
+use crate::access::{AccessControl, Role};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -206,6 +210,7 @@ pub struct DisputeContract;
 impl DisputeContract {
     pub fn initialize(
         env: Env,
+        owner: Address,
         min_stake_percentage: u32,
         jury_size: u32,
         evidence_period: u64,
@@ -219,6 +224,8 @@ impl DisputeContract {
             DisputeStorageKey::get_config(&env).is_none(),
             "Already initialized"
         );
+
+        AccessControl::init_owner(&env, &owner);
 
         let config = DisputeConfig {
             min_stake_percentage,
@@ -520,7 +527,6 @@ impl DisputeContract {
             DisputeStorageKey::get_vote_reveal(&env, dispute_id, &juror).is_none(),
             "Already revealed"
         );
-
         // Build hash input - vote (1 byte) + salt (32 bytes) = 33 bytes
         let mut hash_bytes = Bytes::new(&env);
         hash_bytes.push_back(if vote_for_passenger { 1u8 } else { 0u8 });
@@ -528,10 +534,8 @@ impl DisputeContract {
         for byte in salt_bytes.iter() {
             hash_bytes.push_back(*byte);
         }
-
         let computed_hash: BytesN<32> = env.crypto().keccak256(&hash_bytes).into();
         assert!(computed_hash == commit.commit_hash, "Invalid reveal");
-
         let reveal = VoteReveal {
             dispute_id,
             juror: juror.clone(),
@@ -556,7 +560,8 @@ impl DisputeContract {
         );
     }
 
-    pub fn finalize_dispute(env: Env, dispute_id: u64) {
+    pub fn finalize_dispute(env: Env, executor: Address, dispute_id: u64) {
+        AccessControl::require_operator(&env, &executor);
         let mut dispute =
             DisputeStorageKey::get_dispute(&env, dispute_id).expect("Dispute not found");
 
@@ -646,7 +651,8 @@ impl DisputeContract {
         );
     }
 
-    pub fn execute_verdict(env: Env, dispute_id: u64) {
+    pub fn execute_verdict(env: Env, executor: Address, dispute_id: u64) {
+        AccessControl::require_operator(&env, &executor);
         let mut dispute =
             DisputeStorageKey::get_dispute(&env, dispute_id).expect("Dispute not found");
 
@@ -724,6 +730,35 @@ impl DisputeContract {
         );
 
         reward
+    }
+
+    // Role management functions
+
+    pub fn set_role(env: Env, caller: Address, target: Address, role: u32, enabled: bool) {
+        let role_enum = match role {
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => panic!("Invalid role"),
+        };
+        AccessControl::set_role(&env, &caller, &target, role_enum, enabled);
+    }
+
+    pub fn transfer_ownership(env: Env, caller: Address, new_owner: Address) {
+        AccessControl::transfer_ownership(&env, &caller, &new_owner);
+    }
+
+    pub fn get_owner(env: Env) -> Address {
+        AccessControl::get_owner(&env)
+    }
+
+    pub fn has_role(env: Env, address: Address, role: u32) -> bool {
+        let role_enum = match role {
+            0 => Role::Owner,
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => return false,
+        };
+        AccessControl::has_role(&env, &address, role_enum)
     }
 
     pub fn get_dispute(env: Env, dispute_id: u64) -> Option<Dispute> {

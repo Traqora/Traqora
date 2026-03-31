@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
+import { requireAuth } from "../../middleware/authMiddleware";
 import { asyncHandler } from "../../utils/errorHandler";
 import { initDataSource, AppDataSource } from "../../db/dataSource";
 import { Flight } from "../../db/entities/Flight";
@@ -10,6 +11,7 @@ import {
   getOrCreateIdempotencyKey,
   hashObject,
 } from "../../services/idempotency";
+import { BookingOrchestrationService } from "../../services/bookingOrchestrationService";
 import { stripe, stripeWebhookSecret } from "../../services/stripe";
 import {
   buildCreateBookingUnsignedXdr,
@@ -38,6 +40,7 @@ const createBookingSchema = z.object({
 
 router.post(
   "/",
+  requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     await initDataSource();
 
@@ -99,97 +102,40 @@ router.post(
       }
     }
 
-    const flight = await flightRepo.findOne({
-      where: { id: parsed.data.flightId },
-    });
-    if (!flight) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          error: { message: "Flight not found", code: "FLIGHT_NOT_FOUND" },
-        });
+    try {
+      const orchestrationService = new BookingOrchestrationService();
+      const booking = await orchestrationService.createBooking({
+        flightId: parsed.data.flightId,
+        passenger: parsed.data.passenger,
+        idempotencyKey: idempotencyKeyHeader,
+      });
+
+      // Update idempotency key with resource ID
+      idem.resourceId = booking.id;
+      await idempotencyRepo.save(idem);
+
+      return res.status(201).json({
+        success: true,
+        data: booking,
+      });
+    } catch (error: any) {
+      logger.error("Booking creation failed", { error: error.message });
+      
+      const statusCode = error.message === "Flight not found" ? 404 : 409;
+      return res.status(statusCode).json({
+        success: false,
+        error: {
+          message: error.message,
+          code: "BOOKING_FAILED",
+        },
+      });
     }
-
-    if (flight.seatsAvailable <= 0) {
-      return res
-        .status(409)
-        .json({
-          success: false,
-          error: { message: "Flight sold out", code: "FLIGHT_SOLD_OUT" },
-        });
-    }
-
-    // Reserve a seat (best-effort optimistic update)
-    const updated = await flightRepo
-      .createQueryBuilder()
-      .update(Flight)
-      .set({ seatsAvailable: () => "seatsAvailable - 1" })
-      .where("id = :id", { id: flight.id })
-      .andWhere("seatsAvailable > 0")
-      .execute();
-
-    if (!updated.affected) {
-      return res
-        .status(409)
-        .json({
-          success: false,
-          error: { message: "Flight sold out", code: "FLIGHT_SOLD_OUT" },
-        });
-    }
-
-    const passenger = passengerRepo.create(parsed.data.passenger);
-
-    const amountCents = flight.priceCents;
-
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: amountCents,
-      currency: "usd",
-      metadata: {
-        flightId: flight.id,
-      },
-    });
-
-    const unsigned = await buildCreateBookingUnsignedXdr({
-      passenger: passenger.sorobanAddress,
-      airline: flight.airlineSorobanAddress,
-      flightNumber: flight.flightNumber,
-      fromAirport: flight.fromAirport,
-      toAirport: flight.toAirport,
-      departureTime: Math.floor(flight.departureTime.getTime() / 1000),
-      price: BigInt(amountCents),
-      token: config.contracts.token,
-    });
-
-    const booking = bookingRepo.create({
-      idempotencyKey: idempotencyKeyHeader,
-      flight,
-      passenger,
-      status: "awaiting_payment",
-      amountCents,
-      stripePaymentIntentId: paymentIntent.id,
-      stripeClientSecret: paymentIntent.client_secret,
-      sorobanUnsignedXdr: unsigned.xdr,
-    });
-
-    const saved = await bookingRepo.save(booking);
-    idem.resourceId = saved.id;
-    await idempotencyRepo.save(idem);
-
-    return res.status(201).json({
-      success: true,
-      data: saved,
-      payment: {
-        paymentIntentId: paymentIntent.id,
-        clientSecret: paymentIntent.client_secret,
-      },
-      soroban: { unsignedXdr: unsigned.xdr },
-    });
   }),
 );
 
 router.get(
   "/:id",
+  requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     await initDataSource();
     const bookingRepo = AppDataSource.getRepository(Booking);
@@ -208,6 +154,7 @@ router.get(
 
 router.post(
   "/:id/submit-onchain",
+  requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     await initDataSource();
     const schema = z.object({ signedXdr: z.string().min(1) });
@@ -339,6 +286,7 @@ router.post(
 
 router.get(
   "/:id/transaction-status",
+  requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     await initDataSource();
     const bookingRepo = AppDataSource.getRepository(Booking);

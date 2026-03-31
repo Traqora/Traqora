@@ -1,8 +1,16 @@
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import { app } from '../src/index';
 import { initDataSource, AppDataSource } from '../src/db/dataSource';
 import { Flight } from '../src/db/entities/Flight';
 import { Booking } from '../src/db/entities/Booking';
+import { config } from '../src/config';
+
+const validToken = jwt.sign(
+  { walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZA', walletType: 'freighter' },
+  config.jwtSecret,
+  { expiresIn: '1h' }
+);
 
 jest.mock('../src/services/stripe', () => ({
   stripe: {
@@ -63,6 +71,7 @@ describe('Booking Flow Integration Tests', () => {
     it('should create a booking with unsigned XDR', async () => {
       const response = await request(app)
         .post('/api/v1/bookings')
+        .set('Authorization', `Bearer ${validToken}`)
         .set('Idempotency-Key', `test-${Date.now()}`)
         .send({
           flightId: testFlight.id,
@@ -85,6 +94,7 @@ describe('Booking Flow Integration Tests', () => {
     it('should reject booking without idempotency key', async () => {
       const response = await request(app)
         .post('/api/v1/bookings')
+        .set('Authorization', `Bearer ${validToken}`)
         .send({
           flightId: testFlight.id,
           passenger: {
@@ -113,6 +123,7 @@ describe('Booking Flow Integration Tests', () => {
 
       const response1 = await request(app)
         .post('/api/v1/bookings')
+        .set('Authorization', `Bearer ${validToken}`)
         .set('Idempotency-Key', idempotencyKey)
         .send(bookingData);
 
@@ -121,6 +132,7 @@ describe('Booking Flow Integration Tests', () => {
 
       const response2 = await request(app)
         .post('/api/v1/bookings')
+        .set('Authorization', `Bearer ${validToken}`)
         .set('Idempotency-Key', idempotencyKey)
         .send(bookingData);
 
@@ -136,6 +148,7 @@ describe('Booking Flow Integration Tests', () => {
 
       const response = await request(app)
         .post('/api/v1/bookings')
+        .set('Authorization', `Bearer ${validToken}`)
         .set('Idempotency-Key', `test-${Date.now()}`)
         .send({
           flightId: testFlight.id,
@@ -156,6 +169,7 @@ describe('Booking Flow Integration Tests', () => {
     it('should retrieve booking by ID', async () => {
       const createResponse = await request(app)
         .post('/api/v1/bookings')
+        .set('Authorization', `Bearer ${validToken}`)
         .set('Idempotency-Key', `test-${Date.now()}`)
         .send({
           flightId: testFlight.id,
@@ -168,7 +182,7 @@ describe('Booking Flow Integration Tests', () => {
         });
 
       const bookingId = createResponse.body.data.id;
-      const response = await request(app).get(`/api/v1/bookings/${bookingId}`);
+      const response = await request(app).get(`/api/v1/bookings/${bookingId}`).set('Authorization', `Bearer ${validToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -178,7 +192,7 @@ describe('Booking Flow Integration Tests', () => {
     it('should return 404 for non-existent booking', async () => {
       const response = await request(app).get(
         '/api/v1/bookings/00000000-0000-0000-0000-000000000099'
-      );
+      ).set('Authorization', `Bearer ${validToken}`);
       expect(response.status).toBe(404);
       expect(response.body.error.code).toBe('BOOKING_NOT_FOUND');
     });
@@ -203,6 +217,7 @@ describe('Booking Flow Integration Tests', () => {
 
       const response = await request(app)
         .post(`/api/v1/bookings/${booking.id}/submit-onchain`)
+        .set('Authorization', `Bearer ${validToken}`)
         .send({ signedXdr: 'signed-test-xdr' });
 
       expect(response.status).toBe(202);
@@ -228,6 +243,7 @@ describe('Booking Flow Integration Tests', () => {
 
       const response = await request(app)
         .post(`/api/v1/bookings/${booking.id}/submit-onchain`)
+        .set('Authorization', `Bearer ${validToken}`)
         .send({ signedXdr: 'signed-test-xdr' });
 
       expect(response.status).toBe(409);
@@ -253,7 +269,7 @@ describe('Booking Flow Integration Tests', () => {
 
       const response = await request(app).get(
         `/api/v1/bookings/${booking.id}/transaction-status`
-      );
+      ).set('Authorization', `Bearer ${validToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -278,7 +294,7 @@ describe('Booking Flow Integration Tests', () => {
 
       const response = await request(app).get(
         `/api/v1/bookings/${booking.id}/transaction-status`
-      );
+      ).set('Authorization', `Bearer ${validToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);

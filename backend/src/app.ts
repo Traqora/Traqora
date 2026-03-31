@@ -20,6 +20,8 @@ import {
 } from './services/flightSearchService';
 import { errorHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
+import { requestLogger } from './middleware/requestLogger';
+import { AppDataSource } from './db/dataSource';
 import {
   createIpRateLimiter,
   createTieredRateLimiter,
@@ -107,6 +109,7 @@ export const createApp = (options: AppOptions = {}) => {
     app.use(tieredRateLimitMiddleware);
   }
 
+  app.use(requestLogger);
   app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
   // Stripe webhook requires raw body — must be registered BEFORE express.json()
@@ -123,8 +126,29 @@ export const createApp = (options: AppOptions = {}) => {
     });
   });
 
+  app.get('/readiness', async (_req, res) => {
+    try {
+      if (!AppDataSource.isInitialized && config.databaseUrl) {
+        return res.status(503).json({
+          status: 'unready',
+          reason: 'Database not initialized',
+        });
+      }
+      if (AppDataSource.isInitialized) {
+        await AppDataSource.query('SELECT 1');
+      }
+      return res.json({ status: 'ready' });
+    } catch (error: any) {
+      return res.status(503).json({
+        status: 'unready',
+        reason: error?.message || 'Database unavailable',
+      });
+    }
+  });
+
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
+  app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/v1/bookings', requireAuth, bookingRoutes);
   app.use('/api/v1/refunds', requireAuth, refundRoutes);
   app.use('/api/v1/security', requireAuth, securityRoutes);
@@ -140,7 +164,12 @@ export const createApp = (options: AppOptions = {}) => {
   app.use(errorHandler);
 
   app.use((_req, res) => {
-    res.status(404).json({ error: 'Endpoint not found' });
+    res.status(404).json({
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Endpoint not found',
+      },
+    });
   });
 
   return app;
