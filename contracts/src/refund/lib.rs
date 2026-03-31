@@ -49,6 +49,12 @@ impl RefundStorageKey {
             .persistent()
             .set(&(symbol_short!("policy"), airline), policy);
     }
+
+    pub fn next_id(env: &Env) -> u64 {
+        let id: u64 = env.storage().instance().get(&symbol_short!("next_id")).unwrap_or(1);
+        env.storage().instance().set(&symbol_short!("next_id"), &(id + 1));
+        id
+    }
 }
 
 #[contract]
@@ -80,8 +86,10 @@ impl RefundContract {
 
         RefundStorageKey::set_policy(&env, &airline, &policy);
 
-        env.events()
-            .publish((symbol_short!("policy"), symbol_short!("set")), airline);
+        env.events().publish(
+            (symbol_short!("policy"), symbol_short!("set")),
+            (airline.clone(), env.ledger().timestamp(), cancellation_window, full_refund_percentage),
+        );
     }
 
     // Request refund (automatic if within policy)
@@ -95,7 +103,7 @@ impl RefundContract {
     ) -> u64 {
         passenger.require_auth();
 
-        let request_id = env.ledger().timestamp();
+        let request_id = RefundStorageKey::next_id(&env);
 
         let request = RefundRequest {
             request_id,
@@ -113,7 +121,7 @@ impl RefundContract {
 
         env.events().publish(
             (symbol_short!("refund"), symbol_short!("requested")),
-            request_id,
+            (request.passenger.clone(), env.ledger().timestamp(), request_id, booking_id, amount),
         );
 
         request_id
@@ -139,7 +147,30 @@ impl RefundContract {
         // Emit event for backend to trigger actual token transfer
         env.events().publish(
             (symbol_short!("refund"), symbol_short!("approved")),
-            (request_id, request.passenger, request.amount),
+            (request.passenger.clone(), env.ledger().timestamp(), request_id, request.booking_id, request.amount),
+        );
+    }
+
+    // Reject a refund request
+    pub fn reject_refund(env: Env, _admin: Address, request_id: u64, reason: Symbol) {
+        // TODO: Check admin authorization
+
+        let mut request =
+            RefundStorageKey::get_request(&env, request_id).expect("Refund request not found");
+
+        assert!(
+            request.status == symbol_short!("pending"),
+            "Request already processed"
+        );
+
+        request.status = symbol_short!("rejected");
+        request.processed_at = Some(env.ledger().timestamp());
+
+        RefundStorageKey::set_request(&env, request_id, &request);
+
+        env.events().publish(
+            (symbol_short!("refund"), symbol_short!("rejected")),
+            (request.passenger.clone(), env.ledger().timestamp(), request_id, request.booking_id, reason),
         );
     }
 

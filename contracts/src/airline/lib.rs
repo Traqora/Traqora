@@ -71,6 +71,13 @@ pub struct PricingFactors {
 
 #[contracttype]
 #[derive(Clone)]
+pub struct PriceUpdateInput {
+    pub base_price: i128,
+    pub factors: PricingFactors,
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct BatchFailure {
     pub index: u32,
     pub item_id: u64,

@@ -45,6 +45,20 @@ impl BookingStorage {
     pub fn set(env: &Env, booking_id: u64, booking: &Booking) {
         env.storage().persistent().set(&booking_id, booking);
     }
+
+    pub fn get_trusted_oracle(env: &Env) -> Option<Address> {
+        env.storage().instance().get(&symbol_short!("oracle"))
+    }
+
+    pub fn set_trusted_oracle(env: &Env, oracle: &Address) {
+        env.storage().instance().set(&symbol_short!("oracle"), oracle);
+    }
+
+    pub fn next_id(env: &Env) -> u64 {
+        let id: u64 = env.storage().instance().get(&symbol_short!("next_id")).unwrap_or(1);
+        env.storage().instance().set(&symbol_short!("next_id"), &(id + 1));
+        id
+    }
 }
 
 #[contract]
@@ -52,9 +66,18 @@ pub struct BookingContract;
 
 #[contractimpl]
 impl BookingContract {
+    // Register the trusted oracle contract address
+    pub fn initialize_oracle(env: Env, admin: Address, oracle: Address) {
+        admin.require_auth();
+        BookingStorage::set_trusted_oracle(&env, &oracle);
+        env.events().publish(
+            (symbol_short!("booking"), symbol_short!("oracle")),
+            (admin, env.ledger().timestamp(), oracle),
+        );
+    }
+
     // Initialize booking - starts in "pending" status until paid
-    pub fn create_booking(
-        env: Env,
+    pub fn create_booking(        env: Env,
         passenger: Address,
         airline: Address,
         flight_number: Symbol,
@@ -66,7 +89,7 @@ impl BookingContract {
     ) -> u64 {
         passenger.require_auth();
         
-        let booking_id = env.ledger().timestamp();
+        let booking_id = BookingStorage::next_id(&env);
         
         let booking = Booking {
             booking_id,
@@ -84,11 +107,11 @@ impl BookingContract {
         };
         
         BookingStorage::set(&env, booking_id, &booking);
-        
-        // Emit event
+
+        // Standard event schema: (contract, action) -> (actor, timestamp, payload)
         env.events().publish(
             (symbol_short!("booking"), symbol_short!("created")),
-            booking_id,
+            (booking.passenger.clone(), env.ledger().timestamp(), booking_id, booking.airline.clone(), booking.flight_number.clone(), booking.price),
         );
         
         booking_id
@@ -116,10 +139,10 @@ impl BookingContract {
         booking.status = symbol_short!("confirmed");
         
         BookingStorage::set(&env, booking_id, &booking);
-        
+
         env.events().publish(
             (symbol_short!("booking"), symbol_short!("paid")),
-            booking_id,
+            (booking.passenger.clone(), env.ledger().timestamp(), booking_id, booking.price),
         );
     }
     
@@ -149,10 +172,10 @@ impl BookingContract {
         booking.status = symbol_short!("completed");
         
         BookingStorage::set(&env, booking_id, &booking);
-        
+
         env.events().publish(
             (symbol_short!("booking"), symbol_short!("released")),
-            (booking_id, released_amount),
+            (booking.airline.clone(), env.ledger().timestamp(), booking_id, released_amount),
         );
     }
     
@@ -190,10 +213,10 @@ impl BookingContract {
         booking.status = symbol_short!("refunded");
         
         BookingStorage::set(&env, booking_id, &booking);
-        
+
         env.events().publish(
             (symbol_short!("booking"), symbol_short!("refunded")),
-            (booking_id, refunded_amount),
+            (booking.passenger.clone(), env.ledger().timestamp(), booking_id, refunded_amount),
         );
     }
     
@@ -359,7 +382,7 @@ impl BookingContract {
 
             env.events().publish(
                 (symbol_short!("booking"), symbol_short!("released")),
-                (booking_id, released_amount),
+                (booking.airline.clone(), env.ledger().timestamp(), booking_id, released_amount),
             );
 
             i += 1;
@@ -370,5 +393,72 @@ impl BookingContract {
             failures,
             total_released,
         }
+    }
+
+    // Oracle-triggered settlement: called by the oracle contract after flight completion consensus
+    pub fn oracle_release_payment(env: Env, oracle: Address, booking_id: u64) {
+        oracle.require_auth();
+        let trusted = BookingStorage::get_trusted_oracle(&env).expect("Oracle not configured");
+        assert!(oracle == trusted, "Unauthorized oracle");
+
+        let mut booking = BookingStorage::get(&env, booking_id)
+            .expect("Booking not found");
+
+        assert!(
+            booking.status == symbol_short!("confirmed"),
+            "Invalid booking status"
+        );
+        assert!(booking.amount_escrowed > 0, "No funds in escrow");
+
+        let token_client = token::Client::new(&env, &booking.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &booking.airline,
+            &booking.amount_escrowed,
+        );
+
+        let released_amount = booking.amount_escrowed;
+        booking.amount_escrowed = 0;
+        booking.status = symbol_short!("completed");
+        BookingStorage::set(&env, booking_id, &booking);
+
+        env.events().publish(
+            (symbol_short!("booking"), symbol_short!("released")),
+            (oracle, env.ledger().timestamp(), booking_id, released_amount),
+        );
+    }
+
+    // Oracle-triggered refund: called by the oracle contract after airline cancellation consensus
+    pub fn oracle_refund_airline_cancel(env: Env, oracle: Address, booking_id: u64) {
+        oracle.require_auth();
+        let trusted = BookingStorage::get_trusted_oracle(&env).expect("Oracle not configured");
+        assert!(oracle == trusted, "Unauthorized oracle");
+
+        let mut booking = BookingStorage::get(&env, booking_id)
+            .expect("Booking not found");
+
+        assert!(
+            booking.status == symbol_short!("confirmed") || booking.status == symbol_short!("pending"),
+            "Booking cannot be refunded"
+        );
+
+        if booking.amount_escrowed > 0 {
+            let token_client = token::Client::new(&env, &booking.token);
+            token_client.transfer(
+                &env.current_contract_address(),
+                &booking.passenger,
+                &booking.amount_escrowed,
+            );
+        }
+
+        let refunded_amount = booking.amount_escrowed;
+        booking.amount_escrowed = 0;
+        booking.status = symbol_short!("refunded");
+        BookingStorage::set(&env, booking_id, &booking);
+
+        env.events().publish(
+            (symbol_short!("booking"), symbol_short!("refunded")),
+            (oracle, env.ledger().timestamp(), booking_id, refunded_amount),
+        );
     }
 }
