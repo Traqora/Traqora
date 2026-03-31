@@ -21,6 +21,9 @@ pub mod flight_booking;
 #[path = "dispute/lib.rs"]
 pub mod dispute;
 
+#[path = "dispute_resolution/lib.rs"]
+pub mod dispute_resolution;
+
 #[path = "governance/lib.rs"]
 pub mod governance;
 
