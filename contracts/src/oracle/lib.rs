@@ -1,6 +1,7 @@
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol,
 };
+use crate::access::{AccessControl, Role};
 
 #[contracttype]
 #[derive(Clone)]
@@ -105,20 +106,23 @@ pub struct FlightOracle;
 impl FlightOracle {
     pub fn initialize(
         env: Env,
-        admin: Address,
+        owner: Address,
         min_stake: i128,
         consensus_threshold: u32,
         booking_contract: Address,
     ) {
-        admin.require_auth();
+        owner.require_auth();
         assert!(
             OracleStorage::get_config(&env).is_none(),
             "Already initialized"
         );
+        
+        AccessControl::init_owner(&env, &owner);
+
         assert!(min_stake > 0, "Invalid min_stake");
         assert!(consensus_threshold > 0, "Invalid threshold");
         let cfg = OracleConfig {
-            admin: admin.clone(),
+            admin: owner.clone(),
             min_stake,
             consensus_threshold,
             booking_contract,
@@ -126,14 +130,13 @@ impl FlightOracle {
         OracleStorage::set_config(&env, &cfg);
         env.events().publish(
             (symbol_short!("oracle"), symbol_short!("init")),
-            (admin, min_stake, consensus_threshold),
+            (owner, min_stake, consensus_threshold),
         );
     }
 
     pub fn register_oracle_provider(env: Env, admin: Address, provider: Address, stake: i128) {
-        admin.require_auth();
+        AccessControl::require_admin(&env, &admin);
         let cfg = OracleStorage::get_config(&env).expect("Not initialized");
-        assert!(cfg.admin == admin, "Unauthorized");
         assert!(stake >= cfg.min_stake, "Insufficient stake");
         assert!(
             OracleStorage::get_provider(&env, &provider).is_none(),
@@ -228,4 +231,34 @@ impl FlightOracle {
             (booking_id, status),
         );
     }
+
+    // Role management functions
+
+    pub fn set_role(env: Env, caller: Address, target: Address, role: u32, enabled: bool) {
+        let role_enum = match role {
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => panic!("Invalid role"),
+        };
+        AccessControl::set_role(&env, &caller, &target, role_enum, enabled);
+    }
+
+    pub fn transfer_ownership(env: Env, caller: Address, new_owner: Address) {
+        AccessControl::transfer_ownership(&env, &caller, &new_owner);
+    }
+
+    pub fn get_owner(env: Env) -> Address {
+        AccessControl::get_owner(&env)
+    }
+
+    pub fn has_role(env: Env, address: Address, role: u32) -> bool {
+        let role_enum = match role {
+            0 => Role::Owner,
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => return false,
+        };
+        AccessControl::has_role(&env, &address, role_enum)
+    }
+}
 }

@@ -72,6 +72,7 @@ pub fn initialize_token(env: &Env, token: &TRQTokenContractClient, admin: &Addre
 pub fn register_and_verify_airline(
     env: &Env,
     airline_client: &AirlineContractClient,
+    owner: &Address,
     airline: &Address,
 ) {
     airline_client.register_airline(
@@ -79,5 +80,5 @@ pub fn register_and_verify_airline(
         &Symbol::new(env, "TraqoraAir"),
         &Symbol::new(env, "TQ"),
     );
-    airline_client.verify_airline(&Address::generate(env), airline);
+    airline_client.verify_airline(owner, airline);
 }

@@ -51,7 +51,9 @@ fn test_initialize() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
     client.initialize(
+        &owner,
         &2000,  // min_stake_percentage (20%)
         &5,     // jury_size
         &86400, // evidence_period (1 day)
@@ -75,7 +77,8 @@ fn test_multiple_disputes() {
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
 
-    client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -94,7 +97,8 @@ fn test_file_dispute() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -125,7 +129,8 @@ fn test_file_dispute_insufficient_stake() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -142,7 +147,8 @@ fn test_airline_respond() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -162,7 +168,8 @@ fn test_submit_evidence() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -190,7 +197,8 @@ fn test_jury_selection() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -224,7 +232,8 @@ fn test_party_cannot_be_juror() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -243,7 +252,8 @@ fn test_commit_reveal_voting() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -293,7 +303,8 @@ fn test_finalize_dispute() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -331,7 +342,7 @@ fn test_finalize_dispute() {
     client.reveal_vote(&juror3, &dispute_id, &false, &salt3);
 
     advance_ledger(&env, 86401);
-    client.finalize_dispute(&dispute_id);
+    client.finalize_dispute(&owner, &dispute_id);
 
     let dispute = client.get_dispute(&dispute_id).unwrap();
     assert!(dispute.verdict.is_some());
@@ -345,7 +356,8 @@ fn test_appeal_mechanism() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -382,7 +394,7 @@ fn test_appeal_mechanism() {
     client.reveal_vote(&juror3, &dispute_id, &true, &salt3);
 
     advance_ledger(&env, 86401);
-    client.finalize_dispute(&dispute_id);
+    client.finalize_dispute(&owner, &dispute_id);
 
     let dispute_before_appeal = client.get_dispute(&dispute_id).unwrap();
     assert_eq!(
@@ -404,7 +416,8 @@ fn test_execute_verdict() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -442,10 +455,10 @@ fn test_execute_verdict() {
     client.reveal_vote(&juror3, &dispute_id, &false, &salt3);
 
     advance_ledger(&env, 86401);
-    client.finalize_dispute(&dispute_id);
+    client.finalize_dispute(&owner, &dispute_id);
 
     advance_ledger(&env, 86401);
-    client.execute_verdict(&dispute_id);
+    client.execute_verdict(&owner, &dispute_id);
 
     let dispute = client.get_dispute(&dispute_id).unwrap();
     assert_eq!(dispute.verdict.unwrap(), Symbol::new(&env, "passenger"));
@@ -458,7 +471,8 @@ fn test_claim_juror_reward() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -496,10 +510,10 @@ fn test_claim_juror_reward() {
     client.reveal_vote(&juror3, &dispute_id, &false, &salt3);
 
     advance_ledger(&env, 86401);
-    client.finalize_dispute(&dispute_id);
+    client.finalize_dispute(&owner, &dispute_id);
 
     advance_ledger(&env, 86401);
-    client.execute_verdict(&dispute_id);
+    client.execute_verdict(&owner, &dispute_id);
 
     let reward1 = client.claim_juror_reward(&juror1, &dispute_id);
     let reward2 = client.claim_juror_reward(&juror2, &dispute_id);
@@ -520,7 +534,8 @@ fn test_claim_juror_reward_wrong_vote() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -558,10 +573,10 @@ fn test_claim_juror_reward_wrong_vote() {
     client.reveal_vote(&juror3, &dispute_id, &false, &salt3);
 
     advance_ledger(&env, 86401);
-    client.finalize_dispute(&dispute_id);
+    client.finalize_dispute(&owner, &dispute_id);
 
     advance_ledger(&env, 86401);
-    client.execute_verdict(&dispute_id);
+    client.execute_verdict(&owner, &dispute_id);
 
     client.claim_juror_reward(&juror3, &dispute_id);
 }
@@ -573,7 +588,8 @@ fn test_complete_dispute_lifecycle() {
 
     let contract_id = create_dispute_contract(&env);
     let client = DisputeContractClient::new(&env, &contract_id);
-    client.initialize(&2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
+    let owner = Address::generate(&env);
+    client.initialize(&owner, &2000, &5, &86400, &86400, &86400, &86400, &5000, &2000);
 
     let passenger = Address::generate(&env);
     let airline = Address::generate(&env);
@@ -626,7 +642,7 @@ fn test_complete_dispute_lifecycle() {
     }
 
     advance_ledger(&env, 86401);
-    client.finalize_dispute(&dispute_id);
+    client.finalize_dispute(&owner, &dispute_id);
 
     let dispute = client.get_dispute(&dispute_id).unwrap();
     assert_eq!(dispute.verdict.unwrap(), Symbol::new(&env, "passenger"));
@@ -634,7 +650,7 @@ fn test_complete_dispute_lifecycle() {
     assert_eq!(dispute.votes_for_airline, 2);
 
     advance_ledger(&env, 86401);
-    client.execute_verdict(&dispute_id);
+    client.execute_verdict(&owner, &dispute_id);
 
     for (i, juror) in jurors.iter().enumerate() {
         if votes[i] {

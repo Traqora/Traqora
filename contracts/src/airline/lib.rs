@@ -1,6 +1,14 @@
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol, Vec,
 };
+use crate::access::{AccessControl, Role};
+
+#[contracttype]
+#[derive(Clone)]
+pub struct PriceUpdateInput {
+    pub base_price: i128,
+    pub factors: PricingFactors,
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -187,6 +195,10 @@ pub struct AirlineContract;
 
 #[contractimpl]
 impl AirlineContract {
+    pub fn initialize(env: Env, owner: Address) {
+        AccessControl::init_owner(&env, &owner);
+    }
+
     fn is_valid_status(status: &Symbol) -> bool {
         *status == symbol_short!("active")
             || *status == symbol_short!("cancelled")
@@ -237,7 +249,10 @@ impl AirlineContract {
         admin.require_auth();
 
         let mut cfg = PricingStorage::get_config(&env).expect("Not initialized");
-        assert!(cfg.admin == admin, "Unauthorized");
+        // Allow either the pricing config's admin or any contract Admin role
+        if !(cfg.admin == admin || AccessControl::has_role(&env, &admin, Role::Admin)) {
+            panic!("Unauthorized");
+        }
         cfg.oracle = oracle.clone();
         PricingStorage::set_config(&env, &cfg);
 
@@ -270,8 +285,8 @@ impl AirlineContract {
     }
 
     // Admin verification of airline
-    pub fn verify_airline(env: Env, _admin: Address, airline: Address) {
-        // TODO: Check admin authorization
+    pub fn verify_airline(env: Env, admin: Address, airline: Address) {
+        AccessControl::require_admin(&env, &admin);
 
         let mut profile = AirlineRegistry::get_airline(&env, &airline).expect("Airline not found");
 
@@ -643,5 +658,34 @@ impl AirlineContract {
             .checked_mul(demand_multiplier_bps)
             .expect("Math overflow")
             / 10_000i128
+    }
+
+    // Role management functions
+
+    pub fn set_role(env: Env, caller: Address, target: Address, role: u32, enabled: bool) {
+        let role_enum = match role {
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => panic!("Invalid role"),
+        };
+        AccessControl::set_role(&env, &caller, &target, role_enum, enabled);
+    }
+
+    pub fn transfer_ownership(env: Env, caller: Address, new_owner: Address) {
+        AccessControl::transfer_ownership(&env, &caller, &new_owner);
+    }
+
+    pub fn get_owner(env: Env) -> Address {
+        AccessControl::get_owner(&env)
+    }
+
+    pub fn has_role(env: Env, address: Address, role: u32) -> bool {
+        let role_enum = match role {
+            0 => Role::Owner,
+            1 => Role::Admin,
+            2 => Role::Operator,
+            _ => return false,
+        };
+        AccessControl::has_role(&env, &address, role_enum)
     }
 }
