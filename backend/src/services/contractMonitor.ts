@@ -150,11 +150,10 @@ class ContractMonitor {
    */
   private extractEventType(event: any): string | null {
     try {
-      // Parse the event value to get the event type
       if (event.topic && event.topic.length > 0) {
-        const topic = event.topic[0];
-        // Convert ScVal to string
-        return StellarSdk.scValToNative(topic);
+        // usually topic[0] is contract module (e.g., 'booking'), topic[1] is the event action (e.g., 'created')
+        const topic = event.topic.length > 1 ? event.topic[1] : event.topic[0];
+        return StellarSdk.scValToNative(topic).toString();
       }
       return null;
     } catch (error) {
@@ -242,14 +241,57 @@ class ContractMonitor {
 export const contractMonitor = new ContractMonitor();
 
 // Register default event listeners
+import { AppDataSource } from '../db/dataSource';
+import { Booking } from '../db/entities/Booking';
+import { webhookService } from './WebhookService';
+
 export const setupDefaultEventListeners = () => {
   // Booking contract events
   if (config.contracts.booking) {
     contractMonitor.registerListener(
       config.contracts.booking,
-      ['BookingCreated', 'BookingCancelled'],
-      (event) => {
-        logger.info('Booking contract event', { event });
+      ['created', 'paid', 'released', 'refunded'],
+      async (event) => {
+        try {
+          const value = StellarSdk.scValToNative(event.value);
+          let bookingId: string;
+          let amount: string | undefined;
+
+          if (Array.isArray(value)) {
+            bookingId = value[0].toString();
+            amount = value[1].toString();
+          } else {
+            bookingId = value.toString();
+          }
+
+          logger.info(`Booking contract event`, { bookingId, amount, ledger: event.ledger });
+
+          const eventType = StellarSdk.scValToNative(event.topic[1]).toString();
+          const bookingRepo = AppDataSource.getRepository(Booking);
+          const booking = await bookingRepo.findOne({
+            where: { sorobanBookingId: bookingId },
+            relations: ['passenger']
+          });
+
+          if (booking) {
+            if (eventType === 'created') booking.status = 'onchain_submitted';
+            else if (eventType === 'paid') booking.status = 'paid';
+            else if (eventType === 'released') booking.status = 'confirmed';
+            else if (eventType === 'refunded') booking.status = 'refunded';
+
+            await bookingRepo.save(booking);
+
+            if (booking.passenger?.sorobanAddress) {
+              await webhookService.sendWebhook(
+                booking.passenger.sorobanAddress,
+                `booking_${eventType}`,
+                { bookingId: booking.id, sorobanBookingId: bookingId, status: booking.status, amount }
+              );
+            }
+          }
+        } catch (e: any) {
+          logger.error('Error processing booking event in listener', { error: e.message });
+        }
       }
     );
   }
@@ -259,8 +301,26 @@ export const setupDefaultEventListeners = () => {
     contractMonitor.registerListener(
       config.contracts.refund,
       ['RefundRequested', 'RefundProcessed', 'RefundRejected'],
-      (event) => {
+      async (event) => {
         logger.info('Refund contract event', { event });
+        // Handle refund events and trigger webhook
+        try {
+          const eventType = StellarSdk.scValToNative(event.topic.length > 1 ? event.topic[1] : event.topic[0]).toString();
+          if (eventType === 'RefundProcessed') {
+             const value = StellarSdk.scValToNative(event.value);
+             let bookingId = Array.isArray(value) ? value[0].toString() : value.toString();
+             
+             const bookingRepo = AppDataSource.getRepository(Booking);
+             const booking = await bookingRepo.findOne({ where: { sorobanBookingId: bookingId }, relations: ['passenger'] });
+             if (booking && booking.passenger?.sorobanAddress) {
+               await webhookService.sendWebhook(
+                 booking.passenger.sorobanAddress,
+                 'RefundProcessed',
+                 { bookingId: booking.id, sorobanBookingId: bookingId }
+               );
+             }
+          }
+        } catch (e) {}
       }
     );
   }
@@ -270,8 +330,26 @@ export const setupDefaultEventListeners = () => {
     contractMonitor.registerListener(
       config.contracts.governance,
       ['DisputeCreated', 'DisputeResolved', 'VoteCast'],
-      (event) => {
+      async (event) => {
         logger.info('Dispute contract event', { event });
+        try {
+          const eventType = StellarSdk.scValToNative(event.topic.length > 1 ? event.topic[1] : event.topic[0]).toString();
+          if (eventType === 'DisputeResolved') {
+             const value = StellarSdk.scValToNative(event.value);
+             // We assume value contains dispute ID or booking ID. If it's booking ID, we can notify.
+             let bookingId = Array.isArray(value) ? value[0].toString() : value.toString();
+             
+             const bookingRepo = AppDataSource.getRepository(Booking);
+             const booking = await bookingRepo.findOne({ where: { sorobanBookingId: bookingId }, relations: ['passenger'] });
+             if (booking && booking.passenger?.sorobanAddress) {
+               await webhookService.sendWebhook(
+                 booking.passenger.sorobanAddress,
+                 'DisputeResolved',
+                 { bookingId: booking.id, sorobanBookingId: bookingId }
+               );
+             }
+          }
+        } catch (e) {}
       }
     );
   }
