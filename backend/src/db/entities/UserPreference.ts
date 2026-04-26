@@ -32,6 +32,12 @@ export class UserPreference {
   @Column({ nullable: true })
   fcmToken: string;
 
+  @Column({ default: false })
+  webhookEnabled: boolean;
+
+  @Column({ nullable: true })
+  webhookUrl: string;
+
   @CreateDateColumn()
   createdAt: Date;
 
