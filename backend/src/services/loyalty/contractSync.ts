@@ -1,6 +1,7 @@
 import { config } from '../../config';
 import { LoyaltyStore } from './store';
 import { logger } from '../../utils/logger';
+import { executeSorobanOperation } from '../soroban';
 
 export interface OnChainAccount {
   address: string;
@@ -63,7 +64,11 @@ export class ContractSync {
       const address = new Address(stellarAddress);
 
       const call = contract.call('get_account', address.toScVal());
-      const simResponse = await server.simulateTransaction(call as never);
+      const simResponse = await executeSorobanOperation(
+        'soroban_simulate_loyalty_get_account',
+        () => server.simulateTransaction(call as never),
+        { component: 'loyalty_contract_sync', stellarAddress }
+      );
 
       if ('error' in simResponse) {
         logger.warn({ msg: 'Contract simulation failed', error: simResponse.error });

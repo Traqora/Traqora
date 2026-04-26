@@ -2,6 +2,7 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import { config } from '../config';
 import { Flight } from '../types/flight';
 import { logger } from '../utils/logger';
+import { executeSorobanOperation } from './soroban';
 
 export interface FlightRegistryState {
   listed: boolean;
@@ -39,7 +40,11 @@ class SorobanFlightRegistryService implements FlightRegistryService {
     try {
       const server = new StellarSdk.SorobanRpc.Server(config.sorobanRpcUrl);
       const registryContract = new StellarSdk.Contract(config.contracts.flightRegistry);
-      const source = await server.getAccount(StellarSdk.Keypair.random().publicKey());
+      const source = await executeSorobanOperation(
+        'soroban_get_account',
+        () => server.getAccount(StellarSdk.Keypair.random().publicKey()),
+        { component: 'flight_registry' }
+      );
       const networkPassphrase =
         config.stellarNetwork === 'mainnet'
           ? StellarSdk.Networks.PUBLIC
@@ -61,7 +66,11 @@ class SorobanFlightRegistryService implements FlightRegistryService {
           .setTimeout(30)
           .build();
 
-        const simulated = await server.simulateTransaction(tx);
+        const simulated = await executeSorobanOperation(
+          'soroban_simulate_flight_state',
+          () => server.simulateTransaction(tx),
+          { component: 'flight_registry', flightId: flight.id }
+        );
         if (!StellarSdk.SorobanRpc.Api.isSimulationSuccess(simulated) || !simulated.result?.retval) {
           states[flight.id] = {
             listed: false,

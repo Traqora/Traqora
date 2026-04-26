@@ -1,7 +1,7 @@
 import { AppDataSource } from '../db/dataSource';
 import { Refund, RefundReason, RefundStatus } from '../db/entities/Refund';
 import { Booking } from '../db/entities/Booking';
-import { stripe } from './stripe';
+import { executeStripeOperation, stripe } from './stripe';
 import { buildBatchBookingActionUnsignedXdr, submitSignedSorobanXdr, getTransactionStatus } from './soroban';
 import { NotificationService } from './NotificationService';
 import { RefundAuditService } from './refundAuditService';
@@ -189,9 +189,10 @@ export class RefundService {
     try {
       // Step 1: Process Stripe refund
       if (refund.booking.stripePaymentIntentId && refund.approvedAmountCents! > 0) {
-        const stripeRefund = await withRetries(
-          async () => {
-            return await stripe.refunds.create({
+        const stripeRefund = await executeStripeOperation(
+          'stripe_create_refund',
+          () =>
+            stripe.refunds.create({
               payment_intent: refund.booking.stripePaymentIntentId!,
               amount: refund.approvedAmountCents!,
               reason: 'requested_by_customer',
@@ -199,9 +200,11 @@ export class RefundService {
                 refundId: refund.id,
                 bookingId: refund.booking.id,
               },
-            });
-          },
-          { retries: 3, baseDelayMs: 500 }
+            }),
+          {
+            refundId: refund.id,
+            bookingId: refund.booking.id,
+          }
         );
 
         refund.stripeRefundId = stripeRefund.id;

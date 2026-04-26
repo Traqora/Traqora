@@ -22,7 +22,7 @@ export class Flight {
   @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   departureTime!: Date;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', nullable: true })
   arrivalTime?: Date;
 
   @Column({ type: 'integer', default: 0 })
@@ -56,7 +56,7 @@ export class Flight {
   dataSource!: string; // AMADEUS, AIRLINE_API, MANUAL, etc.
 
   @Index()
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', nullable: true })
   lastSyncedAt?: Date;
 
   @Column({ type: 'varchar', length: 32, default: 'EXACT_MATCH' })
@@ -72,10 +72,10 @@ export class Flight {
   lastSyncError?: string;
 
   // Audit
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   updatedAt!: Date;
 
   @Column({ type: 'jsonb', nullable: true })

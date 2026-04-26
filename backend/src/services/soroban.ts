@@ -2,6 +2,12 @@ import { config } from '../config';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { logger } from '../utils/logger';
 import crypto from 'crypto';
+import {
+  AppError,
+  CircuitBreaker,
+  executeWithResilience,
+  isTransientError,
+} from './ErrorHandlingService';
 
 export type UnsignedSorobanTx = {
   xdr: string;
@@ -27,7 +33,11 @@ export const buildBatchBookingActionUnsignedXdr = async (params: {
 
     const server = getSorobanServer();
     const networkPassphrase = getNetworkPassphrase();
-    const sourceAccount = await server.getAccount(params.actor);
+    const sourceAccount = await executeSorobanOperation(
+      'soroban_get_account',
+      () => server.getAccount(params.actor),
+      { actor: params.actor, action: params.action }
+    );
     const contract = new StellarSdk.Contract(config.contracts.booking);
 
     const actorVal = new StellarSdk.Address(params.actor).toScVal();
@@ -43,7 +53,11 @@ export const buildBatchBookingActionUnsignedXdr = async (params: {
       .setTimeout(300)
       .build();
 
-    const simulated = await server.simulateTransaction(transaction);
+    const simulated = await executeSorobanOperation(
+      'soroban_simulate_batch_action',
+      () => server.simulateTransaction(transaction),
+      { actor: params.actor, action: params.action }
+    );
     if (StellarSdk.SorobanRpc.Api.isSimulationSuccess(simulated)) {
       const prepared = StellarSdk.SorobanRpc.assembleTransaction(
         transaction,
@@ -74,6 +88,10 @@ export type TransactionStatus = {
 };
 
 let server: StellarSdk.SorobanRpc.Server | null = null;
+const sorobanCircuitBreaker = new CircuitBreaker('soroban-rpc', {
+  failureThreshold: 5,
+  recoveryTimeoutMs: 30_000,
+});
 
 const getSorobanServer = (): StellarSdk.SorobanRpc.Server => {
   if (!server) {
@@ -81,6 +99,21 @@ const getSorobanServer = (): StellarSdk.SorobanRpc.Server => {
   }
   return server;
 };
+
+export const executeSorobanOperation = async <T>(
+  operationName: string,
+  fn: () => Promise<T>,
+  context: Record<string, unknown> = {}
+): Promise<T> =>
+  executeWithResilience(sorobanCircuitBreaker, fn, {
+    operationName,
+    context,
+    retry: {
+      retries: 3,
+      baseDelayMs: 300,
+      shouldRetry: (error) => isTransientError(error),
+    },
+  });
 
 const getNetworkPassphrase = (): string => {
   return config.stellarNetwork === 'mainnet'
@@ -110,7 +143,11 @@ export const buildCreateBookingUnsignedXdr = async (params: {
     const networkPassphrase = getNetworkPassphrase();
 
     // Get source account (fee estimation)
-    const sourceAccount = await server.getAccount(params.passenger);
+    const sourceAccount = await executeSorobanOperation(
+      'soroban_get_account',
+      () => server.getAccount(params.passenger),
+      { passenger: params.passenger, action: 'create_booking' }
+    );
 
     // Build contract invocation
     const contract = new StellarSdk.Contract(config.contracts.booking);
@@ -139,7 +176,11 @@ export const buildCreateBookingUnsignedXdr = async (params: {
       .build();
 
     // Simulate to get accurate fee
-    const simulated = await server.simulateTransaction(transaction);
+    const simulated = await executeSorobanOperation(
+      'soroban_simulate_create_booking',
+      () => server.simulateTransaction(transaction),
+      { passenger: params.passenger, action: 'create_booking' }
+    );
     
     if (StellarSdk.SorobanRpc.Api.isSimulationSuccess(simulated)) {
       // Prepare the transaction with simulated results
@@ -185,7 +226,11 @@ export const signAndSubmitCreateBooking = async (params: {
     const server = getSorobanServer();
     const networkPassphrase = getNetworkPassphrase();
     const sourceKeypair = StellarSdk.Keypair.fromSecret(config.stellarSecretKey);
-    const sourceAccount = await server.getAccount(sourceKeypair.publicKey());
+    const sourceAccount = await executeSorobanOperation(
+      'soroban_get_account',
+      () => server.getAccount(sourceKeypair.publicKey()),
+      { action: 'sign_and_submit_create_booking' }
+    );
 
     // Build contract invocation
     const contract = new StellarSdk.Contract(config.contracts.booking);
@@ -214,7 +259,11 @@ export const signAndSubmitCreateBooking = async (params: {
       .build();
 
     // Simulate and prepare
-    const simulated = await server.simulateTransaction(transaction);
+    const simulated = await executeSorobanOperation(
+      'soroban_simulate_signed_create_booking',
+      () => server.simulateTransaction(transaction),
+      { action: 'sign_and_submit_create_booking' }
+    );
     if (!StellarSdk.SorobanRpc.Api.isSimulationSuccess(simulated)) {
       throw new Error(`Simulation failed: ${simulated.error || 'Unknown error'}`);
     }
@@ -223,7 +272,11 @@ export const signAndSubmitCreateBooking = async (params: {
     prepared.sign(sourceKeypair);
 
     // Submit
-    const response = await server.sendTransaction(prepared);
+    const response = await executeSorobanOperation(
+      'soroban_send_signed_create_booking',
+      () => server.sendTransaction(prepared),
+      { action: 'sign_and_submit_create_booking' }
+    );
     if (response.status === 'ERROR') {
       throw new Error(`Submission failed: ${response.status}`);
     }
@@ -254,7 +307,11 @@ export const submitSignedSorobanXdr = async (signedXdr: string): Promise<{ txHas
     ) as StellarSdk.Transaction;
 
     // Submit transaction
-    const response = await server.sendTransaction(transaction);
+    const response = await executeSorobanOperation(
+      'soroban_submit_signed_xdr',
+      () => server.sendTransaction(transaction),
+      { action: 'submit_signed_xdr' }
+    );
 
     // response.status type may not include SUCCESS/PENDING in typings
     const status: any = response.status;
@@ -287,7 +344,11 @@ export const getTransactionStatus = async (txHash: string): Promise<TransactionS
     }
 
     const server = getSorobanServer();
-    const response = await server.getTransaction(txHash);
+    const response = await executeSorobanOperation(
+      'soroban_get_transaction',
+      () => server.getTransaction(txHash),
+      { txHash }
+    );
 
     if (response.status === StellarSdk.SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
       return {
@@ -314,6 +375,14 @@ export const getTransactionStatus = async (txHash: string): Promise<TransactionS
     }
   } catch (error: any) {
     logger.error('Error getting transaction status', { error: error.message, txHash });
+    if (error instanceof AppError && error.code === 'CIRCUIT_OPEN') {
+      return {
+        status: 'pending',
+        txHash,
+        error: 'Soroban RPC temporarily unavailable',
+      };
+    }
+
     return {
       status: 'not_found',
       txHash,

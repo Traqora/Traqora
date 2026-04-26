@@ -164,10 +164,15 @@ export const createApp = (options: AppOptions = {}) => {
   app.use(errorHandler);
 
   app.use((_req, res) => {
+    const requestId = String(res.locals.requestId || 'unknown');
     res.status(404).json({
+      success: false,
       error: {
         code: 'NOT_FOUND',
         message: 'Endpoint not found',
+        retryable: false,
+        requestId,
+        timestamp: new Date().toISOString(),
       },
     });
   });
