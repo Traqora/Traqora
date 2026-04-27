@@ -1,4 +1,5 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import { encryptionTransformer } from '../../utils/encryption';
 
 @Entity({ name: 'passengers' })
 export class Passenger {
@@ -6,16 +7,16 @@ export class Passenger {
   id!: string;
 
   @Index()
-  @Column({ type: 'varchar', length: 128 })
+  @Column({ type: 'varchar', length: 512, transformer: encryptionTransformer })
   email!: string;
 
-  @Column({ type: 'varchar', length: 64 })
+  @Column({ type: 'varchar', length: 512, transformer: encryptionTransformer })
   firstName!: string;
 
-  @Column({ type: 'varchar', length: 64 })
+  @Column({ type: 'varchar', length: 512, transformer: encryptionTransformer })
   lastName!: string;
 
-  @Column({ type: 'varchar', length: 32, nullable: true })
+  @Column({ type: 'varchar', length: 512, nullable: true, transformer: encryptionTransformer })
   phone?: string | null;
 
   @Column({ type: 'varchar', length: 128, default: '' })

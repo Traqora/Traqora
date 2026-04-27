@@ -46,3 +46,6 @@ pub mod oracle;
 
 #[path = "admin/lib.rs"]
 pub mod admin;
+
+#[path = "booking_receipt/lib.rs"]
+pub mod booking_receipt;

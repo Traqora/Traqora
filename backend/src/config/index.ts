@@ -1,79 +1,57 @@
-import { configSchema, Config } from './schema';
-import { SecretManager } from '../services/secret-manager.service';
-import { Logger } from '../utils/logger';
+export const config = {
+  port: Number.parseInt(process.env.PORT || '3001', 10),
+  environment: process.env.NODE_ENV || 'development',
+  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
 
-let validatedConfig: Config;
+  stellarNetwork: process.env.STELLAR_NETWORK || 'testnet',
+  stellarSecretKey: process.env.STELLAR_SECRET_KEY || 'SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', // Default for dev
+  horizonUrl: process.env.HORIZON_URL || 'https://horizon-testnet.stellar.org',
+  sorobanRpcUrl: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
 
-export async function loadConfig(): Promise<Config> {
-  const secretManager = SecretManager.getInstance();
+  contracts: {
+    booking: process.env.BOOKING_CONTRACT_ID || "",
+    airline: process.env.AIRLINE_CONTRACT_ID || "",
+    refund: process.env.REFUND_CONTRACT_ID || "",
+    loyalty: process.env.LOYALTY_CONTRACT_ID || "",
+    governance: process.env.GOVERNANCE_CONTRACT_ID || "",
+    token: process.env.TOKEN_CONTRACT_ID || "",
+    flightRegistry: process.env.FLIGHT_REGISTRY_CONTRACT_ID || "",
+  },
 
-  const rawConfig = {
-    port: Number.parseInt(await secretManager.getSecret('PORT', '3001'), 10),
-    environment: await secretManager.getSecret('NODE_ENV', 'development'),
-    corsOrigin: await secretManager.getSecret('CORS_ORIGIN', 'http://localhost:3000'),
+  // Database
+  databaseUrl: process.env.DATABASE_URL || '',
+  // Mongo connection string (optional, used for notifications/history etc)
+  mongoUrl: process.env.MONGO_URI || '',
+  redisUrl: process.env.REDIS_URL || '',
 
-    stellarNetwork: await secretManager.getSecret('STELLAR_NETWORK', 'testnet'),
-    stellarSecretKey: await secretManager.getSecret('STELLAR_SECRET_KEY', 'SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'),
-    horizonUrl: await secretManager.getSecret('HORIZON_URL', 'https://horizon-testnet.stellar.org'),
-    sorobanRpcUrl: await secretManager.getSecret('SOROBAN_RPC_URL', 'https://soroban-testnet.stellar.org'),
+  jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+  jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-change-in-production',
+  jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+  nonceExpirySeconds: Number.parseInt(process.env.NONCE_EXPIRY_SECONDS || '300', 10),
 
-    contracts: {
-      booking: await secretManager.getSecret('BOOKING_CONTRACT_ID', ''),
-      airline: await secretManager.getSecret('AIRLINE_CONTRACT_ID', ''),
-      refund: await secretManager.getSecret('REFUND_CONTRACT_ID', ''),
-      loyalty: await secretManager.getSecret('LOYALTY_CONTRACT_ID', ''),
-      governance: await secretManager.getSecret('GOVERNANCE_CONTRACT_ID', ''),
-      token: await secretManager.getSecret('TOKEN_CONTRACT_ID', ''),
-      flightRegistry: await secretManager.getSecret('FLIGHT_REGISTRY_CONTRACT_ID', ''),
-    },
+  adminApiKey: process.env.ADMIN_API_KEY || 'dev-admin-key',
 
-    databaseUrl: await secretManager.getSecret('DATABASE_URL', ''),
-    redisUrl: await secretManager.getSecret('REDIS_URL', ''),
-    mongoUrl: await secretManager.getSecret('MONGO_URI', ''),
+  rateLimitWindowSec: Number.parseInt(process.env.RATE_LIMIT_WINDOW_SEC || '60', 10),
+  rateLimitMax: Number.parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+  rateLimitPublicMax: Number.parseInt(process.env.RATE_LIMIT_PUBLIC_MAX || '60', 10),
+  rateLimitUserMax: Number.parseInt(process.env.RATE_LIMIT_USER_MAX || '120', 10),
+  rateLimitPremiumMax: Number.parseInt(process.env.RATE_LIMIT_PREMIUM_MAX || '300', 10),
+  ddosBurstMax: Number.parseInt(process.env.DDOS_BURST_MAX || '25', 10),
+  ddosBurstWindowSec: Number.parseInt(process.env.DDOS_BURST_WINDOW_SEC || '3', 10),
+  rateLimitBlockDurationSec: Number.parseInt(process.env.RATE_LIMIT_BLOCK_DURATION_SEC || '900', 10),
+  rateLimitBlockAfterViolations: Number.parseInt(process.env.RATE_LIMIT_BLOCK_AFTER_VIOLATIONS || '8', 10),
+  captchaAfterViolations: Number.parseInt(process.env.CAPTCHA_AFTER_VIOLATIONS || '3', 10),
+  trustProxy: process.env.TRUST_PROXY === 'true',
+  useCloudflareHeaders: process.env.USE_CLOUDFLARE_HEADERS === 'true',
 
-    jwtSecret: await secretManager.getSecret('JWT_SECRET', 'your-secret-key-change-in-production-at-least-32-chars'),
-    jwtExpiresIn: await secretManager.getSecret('JWT_EXPIRES_IN', '1h'),
-    jwtRefreshSecret: await secretManager.getSecret('JWT_REFRESH_SECRET', 'your-refresh-secret-change-in-production-at-least-32-chars'),
-    jwtRefreshExpiresIn: await secretManager.getSecret('JWT_REFRESH_EXPIRES_IN', '7d'),
-    
-    adminApiKey: await secretManager.getSecret('ADMIN_API_KEY', 'dev-admin-key-at-least-16-chars'),
+  flightSearchCacheTtlSeconds: Number.parseInt(
+    process.env.FLIGHT_SEARCH_CACHE_TTL_SECONDS || '300',
+    10
+  ),
 
-    logLevel: await secretManager.getSecret('LOG_LEVEL', 'info'),
-    auditLogEnabled: (await secretManager.getSecret('AUDIT_LOG_ENABLED', 'false')) === 'true',
-  };
-
-  const result = configSchema.safeParse(rawConfig);
-
-  if (!result.success) {
-    const errors = result.error.format();
-    Logger.error('Invalid configuration detected:', new Error(JSON.stringify(errors, null, 2)));
-    
-    if (rawConfig.environment === 'production') {
-      Logger.error('CRITICAL: Production environment started with invalid configuration. Terminating process.');
-      process.exit(1);
-    }
-    
-    Logger.warn('Continuing in development mode with schema warnings...');
-    validatedConfig = rawConfig as any as Config;
-  } else {
-    validatedConfig = result.data;
-    Logger.info(`Configuration loaded successfully for environment: ${validatedConfig.environment}`);
-  }
-
-  // Check secret rotation for JWT
-  if (validatedConfig.environment === 'production') {
-    await secretManager.checkSecretRotation('JWT_SECRET', 90);
-  }
-
-  return validatedConfig;
-}
-
-// Export a getter for the config to ensure it's loaded
-export const getConfig = (): Config => {
-  if (!validatedConfig) {
-    throw new Error('Config not loaded. Call loadConfig() first.');
-  }
-  return validatedConfig;
+  logLevel: process.env.LOG_LEVEL || 'info',
+  encryptionKey: process.env.ENCRYPTION_KEY || 'dev-encryption-key-at-least-32-chars-long',
 };
 
 // Legacy support for direct config export (will need to be initialized)
