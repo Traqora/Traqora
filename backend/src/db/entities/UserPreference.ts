@@ -1,6 +1,6 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   Column,
   CreateDateColumn,
   UpdateDateColumn,
@@ -8,35 +8,29 @@ import {
 
 @Entity("user_preferences")
 export class UserPreference {
-  @PrimaryGeneratedColumn("uuid")
-  id: string;
-
-  @Column()
-  userId: string; // Storing as string since we don't have a formal User entity yet
+  @PrimaryColumn({ type: 'varchar' })
+  walletAddress: string;
 
   @Column({ default: true })
-  emailEnabled: boolean;
+  emailNotifications: boolean;
 
   @Column({ default: false })
-  smsEnabled: boolean;
+  smsNotifications: boolean;
 
   @Column({ default: true })
-  pushEnabled: boolean;
-
-  @Column({ nullable: true })
-  email: string;
-
-  @Column({ nullable: true })
-  phoneNumber: string;
-
-  @Column({ nullable: true })
-  fcmToken: string;
+  pushNotifications: boolean;
 
   @Column({ default: false })
-  webhookEnabled: boolean;
+  marketingEmails: boolean;
 
-  @Column({ nullable: true })
-  webhookUrl: string;
+  @Column({ default: 'USD', length: 3 })
+  currency: string;
+
+  @Column({ default: 'en', length: 2 })
+  language: string;
+
+  @Column({ default: 'UTC' })
+  timezone: string;
 
   @CreateDateColumn()
   createdAt: Date;

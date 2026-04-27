@@ -12,11 +12,11 @@ import { subscriptionRoutes } from './api/routes/subscriptions';
 import { governanceRoutes } from './api/routes/governance';
 import { bookingRoutes } from './api/routes/bookings';
 import { metricsRoutes } from './api/routes/metrics';
-// import { airlineRoutes } from './api/routes/airlines';
-// import { userRoutes } from './api/routes/users';
-// import { refundRoutes } from './api/routes/refunds';
-// import { loyaltyRoutes } from './api/routes/loyalty';
-// import { walletRoutes } from './api/routes/wallet';
+import { airlineRoutes } from './api/routes/airlines';
+import { userRoutes } from './api/routes/users';
+import { refundRoutes } from './api/routes/refunds';
+import { loyaltyRoutes } from './api/routes/loyalty';
+import { walletRoutes } from './api/routes/wallet';
 
 // New Services
 import { connectDatabase } from './config/database';
@@ -30,6 +30,8 @@ import { contractMonitor, setupDefaultEventListeners, startWalletBalanceMonitori
 import morgan from 'morgan';
 
 dotenv.config();
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './config/swagger';
 
 const app = express();
 const server = http.createServer(app);
@@ -96,6 +98,17 @@ app.get('/readiness', async (_req, res) => {
   }
 });
 
+// API Documentation
+app.get('/api-docs.json', (_req: any, res: any) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'Traqora API Documentation',
+}));
+
 // API routes
 app.use('/metrics', metricsRoutes);
 app.use('/api/v1/flights', flightRoutes);
@@ -119,11 +132,11 @@ app.post('/internal/test-broadcast', (req, res) => {
     return res.status(500).json({ ok: false, error: 'ws_not_ready' });
   }
 });
-// app.use('/api/v1/airlines', airlineRoutes);
-// app.use('/api/v1/users', userRoutes);
-// app.use('/api/v1/refunds', refundRoutes);
-// app.use('/api/v1/loyalty', loyaltyRoutes);
-// app.use('/api/v1/wallet', walletRoutes);
+app.use('/api/v1/airlines', airlineRoutes);
+app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/refunds', refundRoutes);
+app.use('/api/v1/loyalty', loyaltyRoutes);
+app.use('/api/v1/wallet', walletRoutes);
 
 // Error handling
 app.use(errorHandler);
