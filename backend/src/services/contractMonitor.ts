@@ -2,6 +2,7 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { recordContractEvent, updateWalletBalance, recordSorobanTransaction } from './metrics';
+import { executeSorobanOperation } from './soroban';
 
 interface ContractEventListener {
   contractId: string;
@@ -76,21 +77,30 @@ class ContractMonitor {
 
     try {
       // Get latest ledger
-      const latestLedger = await this.server.getLatestLedger();
+      const latestLedger = await executeSorobanOperation(
+        'soroban_get_latest_ledger',
+        () => this.server!.getLatestLedger(),
+        { component: 'contract_monitor' }
+      );
       
       // Fetch events for each registered contract
       for (const listener of this.listeners) {
         try {
-          const events = await this.server.getEvents({
-            startLedger: this.lastCursor ? undefined : latestLedger.sequence - 100,
-            filters: [
-              {
-                type: 'contract',
-                contractIds: [listener.contractId],
-              },
-            ],
-            limit: 100,
-          });
+          const events = await executeSorobanOperation(
+            'soroban_get_events',
+            () =>
+              this.server!.getEvents({
+                startLedger: this.lastCursor ? undefined : latestLedger.sequence - 100,
+                filters: [
+                  {
+                    type: 'contract',
+                    contractIds: [listener.contractId],
+                  },
+                ],
+                limit: 100,
+              }),
+            { contractId: listener.contractId, component: 'contract_monitor' }
+          );
 
           if (events.events && events.events.length > 0) {
             for (const event of events.events) {
@@ -178,7 +188,11 @@ class ContractMonitor {
 
     for (const wallet of wallets) {
       try {
-        const account = await horizonServer.loadAccount(wallet.address);
+          const account = await executeSorobanOperation(
+            'horizon_load_account',
+            () => horizonServer.loadAccount(wallet.address),
+            { wallet: wallet.address, component: 'contract_monitor' }
+          );
         
         // Find XLM balance
         const xlmBalance = account.balances.find(
@@ -221,7 +235,11 @@ class ContractMonitor {
     if (!this.server) return;
 
     try {
-      const response = await this.server.getTransaction(txHash);
+      const response = await executeSorobanOperation(
+        'soroban_get_transaction',
+        () => this.server!.getTransaction(txHash),
+        { txHash, contract, method, component: 'contract_monitor' }
+      );
       const duration = (Date.now() - startTime) / 1000;
 
       if (response.status === StellarSdk.SorobanRpc.Api.GetTransactionStatus.SUCCESS) {

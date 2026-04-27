@@ -48,7 +48,9 @@ describe('Booking flow', () => {
       .set('Idempotency-Key', 'idem-auth-fail')
       .send({})
       .expect(401);
-    expect(res.body.error).toBe('Unauthorized');
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe('TOKEN_MISSING');
+    expect(res.body.error.message).toBe('Unauthorized');
   });
 
   beforeAll(async () => {

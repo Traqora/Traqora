@@ -8,24 +8,32 @@ export const requireAuth: RequestHandler = async (
     res: Response,
     next: NextFunction
 ): Promise<void> => {
+    const requestId = String(res.locals?.requestId || 'unknown');
+    const respondUnauthorized = (code: string) => {
+        res.status(401).json({
+            success: false,
+            error: {
+                code,
+                message: 'Unauthorized',
+                retryable: false,
+                requestId,
+                timestamp: new Date().toISOString(),
+            },
+        });
+    };
+
     try {
         const authHeader = req.headers.authorization;
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            res.status(401).json({
-                error: 'Unauthorized',
-                code: 'TOKEN_MISSING',
-            });
+            respondUnauthorized('TOKEN_MISSING');
             return;
         }
 
         const token = authHeader.split(' ')[1];
 
         if (!token) {
-            res.status(401).json({
-                error: 'Unauthorized',
-                code: 'TOKEN_MISSING',
-            });
+            respondUnauthorized('TOKEN_MISSING');
             return;
         }
 
@@ -33,17 +41,11 @@ export const requireAuth: RequestHandler = async (
         jwt.verify(token, config.jwtSecret, (err, decoded) => {
             if (err) {
                 if (err.name === 'TokenExpiredError') {
-                    res.status(401).json({
-                        error: 'Unauthorized',
-                        code: 'TOKEN_EXPIRED',
-                    });
+                    respondUnauthorized('TOKEN_EXPIRED');
                     return;
                 }
 
-                res.status(401).json({
-                    error: 'Unauthorized',
-                    code: 'TOKEN_INVALID',
-                });
+                respondUnauthorized('TOKEN_INVALID');
                 return;
             }
 
@@ -58,7 +60,21 @@ export const requireAuth: RequestHandler = async (
             next();
         });
     } catch (error) {
-        logger.error('Auth middleware error:', error);
-        res.status(500).json({ error: 'Internal Server Error' });
+        logger.error('Auth middleware error', {
+            error: error instanceof Error ? error.message : String(error),
+            requestId,
+            operation: `${req.method} ${req.originalUrl || req.path}`,
+            userId: req.user?.walletAddress || 'anonymous',
+        });
+        res.status(500).json({
+            success: false,
+            error: {
+                code: 'INTERNAL_ERROR',
+                message: 'Internal Server Error',
+                retryable: false,
+                requestId,
+                timestamp: new Date().toISOString(),
+            },
+        });
     }
 };

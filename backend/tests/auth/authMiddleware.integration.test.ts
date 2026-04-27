@@ -15,6 +15,7 @@ describe('authMiddleware', () => {
         mockResponse = {
             status: jest.fn().mockReturnThis(),
             json: jest.fn(),
+            locals: {},
         };
         mockNext = jest.fn();
     });
@@ -22,10 +23,15 @@ describe('authMiddleware', () => {
     it('should return 401 if Authorization header is missing', async () => {
         await requireAuth(mockRequest as Request, mockResponse as Response, mockNext);
         expect(mockResponse.status).toHaveBeenCalledWith(401);
-        expect(mockResponse.json).toHaveBeenCalledWith({
-            error: 'Unauthorized',
-            code: 'TOKEN_MISSING'
-        });
+        expect(mockResponse.json).toHaveBeenCalledWith(
+            expect.objectContaining({
+                success: false,
+                error: expect.objectContaining({
+                    code: 'TOKEN_MISSING',
+                    message: 'Unauthorized',
+                }),
+            })
+        );
     });
 
     it('should populate req.user if token is valid', async () => {
@@ -48,9 +54,14 @@ describe('authMiddleware', () => {
         await requireAuth(mockRequest as Request, mockResponse as Response, mockNext);
 
         expect(mockResponse.status).toHaveBeenCalledWith(401);
-        expect(mockResponse.json).toHaveBeenCalledWith({
-            error: 'Unauthorized',
-            code: 'TOKEN_EXPIRED'
-        });
+        expect(mockResponse.json).toHaveBeenCalledWith(
+            expect.objectContaining({
+                success: false,
+                error: expect.objectContaining({
+                    code: 'TOKEN_EXPIRED',
+                    message: 'Unauthorized',
+                }),
+            })
+        );
     });
 });
