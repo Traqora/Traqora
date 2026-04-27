@@ -115,8 +115,9 @@ export function FlightCard({ flight, showXLMPrice = true, xlmRate = 0.12 }: Flig
             {airlineLogo && (
               <img 
                 src={airlineLogo} 
-                alt={airlineName}
+                alt={`${airlineName} airline logo`}
                 className="w-8 h-8 object-contain"
+                aria-hidden="false"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none'
                 }}
@@ -196,7 +197,11 @@ export function FlightCard({ flight, showXLMPrice = true, xlmRate = 0.12 }: Flig
               </div>
             )}
 
-            <Link href={`/book/${flight.id}`} className="block">
+            <Link 
+              href={`/book/${flight.id}`} 
+              className="block"
+              aria-label={`Book flight ${flight.flightNumber} from ${flight.from} to ${flight.to} for $${flight.price}`}
+            >
               <Button className="w-full" size="sm">
                 <Zap className="h-4 w-4 mr-1" />
                 Book Now

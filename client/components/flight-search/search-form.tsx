@@ -100,9 +100,11 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
                         <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                         <Input
                           {...field}
+                          id="from-airport"
                           placeholder="JFK"
                           className="pl-10 uppercase"
                           maxLength={3}
+                          aria-label="Origin Airport Code"
                           onFocus={() => setShowFromSuggestions(true)}
                           onBlur={() => setTimeout(() => setShowFromSuggestions(false), 200)}
                           onChange={(e) => {
@@ -148,9 +150,11 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
                         <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                         <Input
                           {...field}
+                          id="to-airport"
                           placeholder="LAX"
                           className="pl-10 uppercase"
                           maxLength={3}
+                          aria-label="Destination Airport Code"
                           onFocus={() => setShowToSuggestions(true)}
                           onBlur={() => setTimeout(() => setShowToSuggestions(false), 200)}
                           onChange={(e) => {
@@ -161,6 +165,7 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
                           type="button"
                           variant="ghost"
                           size="sm"
+                          aria-label="Swap origin and destination"
                           className="absolute -right-12 top-1/2 -translate-y-1/2 h-8 w-8 p-0 hover:bg-muted"
                           onClick={swapLocations}
                         >
@@ -206,8 +211,10 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
                         <Input
                           {...field}
                           type="date"
+                          id="departure-date"
                           min={getTomorrowDate()}
                           className="pl-10"
+                          aria-label="Departure Date"
                         />
                       </div>
                     </FormControl>
@@ -229,8 +236,10 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
                         <Input
                           {...field}
                           type="date"
+                          id="return-date"
                           min={form.watch("departure") || getTomorrowDate()}
                           className="pl-10"
+                          aria-label="Return Date (Optional)"
                         />
                       </div>
                     </FormControl>

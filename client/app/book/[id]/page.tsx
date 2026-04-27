@@ -1,18 +1,31 @@
 "use client"
 
-import { Calendar } from "@/components/ui/calendar"
-
-import { useState } from "react"
-import { useParams } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
 import { Progress } from "@/components/ui/progress"
+import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Plane, Clock, Users, Luggage, Shield, Wallet, CheckCircle, QrCode, ExternalLink, Download } from "lucide-react"
-// NEW: import real wallet hook and store from stellar-wallet-connect
+import { Separator } from "@/components/ui/separator"
+import { 
+  Plane, 
+  CheckCircle, 
+  Wallet, 
+  Shield, 
+  ArrowLeft, 
+  ArrowRight, 
+  CreditCard,
+  QrCode,
+  Download,
+  ExternalLink
+} from "lucide-react"
+
+import { SeatSelector } from "@/components/booking/seat-selector"
+import { BookingSummary } from "@/components/booking/booking-summary"
+import { useBooking } from "@/hooks/use-booking"
+import { useFlightSearch } from "@/hooks/use-flight-search"
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
+import { cn } from "@/lib/utils"
 
 // Mock flight data - in real app this would come from API
 const mockFlightDetails = {
@@ -39,129 +52,95 @@ const mockFlightDetails = {
     checked: "1 checked bag (50 lbs) - $30 extra",
   },
   refundPolicy: "Free cancellation up to 24 hours before departure",
-  seatSelection: "Seat selection available for $15-45",
 }
 
-type BookingStep = "details" | "wallet" | "confirm" | "success"
+type BookingStep = "details" | "seats" | "wallet" | "confirm" | "success"
 
 export default function BookFlightPage() {
   const params = useParams()
+  const router = useRouter()
   const [currentStep, setCurrentStep] = useState<BookingStep>("details")
-  // NEW: read real wallet connection state from Zustand store
-  const { address, isConnected: isWalletConnected, walletType: connectedWalletType } = useWalletStore()
-  // NEW: use real wallet connect handler from stellar-wallet-connect
-  const { handleConnect: walletConnect } = useWallet()
-  const [selectedWallet, setSelectedWallet] = useState<string>("")
-  const [isProcessing, setIsProcessing] = useState(false)
+  
+  const { 
+    isProcessing, 
+    selectedSeat, 
+    selectSeat,
+    connectWallet,
+    createBooking,
+    signAndSubmitTransaction,
+    booking
+  } = useBooking()
+
+  const { flights } = useFlightSearch()
+  const { isConnected: isWalletConnected, address, walletType } = useWalletStore()
+  const { handleConnect } = useWallet()
+
   const [bookingId, setBookingId] = useState("")
-  const [processingStage, setProcessingStage] = useState("")
-  const [showReceipt, setShowReceipt] = useState(false)
+  
+  // Use mock flight or find from list
+  const flight = flights.find(f => f.id === params.id) || mockFlightDetails
 
-  const flight = mockFlightDetails
+  const steps: { id: BookingStep; label: string }[] = [
+    { id: "details", label: "Flight Details" },
+    { id: "seats", label: "Seat Selection" },
+    { id: "wallet", label: "Connect Wallet" },
+    { id: "confirm", label: "Confirmation" },
+    { id: "success", label: "Success" }
+  ]
 
-  // NEW: use the real StellarWalletsKit auth modal to connect the wallet
-  const handleConnectWallet = async (walletType: string) => {
-    setIsProcessing(true)
-    setSelectedWallet(walletType)
-    setProcessingStage("Opening wallet selector...")
+  const getStepProgress = () => {
+    const index = steps.findIndex(s => s.id === currentStep)
+    return ((index + 1) / steps.length) * 100
+  }
 
+  const nextStep = () => {
+    const index = steps.findIndex(s => s.id === currentStep)
+    if (index < steps.length - 1) {
+      setCurrentStep(steps[index + 1].id)
+    }
+  }
+
+  const prevStep = () => {
+    const index = steps.findIndex(s => s.id === currentStep)
+    if (index > 0) {
+      setCurrentStep(steps[index - 1].id)
+    }
+  }
+
+  const handleWalletConnect = async () => {
     try {
-      await walletConnect()
-      // NEW: after successful connection, update state from the store
-      const storeState = useWalletStore.getState()
-      if (storeState.isConnected && storeState.address) {
-        setSelectedWallet(storeState.walletType || walletType)
-        setProcessingStage("Wallet connected successfully!")
+      await handleConnect()
+      // If successful, the store will update and we can proceed
+      if (useWalletStore.getState().isConnected) {
         setCurrentStep("confirm")
       }
     } catch (error) {
-      setProcessingStage("Connection cancelled or failed.")
-    } finally {
-      setIsProcessing(false)
+      console.error("Wallet connection failed", error)
     }
   }
 
-  const handleConfirmBooking = async () => {
-    setIsProcessing(true)
-    setProcessingStage("Preparing transaction...")
-
-    setTimeout(() => {
-      setProcessingStage("Submitting to Stellar...")
-    }, 1000)
-
-    setTimeout(() => {
-      setProcessingStage("Waiting for confirmation...")
-    }, 2000)
-
-    setTimeout(() => {
-      setProcessingStage("Generating booking receipt...")
-    }, 2800)
-
-    setTimeout(() => {
-      setBookingId("0x" + Math.random().toString(16).substr(2, 8))
-      setCurrentStep("success")
-      setIsProcessing(false)
-      setProcessingStage("")
-    }, 3500)
-  }
-
-  const handleDownloadReceipt = () => {
-    const receiptData = {
-      bookingId: bookingId.toUpperCase(),
-      flight: flight,
-      timestamp: new Date().toISOString(),
-      transactionHash: `${bookingId}...abc123`,
-      gasFee: "0.001 ETH ($0.02)",
-    }
-
-    const dataStr = JSON.stringify(receiptData, null, 2)
-    const dataBlob = new Blob([dataStr], { type: "application/json" })
-    const url = URL.createObjectURL(dataBlob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `traqora-receipt-${bookingId.toUpperCase()}.json`
-    link.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const getStepProgress = () => {
-    switch (currentStep) {
-      case "details":
-        return 25
-      case "wallet":
-        return 50
-      case "confirm":
-        return 75
-      case "success":
-        return 100
-      default:
-        return 0
-    }
+  const handleFinalConfirm = async () => {
+    setBookingId("TRAQ-" + Math.random().toString(36).substring(2, 9).toUpperCase())
+    setCurrentStep("success")
+    // In real app, call signAndSubmitTransaction()
   }
 
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+      <nav className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 cursor-pointer" onClick={() => router.push("/")}>
               <Plane className="h-8 w-8 text-primary" />
               <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
             </div>
             <div className="flex items-center space-x-4">
-              {/* NEW: show real wallet state badge from Zustand store */}
-              <Badge variant="outline" className="px-3 py-1">
-                {isWalletConnected && address ? (
-                  <>
-                    <CheckCircle className="h-4 w-4 mr-2 text-secondary" />
-                    {connectedWalletType || selectedWallet || "Wallet"} Connected
-                  </>
+              <Badge variant={isWalletConnected ? "secondary" : "outline"} className="px-3 py-1">
+                {isWalletConnected ? (
+                  <><CheckCircle className="h-4 w-4 mr-2 text-green-500" /> {walletType} Connected</>
                 ) : (
-                  <>
-                    <Wallet className="h-4 w-4 mr-2" />
-                    Wallet Disconnected
-                  </>
+                  <><Wallet className="h-4 w-4 mr-2" /> Wallet Disconnected</>
                 )}
               </Badge>
             </div>
@@ -169,501 +148,240 @@ export default function BookFlightPage() {
         </div>
       </nav>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Progress Bar */}
-        <div className="mb-8 animate-fade-in-slow">
-          <div className="flex justify-between items-center mb-4">
-            <h1 className="font-serif font-bold text-2xl text-foreground">Complete Your Booking</h1>
-            <Badge variant="secondary" className="animate-scale-bounce">
-              {getStepProgress()}% Complete
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Progress Stepper */}
+        <div className="mb-12">
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="font-serif font-bold text-3xl text-foreground">
+              {steps.find(s => s.id === currentStep)?.label}
+            </h1>
+            <Badge variant="outline" className="text-sm font-medium px-4 py-1">
+              Step {steps.findIndex(s => s.id === currentStep) + 1} of {steps.length}
             </Badge>
           </div>
-          <Progress value={getStepProgress()} className="h-3 transition-all duration-700 ease-out" />
-          <div className="flex justify-between text-sm text-muted-foreground mt-2">
-            <span
-              className={`transition-all duration-300 ${currentStep === "details" ? "text-primary font-medium scale-105" : ""}`}
-            >
-              Flight Details
-            </span>
-            <span
-              className={`transition-all duration-300 ${currentStep === "wallet" ? "text-primary font-medium scale-105" : ""}`}
-            >
-              Connect Wallet
-            </span>
-            <span
-              className={`transition-all duration-300 ${currentStep === "confirm" ? "text-primary font-medium scale-105" : ""}`}
-            >
-              Confirm Booking
-            </span>
-            <span
-              className={`transition-all duration-300 ${currentStep === "success" ? "text-primary font-medium scale-105" : ""}`}
-            >
-              Booking Complete
-            </span>
+          
+          <div className="relative">
+            <Progress value={getStepProgress()} className="h-2" />
+            <div className="absolute top-0 left-0 w-full flex justify-between -translate-y-1/2 mt-1">
+              {steps.map((s, i) => (
+                <div 
+                  key={s.id} 
+                  className={cn(
+                    "w-4 h-4 rounded-full border-2 transition-all duration-300",
+                    steps.findIndex(step => step.id === currentStep) >= i 
+                      ? "bg-primary border-primary scale-110 shadow-glow" 
+                      : "bg-background border-muted"
+                  )}
+                />
+              ))}
+            </div>
+          </div>
+          
+          <div className="flex justify-between mt-4">
+            {steps.map((s, i) => (
+              <span 
+                key={s.id} 
+                className={cn(
+                  "text-xs font-medium uppercase tracking-wider hidden sm:block",
+                  currentStep === s.id ? "text-primary" : "text-muted-foreground/60"
+                )}
+              >
+                {s.label}
+              </span>
+            ))}
           </div>
         </div>
 
-        {/* Step 1: Flight Details */}
-        {currentStep === "details" && (
-          <div className="space-y-6 animate-slide-up">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-3">
-                  <img
-                    src={flight.logo || "/placeholder.svg"}
-                    alt={`${flight.airline} logo`}
-                    className="w-10 h-10 rounded-lg"
-                  />
-                  <div>
-                    <h2 className="text-xl font-bold">{flight.airline}</h2>
-                    <p className="text-muted-foreground">{flight.flightNumber}</p>
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Flight Route */}
-                <div className="flex items-center justify-between">
-                  <div className="text-center">
-                    <p className="font-bold text-2xl">{flight.departure}</p>
-                    <p className="text-lg font-medium">{flight.from}</p>
-                    <p className="text-muted-foreground">{flight.fromCity}</p>
-                  </div>
-
-                  <div className="flex-1 flex items-center justify-center px-8">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <div className="w-3 h-3 bg-primary rounded-full"></div>
-                      <div className="flex-1 h-px bg-border"></div>
-                      <Plane className="h-5 w-5 text-primary" />
-                      <div className="flex-1 h-px bg-border"></div>
-                      <div className="w-3 h-3 bg-primary rounded-full"></div>
-                    </div>
-                  </div>
-
-                  <div className="text-center">
-                    <p className="font-bold text-2xl">{flight.arrival}</p>
-                    <p className="text-lg font-medium">{flight.to}</p>
-                    <p className="text-muted-foreground">{flight.toCity}</p>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Flight Info */}
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <Calendar className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">Date</p>
-                        <p className="text-muted-foreground">{flight.date}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <Clock className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">Duration</p>
-                        <p className="text-muted-foreground">
-                          {flight.duration} • {flight.stops}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <Users className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">Class</p>
-                        <p className="text-muted-foreground">{flight.class}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <Plane className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">Aircraft</p>
-                        <p className="text-muted-foreground">{flight.aircraft}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <Luggage className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">Baggage</p>
-                        <p className="text-muted-foreground">{flight.baggage.carry}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <Shield className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">Refund Policy</p>
-                        <p className="text-muted-foreground">{flight.refundPolicy}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Amenities */}
-                <div>
-                  <h3 className="font-medium mb-3">Included Amenities</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {flight.amenities.map((amenity, index) => (
-                      <Badge key={index} variant="secondary">
-                        {amenity}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Price Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Price Summary</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span>Base fare (1 passenger)</span>
-                    <span>
-                      {flight.price} {flight.currency}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Taxes & fees</span>
-                    <span className="text-secondary">0 {flight.currency}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Platform fee</span>
-                    <span className="text-secondary">0 {flight.currency}</span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between text-lg font-bold">
-                    <span>Total</span>
-                    <span>
-                      {flight.price} {flight.currency}
-                    </span>
-                  </div>
-                </div>
-
-                <Alert className="mt-4">
-                  <Shield className="h-4 w-4" />
-                  <AlertDescription>
-                    Smart contract will automatically process refunds according to airline policy. No hidden fees or
-                    intermediary charges.
-                  </AlertDescription>
-                </Alert>
-              </CardContent>
-            </Card>
-
-            <Button
-              size="lg"
-              className="w-full hover-lift-3d transition-all duration-300"
-              onClick={() => setCurrentStep("wallet")}
-            >
-              Proceed to Payment
-              <Plane className="ml-2 h-5 w-5" />
-            </Button>
-          </div>
-        )}
-
-        {/* Step 2: Wallet Connection */}
-        {currentStep === "wallet" && (
-          <div className="space-y-6 animate-slide-up">
-            <Card className="glass-card">
-              <CardHeader>
-                <CardTitle>Connect Your Stellar Wallet</CardTitle>
-                <p className="text-muted-foreground">
-                  Choose your preferred Stellar wallet to complete the booking transaction.
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* NEW: single button that opens the StellarWalletsKit auth modal with all supported wallets */}
-                <div className="grid gap-4">
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    className="h-16 justify-start gap-4 bg-transparent hover-lift-3d transition-all duration-300"
-                    onClick={() => handleConnectWallet("Stellar Wallet")}
-                    disabled={isProcessing}
-                  >
-                    <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                      <Wallet className="h-6 w-6 text-primary" />
-                    </div>
-                    <div className="text-left">
-                      <p className="font-medium">Connect Stellar Wallet</p>
-                      <p className="text-sm text-muted-foreground">Freighter, Lobstr, xBull, Albedo, Rabet and more</p>
-                    </div>
-                    {isProcessing && (
-                      <div className="ml-auto">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
-                      </div>
-                    )}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+          {/* Main Content Area */}
+          <div className="lg:col-span-2 space-y-8">
+            
+            {/* Step 1: Flight Details (Review) */}
+            {currentStep === "details" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <BookingSummary flight={flight} passengerCount={1} />
+                <div className="flex justify-end">
+                  <Button size="lg" onClick={nextStep} className="group px-8">
+                    Select Seats
+                    <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </Button>
                 </div>
-
-                {isProcessing && (
-                  <Alert className="animate-fade-in-slow">
-                    <div className="flex items-center gap-3">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                      <AlertDescription className="animate-pulse">{processingStage}</AlertDescription>
-                    </div>
-                  </Alert>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* Step 3: Confirm Booking */}
-        {currentStep === "confirm" && (
-          <div className="space-y-6 animate-slide-up">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CheckCircle className="h-6 w-6 text-secondary" />
-                  Wallet Connected
-                </CardTitle>
-                <p className="text-muted-foreground">
-                  {selectedWallet} wallet connected successfully. Review and confirm your booking.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {/* NEW: show real wallet address and type from Zustand store */}
-                  <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
-                    <div>
-                      <p className="font-medium">Connected Wallet</p>
-                      {/* NEW: display real truncated address */}
-                      <p className="text-sm text-muted-foreground font-mono">
-                        {address ? `${address.slice(0, 8)}...${address.slice(-4)}` : "0x1234...5678"}
-                      </p>
-                    </div>
-                    {/* NEW: show real wallet type badge */}
-                    <Badge variant="secondary">{connectedWalletType || selectedWallet}</Badge>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span>Flight Cost</span>
-                      <span>
-                        {flight.price} {flight.currency}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Estimated Gas Fee</span>
-                      <span className="text-secondary">~0.001 ETH ($0.02)</span>
-                    </div>
-                    <Separator />
-                    <div className="flex justify-between text-lg font-bold">
-                      <span>Total Transaction</span>
-                      <span>
-                        {flight.price} {flight.currency} + Gas
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Alert>
-              <Shield className="h-4 w-4" />
-              <AlertDescription>
-                Your booking will be secured by a smart contract on Stellar. The transaction is irreversible once
-                confirmed, but refunds are automatically processed according to airline policies.
-              </AlertDescription>
-            </Alert>
-
-            <Button
-              size="lg"
-              className="w-full hover-lift-3d transition-all duration-300"
-              onClick={handleConfirmBooking}
-              disabled={isProcessing}
-            >
-              {isProcessing ? (
-                <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary-foreground mr-2"></div>
-                  {processingStage || "Processing Transaction..."}
-                </>
-              ) : (
-                <>
-                  <Shield className="h-5 w-5 mr-2" />
-                  Confirm Booking & Pay
-                </>
-              )}
-            </Button>
-
-            {isProcessing && (
-              <Alert className="animate-fade-in-slow">
-                <div className="flex items-center gap-3">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                  <AlertDescription className="animate-pulse">{processingStage}</AlertDescription>
-                </div>
-              </Alert>
+              </div>
             )}
-          </div>
-        )}
 
-        {/* Step 4: Success */}
-        {currentStep === "success" && (
-          <div className="space-y-6 text-center animate-scale-bounce">
-            <Card className="glass-card">
-              <CardContent className="pt-8 pb-8">
-                <div className="space-y-8">
-                  {/* Success Icon */}
-                  <div className="w-24 h-24 bg-secondary/10 rounded-full flex items-center justify-center mx-auto animate-glow-pulse">
-                    <CheckCircle className="h-12 w-12 text-secondary" />
+            {/* Step 2: Seat Selection */}
+            {currentStep === "seats" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <SeatSelector 
+                  cabinClass={flight.class} 
+                  onSeatSelect={(seat) => selectSeat(seat.id, seat.price)}
+                  selectedSeatId={selectedSeat?.id}
+                />
+                <div className="flex justify-between">
+                  <Button variant="ghost" onClick={prevStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button size="lg" onClick={nextStep} disabled={!selectedSeat}>
+                    Continue to Payment
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Wallet Connection */}
+            {currentStep === "wallet" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 text-center py-12 bg-muted/20 rounded-3xl border border-dashed border-border">
+                <div className="max-w-md mx-auto space-y-8">
+                  <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
+                    <Wallet className="h-10 w-10 text-primary" />
                   </div>
-
-                  {/* Success Message */}
-                  <div className="space-y-3">
-                    <h2 className="font-serif font-bold text-3xl text-foreground">Booking Confirmed!</h2>
-                    <p className="text-lg text-muted-foreground">
-                      Your flight has been successfully booked and secured on the blockchain.
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-bold">Secure Your Booking</h2>
+                    <p className="text-muted-foreground">
+                      Traqora uses blockchain technology to ensure your tickets are authentic and refunds are automated. Connect your Stellar wallet to proceed.
                     </p>
                   </div>
-
-                  {/* Flight Summary */}
-                  <div className="bg-muted/50 p-6 rounded-xl border border-border/50">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={flight.logo || "/placeholder.svg"}
-                          alt={`${flight.airline} logo`}
-                          className="w-8 h-8 rounded"
-                        />
-                        <div className="text-left">
-                          <p className="font-bold text-lg">{flight.airline}</p>
-                          <p className="text-sm text-muted-foreground">{flight.flightNumber}</p>
-                        </div>
-                      </div>
-                      <Badge variant="secondary" className="px-3 py-1">
-                        {flight.class}
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="text-center">
-                        <p className="font-bold text-xl">{flight.departure}</p>
-                        <p className="text-sm text-muted-foreground">{flight.from}</p>
-                      </div>
-                      <div className="flex-1 flex items-center justify-center px-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 bg-primary rounded-full"></div>
-                          <div className="flex-1 h-px bg-border"></div>
-                          <Plane className="h-4 w-4 text-primary" />
-                          <div className="flex-1 h-px bg-border"></div>
-                          <div className="w-2 h-2 bg-primary rounded-full"></div>
-                        </div>
-                      </div>
-                      <div className="text-center">
-                        <p className="font-bold text-xl">{flight.arrival}</p>
-                        <p className="text-sm text-muted-foreground">{flight.to}</p>
-                      </div>
-                    </div>
-
-                    <div className="text-center">
-                      <p className="text-sm text-muted-foreground">{flight.date}</p>
-                    </div>
-                  </div>
-
-                  {/* Receipt Details */}
-                  <div className="bg-background p-6 rounded-xl border border-border shadow-sm">
-                    <h3 className="font-bold text-lg mb-4 text-left">Booking Receipt</h3>
-
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Booking ID</span>
-                        <span className="font-mono font-bold">{bookingId.toUpperCase()}</span>
-                      </div>
-
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Transaction Hash</span>
-                        <span className="font-mono text-sm">{bookingId}...abc123</span>
-                      </div>
-
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Flight Cost</span>
-                        <span className="font-bold">
-                          {flight.price} {flight.currency}
-                        </span>
-                      </div>
-
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Gas Fee</span>
-                        <span>0.001 ETH ($0.02)</span>
-                      </div>
-
-                      <div className="flex justify-between items-center">
-                        <span className="text-muted-foreground">Booking Date</span>
-                        <span>{new Date().toLocaleDateString()}</span>
-                      </div>
-
-                      <Separator />
-
-                      <div className="flex justify-between items-center text-lg font-bold">
-                        <span>Total Paid</span>
-                        <span>
-                          {flight.price} {flight.currency}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* QR Code Section */}
-                  <div className="bg-muted/30 p-6 rounded-xl">
-                    <div className="flex items-center justify-center gap-6">
-                      <div className="w-32 h-32 bg-background rounded-xl flex items-center justify-center shadow-sm">
-                        <QrCode className="h-20 w-20 text-foreground" />
-                      </div>
-                      <div className="text-left">
-                        <h4 className="font-bold text-lg mb-2">Digital Ticket</h4>
-                        <p className="text-sm text-muted-foreground mb-3">Present this QR code at airport check-in</p>
-                        <Badge variant="outline" className="text-xs">
-                          Blockchain Verified
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <Button
-                      variant="outline"
-                      className="gap-2 bg-transparent hover-lift-3d"
-                      onClick={handleDownloadReceipt}
-                    >
-                      <Download className="h-4 w-4" />
-                      Download Receipt
-                    </Button>
-
-                    <Button variant="outline" className="gap-2 bg-transparent hover-lift-3d">
-                      <ExternalLink className="h-4 w-4" />
-                      View on Stellar Explorer
-                    </Button>
-
-                    <Button asChild className="hover-lift-3d">
-                      <a href="/dashboard">View My Bookings</a>
-                    </Button>
+                  <Button 
+                    size="lg" 
+                    variant="default" 
+                    className="w-full h-14 text-lg shadow-xl" 
+                    onClick={handleWalletConnect}
+                    disabled={isProcessing}
+                  >
+                    {isProcessing ? "Connecting..." : "Connect Stellar Wallet"}
+                  </Button>
+                  <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1"><Shield className="h-3 w-3" /> Encrypted</span>
+                    <span className="flex items-center gap-1"><CheckCircle className="h-3 w-3" /> Verified</span>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            )}
 
-            <Alert className="animate-fade-in-slow delay-500">
-              <CheckCircle className="h-4 w-4" />
-              <AlertDescription>
-                Your booking is now immutable and stored on Stellar. Automatic refunds will be processed if eligible
-                according to the airline's policy. A confirmation email has been sent to your registered address.
-              </AlertDescription>
-            </Alert>
+            {/* Step 4: Final Confirmation */}
+            {currentStep === "confirm" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <Alert className="bg-primary/5 border-primary/20">
+                  <CheckCircle className="h-4 w-4 text-primary" />
+                  <AlertDescription className="text-primary font-medium">
+                    Wallet connected: {address?.slice(0, 8)}...{address?.slice(-4)} ({walletType})
+                  </AlertDescription>
+                </Alert>
+
+                <div className="bg-card rounded-2xl border border-border p-6 space-y-6 shadow-sm">
+                  <h3 className="text-xl font-bold">Payment Method</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-4 border-2 border-primary bg-primary/5 rounded-xl flex items-center gap-4 cursor-pointer">
+                      <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground">
+                        <CreditCard className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="font-bold">USDC on Stellar</p>
+                        <p className="text-xs text-muted-foreground">Instant & low fee</p>
+                      </div>
+                    </div>
+                    <div className="p-4 border-2 border-transparent bg-muted/50 rounded-xl flex items-center gap-4 cursor-not-allowed opacity-50">
+                      <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
+                        <Plane className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="font-bold">XLM Lumens</p>
+                        <p className="text-xs text-muted-foreground">Coming soon</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-between">
+                  <Button variant="ghost" onClick={prevStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button size="lg" onClick={handleFinalConfirm} className="px-12 shadow-lg bg-green-600 hover:bg-green-700 text-white">
+                    Confirm & Pay
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 5: Success */}
+            {currentStep === "success" && (
+              <div className="space-y-8 animate-in zoom-in duration-500">
+                <div className="text-center space-y-4">
+                  <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                    <CheckCircle className="h-10 w-10 text-green-600" />
+                  </div>
+                  <h2 className="text-3xl font-bold font-serif">Booking Confirmed!</h2>
+                  <p className="text-muted-foreground max-w-md mx-auto">
+                    Your flight to {flight.toCity} is all set. We've sent a confirmation to your email and secured your ticket on the blockchain.
+                  </p>
+                </div>
+
+                <div className="bg-card rounded-3xl border border-border overflow-hidden shadow-2xl">
+                  <div className="bg-primary p-6 text-primary-foreground flex justify-between items-center">
+                    <div>
+                      <p className="text-xs uppercase tracking-widest opacity-80">Booking Reference</p>
+                      <p className="text-2xl font-mono font-bold">{bookingId}</p>
+                    </div>
+                    <QrCode className="h-12 w-12" />
+                  </div>
+                  <div className="p-8">
+                    <div className="grid grid-cols-2 gap-8">
+                      <div>
+                        <p className="text-xs text-muted-foreground uppercase font-bold">Passenger</p>
+                        <p className="font-medium">John Doe</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground uppercase font-bold">Seat</p>
+                        <p className="font-medium">{selectedSeat?.id}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground uppercase font-bold">Departure</p>
+                        <p className="font-medium">{flight.date} at {flight.departure}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground uppercase font-bold">Terminal</p>
+                        <p className="font-medium">Terminal 4, Gate B23</p>
+                      </div>
+                    </div>
+                    <Separator className="my-6" />
+                    <div className="flex gap-4">
+                      <Button variant="outline" className="flex-1">
+                        <Download className="mr-2 h-4 w-4" /> Receipt
+                      </Button>
+                      <Button variant="outline" className="flex-1">
+                        <ExternalLink className="mr-2 h-4 w-4" /> Explorer
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <Button className="w-full h-12" variant="secondary" onClick={() => router.push("/dashboard")}>
+                  Go to Dashboard
+                </Button>
+              </div>
+            )}
           </div>
-        )}
+
+          {/* Sidebar Summary (Only visible during booking process) */}
+          {currentStep !== "success" && (
+            <div className="lg:col-span-1 sticky top-24">
+              <BookingSummary 
+                flight={flight} 
+                passengerCount={1} 
+                selectedSeat={selectedSeat || undefined}
+                className="bg-card shadow-2xl"
+              />
+              
+              <div className="mt-6 p-4 bg-muted/30 rounded-xl border border-border/50 text-[10px] text-muted-foreground flex items-start gap-2">
+                <Shield className="h-3 w-3 shrink-0 text-primary mt-0.5" />
+                <p>Traqora Smart Contract V2.1. Verified by OpenZeppelin. Audited 2024.</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

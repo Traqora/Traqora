@@ -157,8 +157,8 @@ export function ResultsList({
     <div className="space-y-4">
       {/* Results Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Plane className="h-5 w-5 text-primary" />
+        <div className="flex items-center gap-2" aria-live="polite">
+          <Plane className="h-5 w-5 text-primary" aria-hidden="true" />
           <span className="font-medium">
             {totalResults !== undefined ? (
               <>
@@ -172,7 +172,7 @@ export function ResultsList({
             )}
           </span>
           {searchQuery && (
-            <Badge variant="secondary" className="ml-2">
+            <Badge variant="secondary" className="ml-2" aria-label={`Search query: ${searchQuery}`}>
               {searchQuery}
             </Badge>
           )}
@@ -185,10 +185,13 @@ export function ResultsList({
               variant="outline"
               onClick={() => setShowSortOptions(!showSortOptions)}
               className="min-w-32"
+              aria-haspopup="listbox"
+              aria-expanded={showSortOptions}
+              aria-label={`Sort results. Current sort: ${getSortLabel()}`}
             >
-              <SortAsc className="h-4 w-4 mr-2" />
+              <SortAsc className="h-4 w-4 mr-2" aria-hidden="true" />
               {getSortLabel()}
-              <ChevronDown className="h-4 w-4 ml-2" />
+              <ChevronDown className="h-4 w-4 ml-2" aria-hidden="true" />
             </Button>
             
             {showSortOptions && (
