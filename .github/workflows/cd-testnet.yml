@@ -10,7 +10,7 @@ jobs:
         runs-on: ubuntu-latest
         if: github.ref == 'refs/heads/main'
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
 
             - name: Install Rust
               uses: dtolnay/rust-toolchain@stable
@@ -64,7 +64,7 @@ jobs:
         needs: deploy-contracts
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v6
             - name: Build and Deploy
               run: echo "Deploying app components..."
 
