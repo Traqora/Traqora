@@ -1,3 +1,4 @@
+import './tracing';
 import http from 'http';
 import dotenv from 'dotenv';
 import { createApp } from './app';

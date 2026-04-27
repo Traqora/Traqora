@@ -2,6 +2,7 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import { register } from 'prom-client';
 import { createFlightRoutes } from './api/routes/flights';
 import { bookingRoutes } from './api/routes/bookings';
 import { refundRoutes } from './api/routes/refunds';
@@ -21,6 +22,7 @@ import {
 import { errorHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
 import { requestLogger } from './middleware/requestLogger';
+import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { AppDataSource } from './db/dataSource';
 import {
   createIpRateLimiter,
@@ -110,6 +112,7 @@ export const createApp = (options: AppOptions = {}) => {
   }
 
   app.use(requestLogger);
+  app.use(metricsMiddleware);
   app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
 
   // Stripe webhook requires raw body — must be registered BEFORE express.json()
@@ -123,7 +126,17 @@ export const createApp = (options: AppOptions = {}) => {
       status: 'healthy',
       timestamp: new Date().toISOString(),
       version: process.env.npm_package_version || '0.1.0',
+      database: AppDataSource.isInitialized ? 'connected' : 'disconnected',
     });
+  });
+
+  app.get('/metrics', async (_req, res) => {
+    try {
+      res.set('Content-Type', register.contentType);
+      res.end(await register.metrics());
+    } catch (ex) {
+      res.status(500).end(ex);
+    }
   });
 
   app.get('/readiness', async (_req, res) => {
