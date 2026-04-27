@@ -41,7 +41,7 @@ jobs:
       - name: Install Dependencies
         run: |
           cd backend
-          npm ci
+          npm install
 
       - name: Run Migrations and Integration Tests
         env:
