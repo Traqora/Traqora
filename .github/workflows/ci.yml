@@ -62,7 +62,7 @@ jobs:
             - name: Install Dependencies
               run: |
                   cd backend
-                  npm ci
+                  npm install
 
             - name: Typecheck
               run: |
