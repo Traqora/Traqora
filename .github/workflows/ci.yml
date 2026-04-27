@@ -101,7 +101,7 @@ jobs:
             - name: Install Dependencies
               run: |
                   cd client
-                  npm install
+                  npm install --legacy-peer-deps
 
             - name: Lint
               run: |
