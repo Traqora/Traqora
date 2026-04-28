@@ -1,7 +1,7 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { logger } from './utils/logger';
 
@@ -17,7 +17,7 @@ if (tracingEnabled) {
   });
 
   sdk = new NodeSDK({
-    resource: new Resource({
+    resource: resourceFromAttributes({
       [SemanticResourceAttributes.SERVICE_NAME]: 'traqora-backend',
       [SemanticResourceAttributes.SERVICE_VERSION]: process.env.npm_package_version || '0.1.0',
       environment: process.env.NODE_ENV || 'development',
@@ -34,7 +34,7 @@ if (tracingEnabled) {
   process.on('SIGTERM', () => {
     sdk?.shutdown()
       .then(() => logger.info('OpenTelemetry tracing terminated'))
-      .catch((error) => logger.error('Error terminating OpenTelemetry tracing', error))
+      .catch((error: Error) => logger.error('Error terminating OpenTelemetry tracing', error))
       .finally(() => process.exit(0));
   });
 } else {

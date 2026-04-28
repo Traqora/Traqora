@@ -113,7 +113,7 @@ export const createApp = (options: AppOptions = {}) => {
 
   app.use(requestLogger);
   app.use(metricsMiddleware);
-  app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
+  app.use(morgan('combined', { stream: { write: (message: string) => logger.info(message.trim()) } }));
 
   // Stripe webhook requires raw body — must be registered BEFORE express.json()
   app.use('/api/v1/bookings/webhook/stripe', express.raw({ type: '*/*' }));
@@ -121,7 +121,7 @@ export const createApp = (options: AppOptions = {}) => {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
-  app.get('/health', (_req, res) => {
+  app.get('/health', (_req: express.Request, res: express.Response) => {
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
@@ -130,7 +130,7 @@ export const createApp = (options: AppOptions = {}) => {
     });
   });
 
-  app.get('/metrics', async (_req, res) => {
+  app.get('/metrics', async (_req: express.Request, res: express.Response) => {
     try {
       res.set('Content-Type', register.contentType);
       res.end(await register.metrics());
@@ -139,7 +139,7 @@ export const createApp = (options: AppOptions = {}) => {
     }
   });
 
-  app.get('/readiness', async (_req, res) => {
+  app.get('/readiness', async (_req: express.Request, res: express.Response) => {
     try {
       if (!AppDataSource.isInitialized && config.databaseUrl) {
         return res.status(503).json({
@@ -176,7 +176,7 @@ export const createApp = (options: AppOptions = {}) => {
 
   app.use(errorHandler);
 
-  app.use((_req, res) => {
+  app.use((_req: express.Request, res: express.Response) => {
     const requestId = String(res.locals.requestId || 'unknown');
     res.status(404).json({
       success: false,

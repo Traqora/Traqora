@@ -1,6 +1,6 @@
 import sgMail from "@sendgrid/mail";
-import { config } from "../../config";
-import * as templatesV1 from "../../templates/emails/v1";
+import { config } from "../config";
+import * as templatesV1 from "../templates/emails/v1";
 
 class EmailService {
   private senderEmail: string;
@@ -9,7 +9,7 @@ class EmailService {
     if (config.sendgridApiKey) {
       sgMail.setApiKey(config.sendgridApiKey);
     }
-    this.senderEmail = "noreply@traqora.com"; // Should Ideally come from config
+    this.senderEmail = "noreply@traqora.com"; // Should ideally come from config
   }
 
   public async send(to: string, type: string, data: any) {

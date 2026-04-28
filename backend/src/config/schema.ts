@@ -33,6 +33,7 @@ export const configSchema = z.object({
 
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   auditLogEnabled: z.boolean().default(false),
+  nonceExpirySeconds: z.number().default(300),
 });
 
 export type Config = z.infer<typeof configSchema>;

@@ -4,7 +4,7 @@
  * Uses node-cron for scheduling
  */
 
-import cron from 'node-cron';
+import cron, { ScheduledTask } from 'node-cron';
 import { logger } from '../../utils/logger';
 import { FlightSynchronizationService } from './flightSyncService';
 import { SyncFlightRequest } from '../../types/flightSync';
@@ -24,7 +24,7 @@ export class FlightSyncScheduler {
   private isRunning: boolean = false;
   private lastRun?: Date;
   private nextRun?: Date;
-  private cronJob?: cron.ScheduledTask;
+  private cronJob?: ScheduledTask;
   private config: ScheduledSyncConfig;
   private syncStats = {
     totalRuns: 0,

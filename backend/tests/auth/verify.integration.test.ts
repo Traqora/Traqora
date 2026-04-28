@@ -3,7 +3,14 @@ import { DataSource } from 'typeorm';
 import RedisMock from 'ioredis-mock';
 import { WalletAuthFactory } from '../../src/services/WalletSignatureAdapter';
 
-jest.mock('ioredis', () => require('ioredis-mock'));
+jest.mock('ioredis', () => {
+    const RedisMock = require('ioredis-mock');
+    return {
+        __esModule: true,
+        default: RedisMock,
+        Redis: RedisMock,
+    };
+});
 
 const mockVerify = jest.fn();
 

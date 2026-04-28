@@ -1,12 +1,12 @@
 import { getConfig } from '../config';
-import { Logger } from './logger';
+import { logger } from './logger';
 import { createClient } from 'redis';
 import { Client } from 'pg';
-import { Horizon } from 'stellar-sdk';
+import { Horizon } from '@stellar/stellar-sdk';
 
 export async function verifyConnectivity() {
   const config = getConfig();
-  Logger.info('Starting infrastructure connectivity checks...');
+  logger.info('Starting infrastructure connectivity checks...');
 
   const results = {
     database: false,
@@ -21,38 +21,38 @@ export async function verifyConnectivity() {
     await client.query('SELECT 1');
     await client.end();
     results.database = true;
-    Logger.info('✅ PostgreSQL connectivity verified');
+    logger.info('✅ PostgreSQL connectivity verified');
   } catch (error) {
-    Logger.error('❌ PostgreSQL connectivity failed', error as Error);
+    logger.error('❌ PostgreSQL connectivity failed', error as Error);
   }
 
   // 2. Check Redis
   try {
     const client = createClient({ url: config.redisUrl });
-    client.on('error', (err) => Logger.error('Redis Client Error', err));
+    client.on('error', (err) => logger.error('Redis Client Error', err));
     await client.connect();
     await client.ping();
     await client.quit();
     results.redis = true;
-    Logger.info('✅ Redis connectivity verified');
+    logger.info('✅ Redis connectivity verified');
   } catch (error) {
-    Logger.error('❌ Redis connectivity failed', error as Error);
+    logger.error('❌ Redis connectivity failed', error as Error);
   }
 
   // 3. Check Stellar Horizon
   try {
     const server = new Horizon.Server(config.horizonUrl);
-    await server.root();
+    await server.ledgers().limit(1).call();
     results.stellar = true;
-    Logger.info('✅ Stellar Horizon connectivity verified');
+    logger.info('✅ Stellar Horizon connectivity verified');
   } catch (error) {
-    Logger.error('❌ Stellar Horizon connectivity failed', error as Error);
+    logger.error('❌ Stellar Horizon connectivity failed', error as Error);
   }
 
   const allPassed = Object.values(results).every(v => v === true);
 
   if (!allPassed && config.environment === 'production') {
-    Logger.error('CRITICAL: Infrastructure health checks failed in production. Mandatory dependencies missing.');
+    logger.error('CRITICAL: Infrastructure health checks failed in production. Mandatory dependencies missing.');
     process.exit(1);
   }
 
