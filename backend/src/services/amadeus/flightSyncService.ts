@@ -101,16 +101,16 @@ export class CircuitBreaker {
 /**
  * Cache Manager for flight data
  */
+interface CacheEntry {
+  data: AirlineFlightData | Partial<AirlineFlightData>;
+  timestamp: Date;
+  expiresAt: Date;
+  source: string;
+}
+
 export class FlightCacheManager {
   private cache: Map<string, CacheEntry> = new Map();
   private ttl: number; // seconds
-
-  interface CacheEntry {
-    data: AirlineFlightData | Partial<AirlineFlightData>;
-    timestamp: Date;
-    expiresAt: Date;
-    source: string;
-  }
 
   constructor(ttlSeconds: number = 300) {
     this.ttl = ttlSeconds;

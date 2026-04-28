@@ -22,16 +22,16 @@ class SMSService {
     // Basic text generation for SMS
     switch (type) {
       case 'booking':
-        messageBody = \`Traqora: Booking Confirmed! Ref: \${data.bookingReference}, Flight: \${data.flightNumber}\`;
+        messageBody = `Traqora: Booking Confirmed! Ref: ${data.bookingReference}, Flight: ${data.flightNumber}`;
         break;
       case 'reminder':
-        messageBody = \`Traqora Reminder: Flight \${data.flightNumber} departs in 24h. Check in now!\`;
+        messageBody = `Traqora Reminder: Flight ${data.flightNumber} departs in 24h. Check in now!`;
         break;
       case 'refund':
-        messageBody = \`Traqora: Refund of \${data.refundAmount} for booking \${data.bookingReference} processed.\`;
+        messageBody = `Traqora: Refund of ${data.refundAmount} for booking ${data.bookingReference} processed.`;
         break;
       default:
-        throw new Error(\`SMS message type not found for type: \${type}\`);
+        throw new Error(`SMS message type not found for type: ${type}`);
     }
 
     try {
@@ -40,7 +40,7 @@ class SMSService {
         from: this.fromPhoneNumber,
         to,
       });
-      console.log(\`SMS sent successfully to \${to} for type \${type}\`);
+      console.log(`SMS sent successfully to ${to} for type ${type}`);
     } catch (error: any) {
       console.error('Error sending SMS:', error.message);
       throw error;

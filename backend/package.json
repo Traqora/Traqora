@@ -54,7 +54,7 @@
     "@types/jest": "^29.5.14",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/morgan": "^1.9.9",
-    "@types/node": "^20.14.0",
+    "@types/node": "^22.19.17",
     "@types/node-cron": "^3.0.2",
     "@types/pg": "^8.11.6",
     "@types/supertest": "^6.0.3",

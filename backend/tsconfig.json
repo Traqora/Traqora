@@ -39,10 +39,5 @@
     "dist",
     "dist/**/*",
     "tests"
-  ],
-  "references": [
-    {
-      "path": "./tsconfig.test.json"
-    }
   ]
 }
