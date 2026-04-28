@@ -53,3 +53,6 @@ export const config = {
   logLevel: process.env.LOG_LEVEL || 'info',
   encryptionKey: process.env.ENCRYPTION_KEY || 'dev-encryption-key-at-least-32-chars-long',
 };
+
+// Legacy support for direct config export (will need to be initialized)
+export const config = {} as Config;
