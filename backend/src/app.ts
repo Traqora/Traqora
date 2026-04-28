@@ -1,8 +1,8 @@
 import cors from 'cors';
 import express from 'express';
-import helmet from 'helmet';
 import morgan from 'morgan';
 import { register } from 'prom-client';
+import { securityMiddleware } from './middleware/securityMiddleware';
 import { createFlightRoutes } from './api/routes/flights';
 import { bookingRoutes } from './api/routes/bookings';
 import { refundRoutes } from './api/routes/refunds';
@@ -95,7 +95,7 @@ export const createApp = (options: AppOptions = {}) => {
     ...options.searchRateLimit,
   });
 
-  app.use(helmet());
+  app.use(securityMiddleware);
   app.use(
     cors({
       origin: config.corsOrigin,

@@ -1,4 +1,5 @@
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec, token};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec, token, String};
+use crate::booking_receipt::BookingReceiptContractClient;
 
 #[contracttype]
 #[derive(Clone)]
@@ -54,6 +55,14 @@ impl BookingStorage {
         env.storage().instance().set(&symbol_short!("oracle"), oracle);
     }
 
+    pub fn get_receipt_contract(env: &Env) -> Option<Address> {
+        env.storage().instance().get(&symbol_short!("receipt_c"))
+    }
+
+    pub fn set_receipt_contract(env: &Env, contract: &Address) {
+        env.storage().instance().set(&symbol_short!("receipt_c"), contract);
+    }
+
     pub fn next_id(env: &Env) -> u64 {
         let id: u64 = env.storage().instance().get(&symbol_short!("next_id")).unwrap_or(1);
         env.storage().instance().set(&symbol_short!("next_id"), &(id + 1));
@@ -74,6 +83,11 @@ impl BookingContract {
             (symbol_short!("booking"), symbol_short!("oracle")),
             (admin, env.ledger().timestamp(), oracle),
         );
+    }
+
+    pub fn set_receipt_contract(env: Env, admin: Address, receipt_contract: Address) {
+        admin.require_auth();
+        BookingStorage::set_receipt_contract(&env, &receipt_contract);
     }
 
     // Initialize booking - starts in "pending" status until paid
@@ -139,6 +153,19 @@ impl BookingContract {
         booking.status = symbol_short!("confirmed");
         
         BookingStorage::set(&env, booking_id, &booking);
+
+        if let Some(receipt_contract) = BookingStorage::get_receipt_contract(&env) {
+            let client = BookingReceiptContractClient::new(&env, &receipt_contract);
+            client.mint_receipt(
+                &booking.passenger,
+                &booking_id,
+                &booking.flight_number,
+                &booking.from_airport,
+                &booking.to_airport,
+                &String::from_str(&env, "TBD"), // Seat is assigned later or TBD initially
+                &booking.price,
+            );
+        }
 
         env.events().publish(
             (symbol_short!("booking"), symbol_short!("paid")),
