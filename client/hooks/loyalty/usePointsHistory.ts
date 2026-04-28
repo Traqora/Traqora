@@ -1,34 +1,37 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useLoyaltyStore } from "@/lib/stores/loyalty";
 import type { HistoryItem, HistoryHook } from "@/components/loyalty/PointsHistoryTable";
 
 export function usePointsHistory(pageSize: number = 10): HistoryHook {
-  const [page, setPage] = useState(1);
-  const [items, setItems] = useState<HistoryItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-
-  async function fetchPage(p = page) {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/loyalty/history?page=${p}&pageSize=${pageSize}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error('Failed to load history');
-      const json = await res.json();
-      setItems(json.items || []);
-      setTotal(json.total || 0);
-    } catch (e) {
-      console.error(e);
-      setItems([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const store = useLoyaltyStore()
 
   useEffect(() => {
-    fetchPage(page);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize]);
+    if (store.userId) {
+      store.refreshHistory(store.historyPage)
+    }
+  }, [store.userId, store.historyPage])
 
-  return { items, page, pageSize, total, loading, setPage, refetch: () => fetchPage(page) };
+  const setPage = (page: number) => {
+    store.refreshHistory(page)
+  }
+
+  const refetch = () => {
+    store.refreshHistory(store.historyPage)
+  }
+
+  return {
+    items: store.transactions.map((t: any) => ({
+      id: t.id || Math.random().toString(),
+      date: t.timestamp || new Date().toISOString(),
+      description: t.description || 'Transaction',
+      points: t.points || 0
+    })),
+    page: store.historyPage,
+    pageSize,
+    total: store.historyTotal,
+    loading: store.historyLoading,
+    setPage,
+    refetch
+  };
 }
