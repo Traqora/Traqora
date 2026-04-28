@@ -39,6 +39,9 @@ export default function HomePage() {
               <Link href="/search">
                 <Button variant="outline">Browse Flights</Button>
               </Link>
+              <Link href="/auth">
+                <Button>Sign In</Button>
+              </Link>
             </div>
           </div>
         </div>
