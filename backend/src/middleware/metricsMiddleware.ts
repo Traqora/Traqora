@@ -25,7 +25,7 @@ export const metricsMiddleware = (req: Request, res: Response, next: NextFunctio
     }
     
     // Call the original end function
-    return originalEnd.apply(this, args);
+    return originalEnd.apply(this, args as any);
   };
   
   next();

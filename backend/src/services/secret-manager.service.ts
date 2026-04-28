@@ -1,5 +1,4 @@
-import { config } from '../config';
-import { Logger } from '../utils/logger';
+import { logger } from '../utils/logger';
 
 export interface SecretProvider {
   getSecret(key: string): Promise<string | undefined>;
@@ -31,10 +30,10 @@ class AWSSecretManagerProvider implements SecretProvider {
       // const client = new SecretsManagerClient({ region: process.env.AWS_REGION });
       // const response = await client.send(new GetSecretValueCommand({ SecretId: secretName }));
       // this.secrets = JSON.parse(response.SecretString || '{}');
-      Logger.info(`Successfully loaded secrets from AWS Secrets Manager: ${secretName}`);
+      logger.info(`Successfully loaded secrets from AWS Secrets Manager: ${secretName}`);
       this.loaded = true;
     } catch (error) {
-      Logger.error('Failed to load secrets from AWS Secrets Manager', error as Error);
+      logger.error('Failed to load secrets from AWS Secrets Manager', error as Error);
     }
   }
 }
@@ -74,13 +73,13 @@ export class SecretManager {
    * to trigger a rotation or check the last rotation date.
    */
   async checkSecretRotation(secretName: string, maxAgeDays: number = 90): Promise<boolean> {
-    Logger.info(`Checking rotation status for ${secretName}...`);
+    logger.info(`Checking rotation status for ${secretName}...`);
     // Mock check: in reality, check Metadata from AWS/Vault
     const lastRotated = new Date(); // Mock
     const ageInDays = (new Date().getTime() - lastRotated.getTime()) / (1000 * 3600 * 24);
     
     if (ageInDays > maxAgeDays) {
-      Logger.warn(`Secret ${secretName} is older than ${maxAgeDays} days and should be rotated.`);
+      logger.warn(`Secret ${secretName} is older than ${maxAgeDays} days and should be rotated.`);
       return true;
     }
     return false;
