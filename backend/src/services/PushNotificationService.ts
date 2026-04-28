@@ -30,18 +30,18 @@ class PushNotificationService {
     switch (type) {
       case 'booking':
         title = 'Booking Confirmed';
-        body = \`Your flight \${data.flightNumber} is confirmed! Ref: \${data.bookingReference}\`;
+        body = `Your flight ${data.flightNumber} is confirmed! Ref: ${data.bookingReference}`;
         break;
       case 'reminder':
         title = 'Flight Reminder';
-        body = \`Your flight \${data.flightNumber} departs in 24 hours!\`;
+        body = `Your flight ${data.flightNumber} departs in 24 hours!`;
         break;
       case 'refund':
         title = 'Refund Processed';
-        body = \`Refund of \${data.refundAmount} for booking \${data.bookingReference} is processed.\`;
+        body = `Refund of ${data.refundAmount} for booking ${data.bookingReference} is processed.`;
         break;
       default:
-        throw new Error(\`Push notification type not found: \${type}\`);
+        throw new Error(`Push notification type not found: ${type}`);
     }
 
     const message = {
@@ -52,7 +52,7 @@ class PushNotificationService {
 
     try {
       await admin.messaging().send(message);
-      console.log(\`Push notification sent successfully to token for type \${type}\`);
+      console.log(`Push notification sent successfully to token for type ${type}`);
     } catch (error: any) {
       console.error('Error sending push notification:', error.message);
       throw error;

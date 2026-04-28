@@ -4,7 +4,14 @@ import RedisMock from 'ioredis-mock';
 import jwt from 'jsonwebtoken';
 import { config } from '../../src/config';
 
-jest.mock('ioredis', () => require('ioredis-mock'));
+jest.mock('ioredis', () => {
+    const RedisMock = require('ioredis-mock');
+    return {
+        __esModule: true,
+        default: RedisMock,
+        Redis: RedisMock,
+    };
+});
 
 // Mocking the strategy adapters for predictable unit testing
 jest.mock('../../src/services/WalletSignatureAdapter', () => {

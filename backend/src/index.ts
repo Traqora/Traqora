@@ -1,11 +1,13 @@
+import './tracing';
 import http from 'http';
 import dotenv from 'dotenv';
 import { createApp } from './app';
-import { config } from './config';
+import { loadConfig, getConfig } from './config';
 import { logger } from './utils/logger';
 import { initDataSource } from './db/dataSource';
 import { initWebSocket } from './websockets/server';
 import { initPriceMonitorCron } from './jobs/priceMonitor';
+import { verifyConnectivity } from './utils/health-check';
 import {
   contractMonitor,
   setupDefaultEventListeners,
@@ -14,17 +16,25 @@ import {
 
 dotenv.config();
 
-const app = createApp();
-const server = http.createServer(app);
+async function startServer() {
+  try {
+    // 1. Load and validate configuration
+    const config = await loadConfig();
+    
+    // 2. Verify connectivity to infrastructure (DB, Redis, Stellar)
+    await verifyConnectivity();
 
-initWebSocket(server);
-initPriceMonitorCron();
+    const app = createApp();
+    const server = http.createServer(app);
 
-const PORT = config.port || 3001;
+    initWebSocket(server);
+    initPriceMonitorCron();
 
-if (process.env.NODE_ENV !== 'test') {
-  initDataSource()
-    .then(() => {
+    const PORT = config.port || 3001;
+
+    if (process.env.NODE_ENV !== 'test') {
+      await initDataSource();
+      
       server.listen(PORT, () => {
         logger.info(`Traqora API server running on port ${PORT}`);
         logger.info(`Environment: ${config.environment}`);
@@ -41,15 +51,20 @@ if (process.env.NODE_ENV !== 'test') {
           startWalletBalanceMonitoring(wallets);
         }
       });
-    })
-    .catch((error) => {
-      logger.error({
-        error: 'Failed to initialize datasource',
-        details: error instanceof Error ? error.message : String(error),
-      });
-      process.exit(1);
+    }
+
+    return { app, server };
+  } catch (error) {
+    logger.error({
+      error: 'Failed to start server',
+      details: error instanceof Error ? error.message : String(error),
     });
+    process.exit(1);
+  }
 }
 
-export { app };
-export default app;
+const serverPromise = startServer();
+
+export const appPromise = serverPromise.then(s => s.app);
+export default serverPromise;
+

@@ -4,7 +4,7 @@
  * Handles caching, conflict resolution, webhooks, and scheduled syncs
  */
 
-import { getRepository, DataSource } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { logger } from '../../utils/logger';
 import { Flight } from '../../db/entities/Flight';
 import {
@@ -12,10 +12,8 @@ import {
   SyncFlightRequest,
   SyncFlightResponse,
   FlightSyncJob,
-  SyncError,
   FlightDataConflict,
   IAirlineAdapter,
-  AmadeusFlightData,
   CircuitBreakerStatus,
   CircuitBreakerState,
   SyncWebhookPayload,
@@ -101,16 +99,16 @@ export class CircuitBreaker {
 /**
  * Cache Manager for flight data
  */
+interface CacheEntry {
+  data: AirlineFlightData | Partial<AirlineFlightData>;
+  timestamp: Date;
+  expiresAt: Date;
+  source: string;
+}
+
 export class FlightCacheManager {
   private cache: Map<string, CacheEntry> = new Map();
   private ttl: number; // seconds
-
-  interface CacheEntry {
-    data: AirlineFlightData | Partial<AirlineFlightData>;
-    timestamp: Date;
-    expiresAt: Date;
-    source: string;
-  }
 
   constructor(ttlSeconds: number = 300) {
     this.ttl = ttlSeconds;
@@ -206,6 +204,7 @@ export class FlightSynchronizationService {
       if (!adapter) {
         return {
           success: false,
+          updated: false,
           message: `No adapter found for airline: ${request.airline}`,
           errors: ['Unknown airline'],
         };
@@ -219,6 +218,7 @@ export class FlightSynchronizationService {
       if (!flightData) {
         return {
           success: false,
+          updated: false,
           message: `Failed to fetch flight data for ${request.flightNumber}`,
           errors: ['No data from adapter'],
         };
@@ -249,6 +249,7 @@ export class FlightSynchronizationService {
 
       return {
         success: false,
+        updated: false,
         message: error instanceof Error ? error.message : 'Unknown error',
         errors: [error instanceof Error ? error.message : String(error)],
       };
@@ -536,7 +537,7 @@ export class FlightSynchronizationService {
     return 'STATUS_CHANGED';
   }
 
-  private validateWebhookSignature(payload: any): void {
+  private validateWebhookSignature(_payload: any): void {
     // Implement HMAC validation
     logger.debug('Validating webhook signature');
   }

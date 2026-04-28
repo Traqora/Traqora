@@ -4,13 +4,13 @@
  */
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { logger } from '../utils/logger';
+import { logger } from '../../utils/logger';
 import {
   AmadeusFlightData,
   AmadeusFlightStatus,
   AirlineFlightData,
   FlightStatus,
-} from '../types/flightSync';
+} from '../../types/flightSync';
 
 interface AmadeusConfig {
   clientId: string;

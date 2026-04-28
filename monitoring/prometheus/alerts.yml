@@ -15,14 +15,14 @@ groups:
           runbook: "https://github.com/traqora/runbooks/service-down.md"
 
       - alert: HighErrorRate
-        expr: rate(traqora_http_request_errors_total[5m]) > 10
+        expr: (sum(rate(traqora_http_request_errors_total[5m])) / sum(rate(traqora_http_requests_total[5m]))) * 100 > 5 and sum(rate(traqora_http_requests_total[5m])) > 0
         for: 2m
         labels:
           severity: critical
           component: api
         annotations:
           summary: "High error rate detected"
-          description: "Error rate is {{ $value }} errors/sec (threshold: 10)"
+          description: "Error rate is {{ printf \"%.1f\" $value }}% (threshold: 5%)"
           runbook: "https://github.com/traqora/runbooks/high-error-rate.md"
 
       - alert: DatabaseConnectionFailed

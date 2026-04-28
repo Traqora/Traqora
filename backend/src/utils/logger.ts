@@ -1,9 +1,21 @@
 import winston from 'winston';
+import { AsyncLocalStorage } from 'async_hooks';
 import { config } from '../config';
+
+export const asyncLocalStorage = new AsyncLocalStorage<Map<string, string>>();
+
+const addCorrelationId = winston.format((info) => {
+  const store = asyncLocalStorage.getStore();
+  if (store && store.has('correlationId')) {
+    info.correlationId = store.get('correlationId');
+  }
+  return info;
+});
 
 export const logger = winston.createLogger({
   level: config.logLevel,
   format: winston.format.combine(
+    addCorrelationId(),
     winston.format.timestamp(),
     winston.format.errors({ stack: true }),
     winston.format.json()

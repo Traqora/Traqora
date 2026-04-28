@@ -261,4 +261,3 @@ impl FlightOracle {
         AccessControl::has_role(&env, &address, role_enum)
     }
 }
-}
