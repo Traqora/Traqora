@@ -38,7 +38,7 @@ export const requireAuth: RequestHandler = async (
         }
 
         // Verify token
-        jwt.verify(token, config.jwtSecret, (err, decoded) => {
+        jwt.verify(token, config.jwtSecret, (err: any, decoded: any) => {
             if (err) {
                 if (err.name === 'TokenExpiredError') {
                     respondUnauthorized('TOKEN_EXPIRED');

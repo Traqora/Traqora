@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 import { DataSource, Repository } from 'typeorm';
 import { User } from '../db/entities/User';
 import { WalletAuthFactory } from './WalletSignatureAdapter';

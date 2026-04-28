@@ -1,6 +1,5 @@
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN, Env, Symbol,
-    Vec,
+    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol,
 };
 use crate::access::{AccessControl, Role};
 

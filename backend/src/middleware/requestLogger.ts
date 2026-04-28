@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { logger } from '../utils/logger';
+import { v4 as uuidv4 } from 'uuid';
+import { logger, asyncLocalStorage } from '../utils/logger';
 
 const SENSITIVE_KEYS = [
   'authorization',
@@ -50,47 +51,51 @@ const sanitizeHeaders = (headers: Request['headers']) => {
 };
 
 export const requestLogger = (req: Request, res: Response, next: NextFunction) => {
-  const start = process.hrtime.bigint();
-  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const correlationId = (req.headers['x-correlation-id'] as string) || uuidv4();
+  const store = new Map<string, string>();
+  store.set('correlationId', correlationId);
 
-  res.locals.requestId = requestId;
+  asyncLocalStorage.run(store, () => {
+    const start = process.hrtime.bigint();
+    res.locals.requestId = correlationId;
 
-  const requestSnapshot = {
-    method: req.method,
-    path: req.originalUrl || req.url,
-    headers: sanitizeHeaders(req.headers),
-    query: sanitizeObject(req.query),
-    body: sanitizeObject(req.body),
-  };
-
-  let responseBody: unknown;
-  const originalJson = res.json.bind(res);
-  res.json = (body: unknown) => {
-    responseBody = body;
-    return originalJson(body);
-  };
-
-  const originalSend = res.send.bind(res);
-  res.send = (body: unknown) => {
-    responseBody = body;
-    return originalSend(body);
-  };
-
-  res.on('finish', () => {
-    const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
-    const payload: Record<string, unknown> = {
-      requestId,
-      statusCode: res.statusCode,
-      durationMs,
-      request: requestSnapshot,
+    const requestSnapshot = {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      headers: sanitizeHeaders(req.headers),
+      query: sanitizeObject(req.query),
+      body: sanitizeObject(req.body),
     };
 
-    if (res.statusCode >= 400) {
-      payload.response = sanitizeObject(responseBody);
-    }
+    let responseBody: unknown;
+    const originalJson = res.json.bind(res);
+    res.json = (body: unknown) => {
+      responseBody = body;
+      return originalJson(body);
+    };
 
-    logger.info('http_request', payload);
+    const originalSend = res.send.bind(res);
+    res.send = (body: unknown) => {
+      responseBody = body;
+      return originalSend(body);
+    };
+
+    res.on('finish', () => {
+      const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+      const payload: Record<string, unknown> = {
+        requestId: correlationId,
+        statusCode: res.statusCode,
+        durationMs,
+        request: requestSnapshot,
+      };
+
+      if (res.statusCode >= 400) {
+        payload.response = sanitizeObject(responseBody);
+      }
+
+      logger.info('http_request', payload);
+    });
+
+    next();
   });
-
-  next();
 };

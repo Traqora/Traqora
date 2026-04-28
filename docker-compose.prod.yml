@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ./backend
+      target: production
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/traqora
+      - REDIS_URL=redis://redis:6379
+      - SECRETS_MANAGER_NAME=${SECRETS_MANAGER_NAME}
+      - AWS_REGION=${AWS_REGION}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - traqora-network
+    restart: always
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=traqora
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - traqora-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - traqora-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+networks:
+  traqora-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

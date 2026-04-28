@@ -2,7 +2,14 @@ import { AuthService } from '../../src/services/authService';
 import { DataSource } from 'typeorm';
 import RedisMock from 'ioredis-mock';
 
-jest.mock('ioredis', () => require('ioredis-mock'));
+jest.mock('ioredis', () => {
+    const RedisMock = require('ioredis-mock');
+    return {
+        __esModule: true,
+        default: RedisMock,
+        Redis: RedisMock,
+    };
+});
 
 describe('AuthService - Challenge', () => {
     let authService: AuthService;
