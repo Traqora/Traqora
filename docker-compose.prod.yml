@@ -10,13 +10,32 @@ services:
       - PORT=3001
       - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/traqora
       - REDIS_URL=redis://redis:6379
-      - SECRETS_MANAGER_NAME=${SECRETS_MANAGER_NAME}
-      - AWS_REGION=${AWS_REGION}
+      - CORS_ORIGIN=${CORS_ORIGIN:-https://app.example.com}
+      - HORIZON_URL=${HORIZON_URL:-https://horizon.example.com}
+      - SOROBAN_RPC_URL=${SOROBAN_RPC_URL:-https://horizon.example.com/soroban/rpc}
+      - STELLAR_NETWORK=public
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - traqora-network
+    restart: always
+
+  frontend:
+    build:
+      context: ./client
+      target: production
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.example.com}
+      - NEXT_PUBLIC_STELLAR_NETWORK=public
+      - NEXT_PUBLIC_HORIZON_URL=${NEXT_PUBLIC_HORIZON_URL:-https://horizon.example.com}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
     networks:
       - traqora-network
     restart: always

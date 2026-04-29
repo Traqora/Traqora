@@ -1,0 +1,22 @@
+environment = "prod"
+aws_region = "us-east-1"
+public_subnet_cidrs = ["10.2.1.0/24", "10.2.2.0/24", "10.2.3.0/24"]
+private_subnet_cidrs = ["10.2.101.0/24", "10.2.102.0/24", "10.2.103.0/24"]
+frontend_domain = "app.traqora.example.com"
+backend_domain = "api.traqora.example.com"
+route53_hosted_zone_id = "Z1234567890PROD"
+db_instance_class = "db.t4g.large"
+db_allocated_storage = 100
+db_backup_retention_days = 14
+db_multi_az = true
+cache_node_type = "cache.t4g.small"
+cache_node_count = 2
+eks_node_instance_type = "t3.large"
+eks_desired_capacity = 3
+eks_min_capacity = 2
+eks_max_capacity = 6
+tags = {
+  Environment = "prod"
+  CostCenter = "prod"
+  Compliance = "PCI"
+}

@@ -1,0 +1,21 @@
+environment = "staging"
+aws_region = "us-east-1"
+public_subnet_cidrs = ["10.1.1.0/24", "10.1.2.0/24", "10.1.3.0/24"]
+private_subnet_cidrs = ["10.1.101.0/24", "10.1.102.0/24", "10.1.103.0/24"]
+frontend_domain = "staging.traqora.example.com"
+backend_domain = "api.staging.traqora.example.com"
+route53_hosted_zone_id = "Z1234567890STG"
+db_instance_class = "db.t3.medium"
+db_allocated_storage = 50
+db_backup_retention_days = 7
+db_multi_az = true
+cache_node_type = "cache.t3.small"
+cache_node_count = 1
+eks_node_instance_type = "t3.medium"
+eks_desired_capacity = 2
+eks_min_capacity = 2
+eks_max_capacity = 4
+tags = {
+  Environment = "staging"
+  CostCenter = "staging"
+}
