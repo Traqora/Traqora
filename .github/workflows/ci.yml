@@ -51,6 +51,14 @@ jobs:
                   cd contracts
                   cargo test
 
+            - name: Install cargo-llvm-cov
+              run: cargo install cargo-llvm-cov
+
+            - name: Contract Coverage
+              run: |
+                  cd contracts
+                  cargo llvm-cov --summary-only --fail-under-lines 90
+
     backend:
         name: Backend CI
         runs-on: ubuntu-latest
