@@ -62,7 +62,7 @@
     "@types/node": "^22.19.17",
     "@types/node-cron": "^3.0.2",
     "@types/pg": "^8.11.6",
-    "@types/supertest": "^6.0.3",
+    "@types/supertest": "^7.2.0",
     "@types/uuid": "^9.0.8",
     "@typescript-eslint/eslint-plugin": "^7.11.0",
     "@typescript-eslint/parser": "^7.11.0",
