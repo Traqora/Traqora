@@ -1,27 +1,31 @@
-import './tracing';
+import 'dotenv/config';
 import http from 'http';
-import dotenv from 'dotenv';
-import { createApp } from './app';
-import { loadConfig, getConfig } from './config';
-import { logger } from './utils/logger';
-import { initDataSource } from './db/dataSource';
-import { initWebSocket } from './websockets/server';
-import { initPriceMonitorCron } from './jobs/priceMonitor';
-import { verifyConnectivity } from './utils/health-check';
-import {
-  contractMonitor,
-  setupDefaultEventListeners,
-  startWalletBalanceMonitoring,
-} from './services/contractMonitor';
-
-dotenv.config();
+import { loadConfig } from './config';
+import { initializeTracing, shutdownTracing } from './tracing';
+import { configureLogger, logger } from './utils/logger';
 
 async function startServer() {
   try {
-    // 1. Load and validate configuration
     const config = await loadConfig();
-    
-    // 2. Verify connectivity to infrastructure (DB, Redis, Stellar)
+    configureLogger(config);
+    initializeTracing(config);
+
+    const [
+      { createApp },
+      { initDataSource },
+      { initWebSocket },
+      { initPriceMonitorCron },
+      { verifyConnectivity },
+      contractMonitorModule,
+    ] = await Promise.all([
+      import('./app'),
+      import('./db/dataSource'),
+      import('./websockets/server'),
+      import('./jobs/priceMonitor'),
+      import('./utils/health-check'),
+      import('./services/contractMonitor'),
+    ]);
+
     await verifyConnectivity();
 
     const app = createApp();
@@ -34,30 +38,47 @@ async function startServer() {
 
     if (process.env.NODE_ENV !== 'test') {
       await initDataSource();
-      
-      server.listen(PORT, () => {
-        logger.info(`Traqora API server running on port ${PORT}`);
-        logger.info(`Environment: ${config.environment}`);
-        logger.info(`Stellar Network: ${config.stellarNetwork}`);
 
-        setupDefaultEventListeners();
-        contractMonitor.startMonitoring(5000);
+      server.listen(PORT, () => {
+        logger.info('Traqora API server started', {
+          port: PORT,
+          environment: config.environment,
+          stellarNetwork: config.stellarNetwork,
+        });
+
+        contractMonitorModule.setupDefaultEventListeners();
+        contractMonitorModule.contractMonitor.startMonitoring(5000);
 
         const wallets = [
           { address: process.env.OPERATIONAL_WALLET_ADDRESS || '', type: 'operational' },
         ].filter((wallet) => wallet.address);
 
         if (wallets.length > 0) {
-          startWalletBalanceMonitoring(wallets);
+          contractMonitorModule.startWalletBalanceMonitoring(wallets);
         }
       });
     }
 
+    const shutdown = async () => {
+      await shutdownTracing();
+      server.close();
+    };
+
+    process.once('SIGTERM', () => {
+      shutdown()
+        .then(() => process.exit(0))
+        .catch((error) => {
+          logger.error('Error during SIGTERM shutdown', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          process.exit(1);
+        });
+    });
+
     return { app, server };
   } catch (error) {
-    logger.error({
-      error: 'Failed to start server',
-      details: error instanceof Error ? error.message : String(error),
+    logger.error('Failed to start server', {
+      error: error instanceof Error ? error.message : String(error),
     });
     process.exit(1);
   }
@@ -65,6 +86,5 @@ async function startServer() {
 
 const serverPromise = startServer();
 
-export const appPromise = serverPromise.then(s => s.app);
+export const appPromise = serverPromise.then((server) => server.app);
 export default serverPromise;
-

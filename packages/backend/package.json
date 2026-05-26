@@ -17,6 +17,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.215.0",
     "@opentelemetry/resources": "^2.7.0",
     "@opentelemetry/sdk-node": "^0.215.0",
+    "@opentelemetry/sdk-trace-base": "^2.7.0",
     "@opentelemetry/semantic-conventions": "^1.40.0",
     "@sendgrid/mail": "^8.1.6",
     "@socket.io/redis-adapter": "^8.3.0",

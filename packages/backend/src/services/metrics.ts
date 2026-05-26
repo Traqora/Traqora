@@ -37,6 +37,29 @@ export const httpRequestErrors = new Counter({
   registers: [register],
 });
 
+export const serviceOperationDuration = new Histogram({
+  name: 'traqora_service_operation_duration_seconds',
+  help: 'Duration of backend service operations in seconds',
+  labelNames: ['component', 'operation', 'status'],
+  buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
+  registers: [register],
+});
+
+export const cacheOperationsTotal = new Counter({
+  name: 'traqora_cache_operations_total',
+  help: 'Total number of cache operations',
+  labelNames: ['cache', 'operation', 'result'],
+  registers: [register],
+});
+
+export const cacheOperationDuration = new Histogram({
+  name: 'traqora_cache_operation_duration_seconds',
+  help: 'Duration of cache operations in seconds',
+  labelNames: ['cache', 'operation', 'result'],
+  buckets: [0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2],
+  registers: [register],
+});
+
 // ============================================================================
 // Business Metrics - Bookings
 // ============================================================================
@@ -364,8 +387,37 @@ export const updateSystemHealth = (component: string, isHealthy: boolean) => {
   logger.debug('Metric updated: system health', { component, isHealthy });
 };
 
+export const measureAsync = async <T>(
+  component: string,
+  operation: string,
+  fn: () => Promise<T>
+): Promise<T> => {
+  const endTimer = serviceOperationDuration.startTimer({ component, operation });
+
+  try {
+    const result = await fn();
+    endTimer({ status: 'success' });
+    return result;
+  } catch (error) {
+    endTimer({ status: 'error' });
+    throw error;
+  }
+};
+
+export const recordCacheOperation = (
+  cache: string,
+  operation: string,
+  result: 'hit' | 'miss' | 'set' | 'fallback' | 'error',
+  durationSeconds: number
+) => {
+  const labels = { cache, operation, result };
+  cacheOperationsTotal.inc(labels);
+  cacheOperationDuration.observe(labels, durationSeconds);
+};
+
 // Update uptime every 10 seconds
-setInterval(updateUptimeMetric, 10000);
+const uptimeInterval = setInterval(updateUptimeMetric, 10000);
+uptimeInterval.unref?.();
 updateUptimeMetric();
 
 logger.info('Prometheus metrics initialized');

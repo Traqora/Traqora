@@ -1,7 +1,9 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
+import { createSearchCache, SearchCache } from '../cache/searchCache';
 import { config } from '../config';
 import { Flight } from '../types/flight';
 import { logger } from '../utils/logger';
+import { measureAsync } from './metrics';
 import { executeSorobanOperation } from './soroban';
 
 export interface FlightRegistryState {
@@ -33,7 +35,7 @@ class SorobanFlightRegistryService implements FlightRegistryService {
   private readonly mockFallback = new MockFlightRegistryService();
 
   async getStates(flights: Flight[]): Promise<Record<string, FlightRegistryState>> {
-    if (!config.contracts.flightRegistry) {
+    if (!isConfiguredContract(config.contracts.flightRegistry)) {
       return this.mockFallback.getStates(flights);
     }
 
@@ -99,6 +101,69 @@ class SorobanFlightRegistryService implements FlightRegistryService {
   }
 }
 
+class CachedFlightRegistryService implements FlightRegistryService {
+  constructor(
+    private readonly delegate: FlightRegistryService,
+    private readonly cache: SearchCache,
+    private readonly ttlSeconds: number
+  ) {}
+
+  async getStates(flights: Flight[]): Promise<Record<string, FlightRegistryState>> {
+    if (flights.length === 0) {
+      return {};
+    }
+
+    if (this.ttlSeconds <= 0) {
+      return this.delegate.getStates(flights);
+    }
+
+    const states: Record<string, FlightRegistryState> = {};
+    const missingFlights: Flight[] = [];
+
+    for (const flight of flights) {
+      const cachedState = await this.cache.get<FlightRegistryState>(this.getCacheKey(flight));
+      if (cachedState) {
+        states[flight.id] = cachedState;
+      } else {
+        missingFlights.push(flight);
+      }
+    }
+
+    if (missingFlights.length === 0) {
+      return states;
+    }
+
+    const fetchedStates = await measureAsync('flight_registry', 'fetch_uncached_states', () =>
+      this.delegate.getStates(missingFlights)
+    );
+
+    await Promise.all(
+      missingFlights.map((flight) => {
+        const state = fetchedStates[flight.id];
+        if (!state) {
+          return Promise.resolve();
+        }
+
+        states[flight.id] = state;
+        return this.cache.set(this.getCacheKey(flight), state, this.ttlSeconds);
+      })
+    );
+
+    return states;
+  }
+
+  private getCacheKey(flight: Flight): string {
+    return `flight-registry-state:${flight.id}:${flight.available_seats}`;
+  }
+}
+
+const isConfiguredContract = (contractId?: string): boolean => {
+  return Boolean(contractId && contractId !== 'DEFAULT_ID');
+};
+
 export const createFlightRegistryService = (): FlightRegistryService => {
-  return new SorobanFlightRegistryService();
+  const registry = new SorobanFlightRegistryService();
+  const cache = createSearchCache(config.redisUrl || undefined, 'flight-registry');
+
+  return new CachedFlightRegistryService(registry, cache, config.flightRegistryCacheTtlSeconds);
 };

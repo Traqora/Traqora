@@ -88,6 +88,10 @@ jobs:
               run: |
                   npm test --workspace=packages/backend
 
+            - name: Metrics Smoke Test
+              run: |
+                  npm test --workspace=packages/backend -- --runInBand tests/integration/metrics.smoke.integration.test.ts
+
     client:
         name: Client CI
         runs-on: ubuntu-latest

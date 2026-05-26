@@ -8,6 +8,7 @@ import {
   executeWithResilience,
   isTransientError,
 } from './ErrorHandlingService';
+import { measureAsync } from './metrics';
 
 export type UnsignedSorobanTx = {
   xdr: string;
@@ -105,15 +106,17 @@ export const executeSorobanOperation = async <T>(
   fn: () => Promise<T>,
   context: Record<string, unknown> = {}
 ): Promise<T> =>
-  executeWithResilience(sorobanCircuitBreaker, fn, {
-    operationName,
-    context,
-    retry: {
-      retries: 3,
-      baseDelayMs: 300,
-      shouldRetry: (error) => isTransientError(error),
-    },
-  });
+  measureAsync('soroban', operationName, () =>
+    executeWithResilience(sorobanCircuitBreaker, fn, {
+      operationName,
+      context,
+      retry: {
+        retries: 3,
+        baseDelayMs: 300,
+        shouldRetry: (error) => isTransientError(error),
+      },
+    })
+  );
 
 const getNetworkPassphrase = (): string => {
   return config.stellarNetwork === 'mainnet'

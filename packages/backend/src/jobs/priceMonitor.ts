@@ -8,6 +8,7 @@ import { PriceOracleService } from '../services/PriceOracleService';
 import { VolatilityService } from '../services/VolatilityService';
 import { NotificationService } from '../services/NotificationService';
 import { getWebSocketServer } from '../websockets/server';
+import { measureAsync } from '../services/metrics';
 
 // Parse Redis config from URL if available, or use defaults
 const redisUrl = config.redisUrl || process.env.REDIS_URL || 'redis://localhost:6379';
@@ -28,11 +29,13 @@ export const priceMonitorQueue = new Queue('price-monitor', redisUrl, {
 // Worker: Process the price check job
 priceMonitorQueue.process(async (job) => {
   const { flightId } = job.data;
-  
-  try {
+
+  return measureAsync('price_monitor', 'process_flight_price_check', async () => {
     // 1. Fetch current price
     const oracle = PriceOracleService.getInstance();
-    const prices = await oracle.fetchPrices([flightId]); // Batching could be optimized here
+    const prices = await measureAsync('price_monitor', 'fetch_current_price', () =>
+      oracle.fetchPrices([flightId])
+    );
     
     if (!prices || prices.length === 0) return;
 
@@ -49,15 +52,19 @@ priceMonitorQueue.process(async (job) => {
 
     // 3. Check Volatility
     // Get last 24h history for this flight
-    const history = await PriceHistory.find({ 
-      flightId, 
-      timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } 
-    }).sort({ timestamp: 1 });
+    const history = await measureAsync('price_monitor', 'load_price_history', () =>
+      PriceHistory.find({
+        flightId,
+        timestamp: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      }).sort({ timestamp: 1 }).exec()
+    );
 
     const isVolatile = VolatilityService.isSignificantDrop(currentPrice, history);
 
     // 4. Check Subscriptions/Alerts
-    const alerts = await PriceAlert.find({ flightId, isActive: true });
+    const alerts = await measureAsync('price_monitor', 'load_active_alerts', () =>
+      PriceAlert.find({ flightId, isActive: true }).exec()
+    );
     
     for (const alert of alerts) {
       if (currentPrice <= alert.targetPrice || isVolatile) {
@@ -93,10 +100,10 @@ priceMonitorQueue.process(async (job) => {
 
     logger.info(`Processed price check for flight ${flightId}: ${currentPrice}`);
 
-  } catch (error) {
+  }).catch((error) => {
     logger.error(`Error processing price check for flight ${flightId}`, error);
     throw error;
-  }
+  });
 });
 
 // Cron: Schedule the jobs
@@ -108,7 +115,9 @@ export const initPriceMonitorCron = () => {
     try {
       // Find all unique flights that have active alerts
       // Using distinct to get unique flight IDs
-      const activeFlights = await PriceAlert.distinct('flightId', { isActive: true });
+      const activeFlights = await measureAsync('price_monitor', 'load_active_flights', () =>
+        PriceAlert.distinct('flightId', { isActive: true }).exec()
+      );
       
       logger.info(`Found ${activeFlights.length} flights to monitor.`);
 

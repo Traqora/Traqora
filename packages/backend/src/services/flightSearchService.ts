@@ -17,6 +17,7 @@ import {
   RepositoryOffchainFlightDataProvider,
 } from './offchainFlightDataProvider';
 import { createFlightRegistryService, FlightRegistryService } from './flightRegistryService';
+import { measureAsync } from './metrics';
 
 interface CursorPayload {
   offset: number;
@@ -102,15 +103,19 @@ export class FlightSearchService {
 
     const { offset } = decodeCursor(normalizedCriteria.cursor);
 
-    const flights = await this.provider.search(normalizedCriteria, {
-      limit: normalizedCriteria.pageSize + 1,
-      offset,
-    });
+    const flights = await measureAsync('flight_search', 'provider_search', () =>
+      this.provider.search(normalizedCriteria, {
+        limit: normalizedCriteria.pageSize + 1,
+        offset,
+      })
+    );
 
     const hasMore = flights.length > normalizedCriteria.pageSize;
     const pageFlights = hasMore ? flights.slice(0, normalizedCriteria.pageSize) : flights;
 
-    const onChainStates = await this.registryService.getStates(pageFlights);
+    const onChainStates = await measureAsync('flight_search', 'registry_state_lookup', () =>
+      this.registryService.getStates(pageFlights)
+    );
     const enrichedFlights: EnrichedFlight[] = pageFlights.reduce<EnrichedFlight[]>((acc, flight) => {
       const state = onChainStates[flight.id];
       if (!state?.listed || !state.reservable || state.available_seats < normalizedCriteria.passengers) {
@@ -157,7 +162,7 @@ export const createDefaultFlightSearchService = (): FlightSearchService => {
     ? new PostgresFlightRepository(getPostgresPool())
     : new InMemoryFlightRepository();
 
-  const cache = createSearchCache(config.redisUrl || undefined);
+  const cache = createSearchCache(config.redisUrl || undefined, 'flight-search');
 
   return new FlightSearchService(repository, cache, config.flightSearchCacheTtlSeconds);
 };
