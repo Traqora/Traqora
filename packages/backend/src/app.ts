@@ -1,7 +1,6 @@
 import cors from 'cors';
 import express from 'express';
 import morgan from 'morgan';
-import { register } from 'prom-client';
 import { securityMiddleware } from './middleware/securityMiddleware';
 import { createFlightRoutes } from './api/routes/flights';
 import { bookingRoutes } from './api/routes/bookings';
@@ -23,6 +22,7 @@ import { errorHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
 import { requestLogger } from './middleware/requestLogger';
 import { metricsMiddleware } from './middleware/metricsMiddleware';
+import { register } from './services/metrics';
 import { AppDataSource } from './db/dataSource';
 import {
   createIpRateLimiter,

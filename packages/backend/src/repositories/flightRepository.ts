@@ -1,4 +1,5 @@
-import { Pool } from 'pg';
+import { Pool, QueryResult } from 'pg';
+import { databaseErrors, databaseQueryDuration } from '../services/metrics';
 import {
   CabinClass,
   Flight,
@@ -256,7 +257,22 @@ export class PostgresFlightRepository implements FlightRepository {
       OFFSET ${offsetPlaceholder}
     `;
 
-    const result = await this.pool.query<FlightRow>(queryText, values);
+    const endTimer = databaseQueryDuration.startTimer({
+      operation: 'search_flights',
+      entity: 'flights',
+    });
+
+    let result: QueryResult<FlightRow>;
+    try {
+      result = await this.pool.query<FlightRow>(queryText, values);
+      endTimer();
+    } catch (error) {
+      databaseErrors.inc({
+        error_type: error instanceof Error ? error.name : 'unknown',
+      });
+      endTimer();
+      throw error;
+    }
 
     return result.rows.map((row) => ({
       id: row.id,

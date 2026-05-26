@@ -1,7 +1,7 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import { recordContractEvent, updateWalletBalance, recordSorobanTransaction } from './metrics';
+import { measureAsync, recordContractEvent, updateWalletBalance, recordSorobanTransaction } from './metrics';
 import { executeSorobanOperation } from './soroban';
 
 interface ContractEventListener {
@@ -76,49 +76,51 @@ class ContractMonitor {
     if (!this.server) return;
 
     try {
-      // Get latest ledger
-      const latestLedger = await executeSorobanOperation(
-        'soroban_get_latest_ledger',
-        () => this.server!.getLatestLedger(),
-        { component: 'contract_monitor' }
-      );
-      
-      // Fetch events for each registered contract
-      for (const listener of this.listeners) {
-        try {
-          const events = await executeSorobanOperation(
-            'soroban_get_events',
-            () =>
-              this.server!.getEvents({
-                startLedger: this.lastCursor ? undefined : latestLedger.sequence - 100,
-                filters: [
-                  {
-                    type: 'contract',
-                    contractIds: [listener.contractId],
-                  },
-                ],
-                limit: 100,
-              }),
-            { contractId: listener.contractId, component: 'contract_monitor' }
-          );
+      await measureAsync('contract_monitor', 'fetch_and_process_events', async () => {
+        // Get latest ledger
+        const latestLedger = await executeSorobanOperation(
+          'soroban_get_latest_ledger',
+          () => this.server!.getLatestLedger(),
+          { component: 'contract_monitor' }
+        );
 
-          if (events.events && events.events.length > 0) {
-            for (const event of events.events) {
-              this.processEvent(listener, event);
+        // Fetch events for each registered contract
+        for (const listener of this.listeners) {
+          try {
+            const events = await executeSorobanOperation(
+              'soroban_get_events',
+              () =>
+                this.server!.getEvents({
+                  startLedger: this.lastCursor ? undefined : latestLedger.sequence - 100,
+                  filters: [
+                    {
+                      type: 'contract',
+                      contractIds: [listener.contractId],
+                    },
+                  ],
+                  limit: 100,
+                }),
+              { contractId: listener.contractId, component: 'contract_monitor' }
+            );
+
+            if (events.events && events.events.length > 0) {
+              for (const event of events.events) {
+                this.processEvent(listener, event);
+              }
+
+              // Update cursor
+              if (events.latestLedger) {
+                this.lastCursor = events.latestLedger.toString();
+              }
             }
-            
-            // Update cursor
-            if (events.latestLedger) {
-              this.lastCursor = events.latestLedger.toString();
-            }
+          } catch (error: any) {
+            logger.error('Error fetching events for contract', {
+              contractId: listener.contractId,
+              error: error.message,
+            });
           }
-        } catch (error: any) {
-          logger.error('Error fetching events for contract', {
-            contractId: listener.contractId,
-            error: error.message,
-          });
         }
-      }
+      });
     } catch (error: any) {
       logger.error('Error in contract event monitoring', { error: error.message });
     }
@@ -186,41 +188,43 @@ class ContractMonitor {
     
     const horizonServer = new StellarSdk.Horizon.Server(horizonUrl);
 
-    for (const wallet of wallets) {
-      try {
+    await measureAsync('contract_monitor', 'monitor_wallet_balances', async () => {
+      for (const wallet of wallets) {
+        try {
           const account = await executeSorobanOperation(
             'horizon_load_account',
             () => horizonServer.loadAccount(wallet.address),
             { wallet: wallet.address, component: 'contract_monitor' }
           );
-        
-        // Find XLM balance
-        const xlmBalance = account.balances.find(
-          (b: any) => b.asset_type === 'native'
-        );
-        
-        if (xlmBalance) {
-          const balance = parseFloat(xlmBalance.balance);
-          updateWalletBalance(wallet.address, wallet.type, balance);
-          
-          // Log warning if balance is low
-          const minBalance = 100; // 100 XLM minimum
-          if (balance < minBalance) {
-            logger.warn('Low wallet balance detected', {
-              address: wallet.address,
-              type: wallet.type,
-              balance,
-              minBalance,
-            });
+
+          // Find XLM balance
+          const xlmBalance = account.balances.find(
+            (b: any) => b.asset_type === 'native'
+          );
+
+          if (xlmBalance) {
+            const balance = parseFloat(xlmBalance.balance);
+            updateWalletBalance(wallet.address, wallet.type, balance);
+
+            // Log warning if balance is low
+            const minBalance = 100; // 100 XLM minimum
+            if (balance < minBalance) {
+              logger.warn('Low wallet balance detected', {
+                address: wallet.address,
+                type: wallet.type,
+                balance,
+                minBalance,
+              });
+            }
           }
+        } catch (error: any) {
+          logger.error('Error monitoring wallet balance', {
+            address: wallet.address,
+            error: error.message,
+          });
         }
-      } catch (error: any) {
-        logger.error('Error monitoring wallet balance', {
-          address: wallet.address,
-          error: error.message,
-        });
       }
-    }
+    });
   }
 
   /**
