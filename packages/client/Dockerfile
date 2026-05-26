@@ -3,10 +3,8 @@ FROM node:20-alpine AS development
 
 WORKDIR /usr/src/app
 
-RUN npm install -g pnpm
-
-COPY package*.json pnpm-lock.yaml* ./
-RUN pnpm install
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
 
 COPY . .
 
@@ -24,13 +22,11 @@ FROM node:20-alpine AS production
 
 WORKDIR /usr/src/app
 
-RUN npm install -g pnpm
-
-COPY package*.json pnpm-lock.yaml* ./
-RUN pnpm install
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
 
 COPY . .
-RUN pnpm run build
+RUN npm run build
 
 # Only copy necessary files for production
 FROM node:20-alpine AS runner

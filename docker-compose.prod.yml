@@ -3,7 +3,7 @@ version: '3.8'
 services:
   api:
     build:
-      context: ./backend
+      context: ./packages/backend
       target: production
     environment:
       - NODE_ENV=production
@@ -26,7 +26,7 @@ services:
 
   frontend:
     build:
-      context: ./client
+      context: ./packages/client
       target: production
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.example.com}

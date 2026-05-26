@@ -81,7 +81,7 @@ services:
     volumes:
       - ./promtail/promtail-config.yml:/etc/promtail/config.yml
       - /var/log:/var/log
-      - ../backend/logs:/var/log/traqora
+      - ../packages/backend/logs:/var/log/traqora
     command: -config.file=/etc/promtail/config.yml
     networks:
       - monitoring

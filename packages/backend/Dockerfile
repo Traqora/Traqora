@@ -8,7 +8,7 @@ RUN apk add --no-cache python3 make g++
 
 # Install dependencies separately for better caching
 COPY package*.json ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copy source code (though it will be overridden by volume in docker-compose)
 COPY . .
@@ -28,7 +28,7 @@ WORKDIR /usr/src/app
 RUN apk add --no-cache python3 make g++
 
 COPY package*.json ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 COPY . .
 RUN npm run build

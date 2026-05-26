@@ -53,12 +53,12 @@ services:
   # Backend API
   backend:
     build:
-      context: ./backend
+      context: ./packages/backend
       target: development
     container_name: traqora-backend
     restart: always
     volumes:
-      - ./backend:/usr/src/app
+      - ./packages/backend:/usr/src/app
       - /usr/src/app/node_modules
     environment:
       - NODE_ENV=development
@@ -83,12 +83,12 @@ services:
   # Frontend Client
   frontend:
     build:
-      context: ./client
+      context: ./packages/client
       target: development
     container_name: traqora-frontend
     restart: always
     volumes:
-      - ./client:/usr/src/app
+      - ./packages/client:/usr/src/app
       - /usr/src/app/node_modules
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1

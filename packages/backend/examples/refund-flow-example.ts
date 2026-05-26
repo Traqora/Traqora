@@ -145,7 +145,7 @@ async function exampleRefundFlow() {
 }
 
 // Run the example
-// To run this example: ts-node backend/examples/refund-flow-example.ts
+// To run this example: ts-node packages/backend/examples/refund-flow-example.ts
 exampleRefundFlow()
   .then(() => {
     console.log('Example completed successfully');

@@ -207,21 +207,21 @@ Coverage: 94%+
 
 ### New Files
 ```
-backend/src/services/amadeus/amadeusClient.ts (250 lines)
-backend/src/services/amadeus/airlineAdapters.ts (380 lines)
-backend/src/services/amadeus/flightSyncService.ts (450 lines)
-backend/src/services/amadeus/flightSyncScheduler.ts (285 lines)
-backend/src/types/flightSync.ts (350 lines)
-backend/tests/flightSyncService.test.ts (600 lines)
-backend/tests/amadeus/amadeusClient.test.ts (400 lines)
-backend/tests/amadeus/airlineAdapters.test.ts (350 lines)
-backend/FLIGHT_SYNC_IMPLEMENTATION.md (800 lines)
-backend/FLIGHT_SYNC_API.md (600 lines)
+packages/backend/src/services/amadeus/amadeusClient.ts (250 lines)
+packages/backend/src/services/amadeus/airlineAdapters.ts (380 lines)
+packages/backend/src/services/amadeus/flightSyncService.ts (450 lines)
+packages/backend/src/services/amadeus/flightSyncScheduler.ts (285 lines)
+packages/backend/src/types/flightSync.ts (350 lines)
+packages/backend/tests/flightSyncService.test.ts (600 lines)
+packages/backend/tests/amadeus/amadeusClient.test.ts (400 lines)
+packages/backend/tests/amadeus/airlineAdapters.test.ts (350 lines)
+packages/backend/FLIGHT_SYNC_IMPLEMENTATION.md (800 lines)
+packages/backend/FLIGHT_SYNC_API.md (600 lines)
 ```
 
 ### Modified Files
 ```
-backend/src/db/entities/Flight.ts
+packages/backend/src/db/entities/Flight.ts
  - Added 23 new columns for sync tracking, status, conflicts, audit trail
  - Maintained backward compatibility with existing schema
 ```
@@ -328,10 +328,10 @@ A: Soft limit is 1000 per request. Scheduler batches 100 to prevent timeouts.
 
 ## Support & Documentation
 
-- **Implementation Guide:** `backend/FLIGHT_SYNC_IMPLEMENTATION.md`
-- **API Documentation:** `backend/FLIGHT_SYNC_API.md`
-- **Type Definitions:** `backend/src/types/flightSync.ts`
-- **Test Suite:** `backend/tests/flightSyncService.test.ts`
+- **Implementation Guide:** `packages/backend/FLIGHT_SYNC_IMPLEMENTATION.md`
+- **API Documentation:** `packages/backend/FLIGHT_SYNC_API.md`
+- **Type Definitions:** `packages/backend/src/types/flightSync.ts`
+- **Test Suite:** `packages/backend/tests/flightSyncService.test.ts`
 
 ## Sign-Off
 
