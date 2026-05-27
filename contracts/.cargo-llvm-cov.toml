@@ -1,0 +1,35 @@
+# cargo-llvm-cov configuration for Traqora smart contracts
+
+# Exclude test files from coverage
+[profile.coverage]
+inherits = "release"
+opt-level = 1
+debug = true
+split-debuginfo = "packed"
+
+# Coverage instrumentation flags
+# These are applied automatically by cargo-llvm-cov
+# but documented here for reference
+
+# Test modules to include in coverage
+[tool.cargo-llvm-cov]
+# Include all contract modules
+include = ["src/**/*.rs"]
+
+# Exclude only the contract interface files if needed
+# exclude = []
+
+# Failing tests cause coverage failure
+fail-on-incomplete-line-coverage = true
+
+# Skip warnings and only show errors
+output-summary = "stdout"
+
+# Generate coverage for all tests including doctests
+include-examples = false
+include-tests = true
+include-doctests = false
+
+# Minimum line coverage required (matching CI requirement)
+# This matches the fail-under-lines flag in CI
+line-coverage-threshold = 90

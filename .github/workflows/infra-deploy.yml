@@ -1,0 +1,111 @@
+name: Infra Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Terraform environment to deploy"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+jobs:
+  validate:
+    name: Plan and validate Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm install
+      - name: Backend typecheck and test
+        run: |
+          cd backend
+          npm run typecheck
+          npm run lint
+          npm test
+      - name: Install client dependencies
+        run: |
+          cd client
+          npm install --legacy-peer-deps
+      - name: Frontend build
+        run: |
+          cd client
+          npm run build
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.9
+      - name: Terraform fmt
+        working-directory: terraform
+        run: terraform fmt -check
+      - name: Terraform init
+        working-directory: terraform
+        run: terraform init -input=false
+      - name: Terraform validate
+        working-directory: terraform
+        run: terraform validate
+      - name: Determine target environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "TF_WORKSPACE=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "TF_WORKSPACE=prod" >> $GITHUB_ENV
+          else
+            echo "TF_WORKSPACE=staging" >> $GITHUB_ENV
+          fi
+      - name: Terraform plan
+        working-directory: terraform
+        run: terraform plan -input=false -var-file=./environments/${{ env.TF_WORKSPACE }}.tfvars
+
+  deploy:
+    name: Apply infrastructure
+    needs: validate
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.9
+      - name: Determine target environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "TF_WORKSPACE=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "TF_WORKSPACE=prod" >> $GITHUB_ENV
+          else
+            echo "TF_WORKSPACE=staging" >> $GITHUB_ENV
+          fi
+      - name: Terraform init
+        working-directory: terraform
+        run: terraform init -input=false
+      - name: Select workspace
+        working-directory: terraform
+        run: |
+          terraform workspace select ${TF_WORKSPACE} || terraform workspace new ${TF_WORKSPACE}
+      - name: Terraform apply
+        working-directory: terraform
+        run: terraform apply -input=false -auto-approve -var-file=./environments/${TF_WORKSPACE}.tfvars

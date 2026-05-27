@@ -81,7 +81,7 @@ services:
     volumes:
       - ./promtail/promtail-config.yml:/etc/promtail/config.yml
       - /var/log:/var/log
-      - ../backend/logs:/var/log/traqora
+      - ../packages/backend/logs:/var/log/traqora
     command: -config.file=/etc/promtail/config.yml
     networks:
       - monitoring
@@ -134,6 +134,20 @@ services:
     privileged: true
     devices:
       - /dev/kmsg
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # Jaeger - Distributed Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: traqora-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686" # UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
     networks:
       - monitoring
     restart: unless-stopped

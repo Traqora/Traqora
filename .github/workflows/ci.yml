@@ -51,6 +51,14 @@ jobs:
                   cd contracts
                   cargo test
 
+            - name: Install cargo-llvm-cov
+              run: cargo install cargo-llvm-cov
+
+            - name: Contract Coverage
+              run: |
+                  cd contracts
+                  cargo llvm-cov --summary-only --fail-under-lines 90
+
     backend:
         name: Backend CI
         runs-on: ubuntu-latest
@@ -62,28 +70,27 @@ jobs:
               with:
                   node-version: "20"
                   cache: "npm"
-                  cache-dependency-path: backend/package-lock.json
+                  cache-dependency-path: package-lock.json
 
             - name: Install Dependencies
               run: |
-                  cd backend
-                  npm install
+                  npm install --legacy-peer-deps
 
             - name: Typecheck
               run: |
-                  cd backend
-                  rm -rf dist
-                  npm run typecheck
+                  npm run typecheck --workspace=packages/backend
 
             - name: Lint
               run: |
-                  cd backend
-                  npm run lint
+                  npm run lint --workspace=packages/backend
 
             - name: Tests
               run: |
-                  cd backend
-                  npm test
+                  npm test --workspace=packages/backend
+
+            - name: Metrics Smoke Test
+              run: |
+                  npm test --workspace=packages/backend -- --runInBand tests/integration/metrics.smoke.integration.test.ts
 
     client:
         name: Client CI
@@ -96,19 +103,16 @@ jobs:
               with:
                   node-version: "20"
                   cache: "npm"
-                  cache-dependency-path: client/package.json
+                  cache-dependency-path: package-lock.json
 
             - name: Install Dependencies
               run: |
-                  cd client
                   npm install --legacy-peer-deps
 
             - name: Lint
               run: |
-                  cd client
-                  npm run lint || true
+                  npm run lint --workspace=packages/client || true
 
             - name: Build
               run: |
-                  cd client
-                  npm run build
+                  npm run build --workspace=packages/client

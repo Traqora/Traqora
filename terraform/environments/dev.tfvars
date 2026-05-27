@@ -1,0 +1,21 @@
+environment = "dev"
+aws_region = "us-east-1"
+public_subnet_cidrs = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+private_subnet_cidrs = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+frontend_domain = "dev.traqora.example.com"
+backend_domain = "api.dev.traqora.example.com"
+route53_hosted_zone_id = "Z1234567890DEV"
+db_instance_class = "db.t3.micro"
+db_allocated_storage = 20
+db_backup_retention_days = 3
+db_multi_az = false
+cache_node_type = "cache.t3.micro"
+cache_node_count = 1
+eks_node_instance_type = "t3.small"
+eks_desired_capacity = 1
+eks_min_capacity = 1
+eks_max_capacity = 2
+tags = {
+  Environment = "dev"
+  CostCenter = "dev"
+}
