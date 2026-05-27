@@ -6,7 +6,7 @@ export const configSchema = z.object({
   corsOrigin: z.string().url().default('http://localhost:3000'),
   trustProxy: z.boolean().default(false),
 
-  stellarNetwork: z.enum(['production', 'testnet', 'standalone']).default('testnet'),
+  stellarNetwork: z.enum(['production', 'mainnet', 'testnet', 'standalone']).default('testnet'),
   stellarSecretKey: z.string().optional(),
   horizonUrl: z.string().url(),
   sorobanRpcUrl: z.string().url(),

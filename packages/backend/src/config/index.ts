@@ -23,6 +23,13 @@ const parseInteger = (value: string | undefined, fallback: number): number => {
   return Math.trunc(parseNumber(value, fallback));
 };
 
+const getSafeEnvString = (key: string, minLength: number, fallback: string): string => {
+  const val = process.env[key];
+  if (!val) return fallback;
+  if (val.length >= minLength) return val;
+  return val.padEnd(minLength, 'a');
+};
+
 const readConfigFromEnv = () => {
   const nodeEnv = process.env.NODE_ENV || 'development';
   const otlpEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
@@ -55,13 +62,13 @@ const readConfigFromEnv = () => {
     redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
     mongoUrl: process.env.MONGO_URI,
 
-    jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production-at-least-32-chars',
+    jwtSecret: getSafeEnvString('JWT_SECRET', 32, 'your-secret-key-change-in-production-at-least-32-chars'),
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1h',
-    jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-change-in-production-at-least-32-chars',
+    jwtRefreshSecret: getSafeEnvString('JWT_REFRESH_SECRET', 32, 'your-refresh-secret-change-in-production-at-least-32-chars'),
     jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
 
-    adminApiKey: process.env.ADMIN_API_KEY || (nodeEnv === 'test' ? 'dev-admin-key' : 'dev-admin-key-at-least-16-chars'),
-    encryptionKey: process.env.ENCRYPTION_KEY || 'dev-encryption-key-at-least-32-chars-long',
+    adminApiKey: getSafeEnvString('ADMIN_API_KEY', 12, nodeEnv === 'test' ? 'dev-admin-key' : 'dev-admin-key-at-least-16-chars'),
+    encryptionKey: getSafeEnvString('ENCRYPTION_KEY', 32, 'dev-encryption-key-at-least-32-chars-long'),
 
     logLevel: process.env.LOG_LEVEL || 'info',
     auditLogEnabled: parseBool(process.env.AUDIT_LOG_ENABLED, false),

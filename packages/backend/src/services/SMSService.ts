@@ -9,7 +9,7 @@ class SMSService {
     if (config.twilioAccountSid && config.twilioAuthToken) {
       this.client = twilio(config.twilioAccountSid, config.twilioAuthToken);
     }
-    this.fromPhoneNumber = config.twilioPhoneNumber;
+    this.fromPhoneNumber = config.twilioPhoneNumber || '';
   }
 
   public async send(to: string, type: string, data: any) {
