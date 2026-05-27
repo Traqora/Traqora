@@ -175,13 +175,15 @@ impl BookingReceiptContract {
         }
     }
 
-    // --- Soroban Token Interface (Fungible compatibility) ---
+    // --- Soroban Token Interface (Fungible compatibility stubs) ---
+    // Prefixed with sep41_ to avoid symbol conflicts with TRQTokenContract.
+    // These stubs exist only for interface compatibility.
 
-    pub fn allowance(_env: Env, _from: Address, _spender: Address) -> i128 {
+    pub fn sep41_allowance(_env: Env, _from: Address, _spender: Address) -> i128 {
         0
     }
 
-    pub fn approve(_env: Env, _from: Address, _spender: Address, _amount: i128, _expiration_ledger: u32) {
+    pub fn sep41_approve(_env: Env, _from: Address, _spender: Address, _amount: i128, _expiration_ledger: u32) {
         panic!("Non-transferable soulbound token");
     }
 
@@ -189,33 +191,33 @@ impl BookingReceiptContract {
         ReceiptStorage::get_balance(&env, &id)
     }
 
-    pub fn transfer(_env: Env, _from: Address, _to: Address, _amount: i128) {
+    pub fn sep41_transfer(_env: Env, _from: Address, _to: Address, _amount: i128) {
         panic!("Non-transferable soulbound token");
     }
 
-    pub fn transfer_from(_env: Env, _spender: Address, _from: Address, _to: Address, _amount: i128) {
+    pub fn sep41_transfer_from(_env: Env, _spender: Address, _from: Address, _to: Address, _amount: i128) {
         panic!("Non-transferable soulbound token");
     }
 
-    pub fn burn(_env: Env, _from: Address, _amount: i128) {
+    pub fn sep41_burn(_env: Env, _from: Address, _amount: i128) {
         panic!("Burn not supported");
     }
 
-    pub fn burn_from(_env: Env, _spender: Address, _from: Address, _amount: i128) {
+    pub fn sep41_burn_from(_env: Env, _spender: Address, _from: Address, _amount: i128) {
         panic!("Burn not supported");
     }
 
-    pub fn decimals(_env: Env) -> u32 {
+    pub fn receipt_decimals(_env: Env) -> u32 {
         0
     }
 
-    pub fn name(env: Env) -> String {
+    pub fn receipt_name(env: Env) -> String {
         ReceiptStorage::get_metadata(&env)
             .map(|m| m.name)
             .expect("Not initialized")
     }
 
-    pub fn symbol(env: Env) -> Symbol {
+    pub fn receipt_symbol(env: Env) -> Symbol {
         ReceiptStorage::get_metadata(&env)
             .map(|m| m.symbol)
             .expect("Not initialized")

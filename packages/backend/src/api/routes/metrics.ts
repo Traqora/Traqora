@@ -6,7 +6,7 @@ import { logger } from '../../utils/logger';
 const router = Router();
 
 // Prometheus metrics endpoint
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (_req: Request, res: Response) => {
   try {
     res.set('Content-Type', register.contentType);
     const metrics = await register.metrics();
@@ -18,7 +18,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Health check endpoint
-router.get('/health', async (req: Request, res: Response) => {
+router.get('/health', async (_req: Request, res: Response) => {
   const health = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -60,22 +60,22 @@ router.get('/health', async (req: Request, res: Response) => {
 });
 
 // Readiness check endpoint
-router.get('/ready', async (req: Request, res: Response) => {
+router.get('/ready', async (_req: Request, res: Response) => {
   try {
     if (!AppDataSource.isInitialized) {
       return res.status(503).json({ ready: false, reason: 'Database not initialized' });
     }
 
     await AppDataSource.query('SELECT 1');
-    res.json({ ready: true });
+    return res.json({ ready: true });
   } catch (error: any) {
     logger.error('Readiness check failed', { error: error.message });
-    res.status(503).json({ ready: false, reason: error.message });
+    return res.status(503).json({ ready: false, reason: error.message });
   }
 });
 
 // Liveness check endpoint
-router.get('/live', (req: Request, res: Response) => {
+router.get('/live', (_req: Request, res: Response) => {
   res.json({ alive: true });
 });
 

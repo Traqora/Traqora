@@ -2,7 +2,7 @@ import { AppDataSource } from '../db/dataSource';
 import { Booking } from '../db/entities/Booking';
 import { Flight } from '../db/entities/Flight';
 import { Passenger } from '../db/entities/Passenger';
-import { IdempotencyKey } from '../db/entities/IdempotencyKey';
+
 import { 
     getTransactionStatus,
     signAndSubmitCreateBooking
@@ -15,7 +15,7 @@ export class BookingOrchestrationService {
     private bookingRepo = AppDataSource.getRepository(Booking);
     private flightRepo = AppDataSource.getRepository(Flight);
     private passengerRepo = AppDataSource.getRepository(Passenger);
-    private idempotencyRepo = AppDataSource.getRepository(IdempotencyKey);
+
 
     async createBooking(params: {
         flightId: string;

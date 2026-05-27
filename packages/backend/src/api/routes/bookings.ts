@@ -3,8 +3,6 @@ import { z } from "zod";
 import { requireAuth } from "../../middleware/authMiddleware";
 import { asyncHandler } from "../../utils/errorHandler";
 import { initDataSource, AppDataSource } from "../../db/dataSource";
-import { Flight } from "../../db/entities/Flight";
-import { Passenger } from "../../db/entities/Passenger";
 import { Booking } from "../../db/entities/Booking";
 import { IdempotencyKey } from "../../db/entities/IdempotencyKey";
 import {
@@ -14,12 +12,10 @@ import {
 import { BookingOrchestrationService } from "../../services/bookingOrchestrationService";
 import { stripe, stripeWebhookSecret } from "../../services/stripe";
 import {
-  buildCreateBookingUnsignedXdr,
   submitSignedSorobanXdr,
   getTransactionStatus,
 } from "../../services/soroban";
 import { withRetries } from "../../services/retry";
-import { config } from "../../config";
 import { getWebSocketServer } from "../../websockets/server";
 import { logger } from "../../utils/logger";
 
@@ -70,8 +66,6 @@ router.post(
     const requestHash = hashObject(parsed.data);
 
     const bookingRepo = AppDataSource.getRepository(Booking);
-    const flightRepo = AppDataSource.getRepository(Flight);
-    const passengerRepo = AppDataSource.getRepository(Passenger);
     const idempotencyRepo = AppDataSource.getRepository(IdempotencyKey);
 
     const idem = await getOrCreateIdempotencyKey({
