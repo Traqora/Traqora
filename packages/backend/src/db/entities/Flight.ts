@@ -62,7 +62,7 @@ export class Flight {
   @Column({ type: 'varchar', length: 32, default: 'EXACT_MATCH' })
   syncStatus!: string; // EXACT_MATCH, CONFLICT, UNVERIFIED, MANUAL_OVERRIDE
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'simple-json' : 'jsonb', nullable: true })
   conflictData?: Record<string, any>; // Store conflicting data for manual review
 
   @Column({ type: 'integer', default: 0 })
@@ -78,6 +78,6 @@ export class Flight {
   @UpdateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   updatedAt!: Date;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'simple-json' : 'jsonb', nullable: true })
   rawData?: Record<string, any>; // Store raw API response for debugging
 }

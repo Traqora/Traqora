@@ -13,6 +13,7 @@ import { adminBookingRoutes } from './api/routes/admin/bookings';
 import { adminAnalyticsRoutes } from './api/routes/admin/analytics';
 import { adminRefundRoutes } from './api/routes/admin/refunds';
 import { authRoutes } from './api/routes/auth';
+import { e2eRoutes } from './api/routes/e2e';
 import { config } from './config';
 import {
   createDefaultFlightSearchService,
@@ -160,6 +161,7 @@ export const createApp = (options: AppOptions = {}) => {
   });
 
   app.use('/api/v1/auth', authRoutes);
+  app.use('/api/v1/e2e', e2eRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/v1/bookings', requireAuth, bookingRoutes);

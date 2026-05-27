@@ -1,4 +1,6 @@
 import { Pool, QueryResult } from 'pg';
+import { AppDataSource, initDataSource } from '../db/dataSource';
+import { Flight as FlightEntity } from '../db/entities/Flight';
 import { databaseErrors, databaseQueryDuration } from '../services/metrics';
 import {
   CabinClass,
@@ -322,5 +324,51 @@ export class InMemoryFlightRepository implements FlightRepository {
       .sort((left, right) => compareFlights(left, right, criteria.sortBy, sortOrder));
 
     return filtered.slice(pagination.offset, pagination.offset + pagination.limit);
+  }
+}
+
+export class TypeOrmFlightRepository implements FlightRepository {
+  async searchFlights(criteria: FlightSearchCriteria, pagination: FlightPagination): Promise<Flight[]> {
+    await initDataSource();
+
+    const flights = await AppDataSource.getRepository(FlightEntity).find();
+    const sortOrder = criteria.sortOrder || sortOrderDefault(criteria.sortBy);
+    const normalizedAirlines = (criteria.airlines || []).map((airline) => airline.toLowerCase());
+
+    return flights
+      .map((flight) => {
+        const departure = flight.departureTime;
+        const arrival = flight.arrivalTime;
+        return {
+          id: flight.id,
+          from: flight.fromAirport,
+          to: flight.toAirport,
+          date: departure.toISOString().slice(0, 10),
+          departure_time: departure.toISOString(),
+          arrival_time: arrival?.toISOString(),
+          airline: flight.airlineCode,
+          stops: 0,
+          duration: arrival ? Math.max(1, Math.round((arrival.getTime() - departure.getTime()) / 60000)) : 360,
+          price: Number((flight.priceCents / 100).toFixed(2)),
+          rating: 4.7,
+          available_seats: flight.seatsAvailable,
+          class: 'economy' as CabinClass,
+        };
+      })
+      .filter((flight) => flight.from.toLowerCase() === criteria.from.toLowerCase())
+      .filter((flight) => flight.to.toLowerCase() === criteria.to.toLowerCase())
+      .filter((flight) => flight.date === criteria.date)
+      .filter((flight) => flight.available_seats >= criteria.passengers)
+      .filter((flight) => flight.class === criteria.travelClass)
+      .filter((flight) => criteria.priceMin === undefined || flight.price >= criteria.priceMin)
+      .filter((flight) => criteria.priceMax === undefined || flight.price <= criteria.priceMax)
+      .filter(
+        (flight) =>
+          normalizedAirlines.length === 0 || normalizedAirlines.includes(flight.airline.toLowerCase())
+      )
+      .filter((flight) => criteria.stops === undefined || flight.stops === criteria.stops)
+      .filter((flight) => criteria.durationMax === undefined || flight.duration <= criteria.durationMax)
+      .sort((left, right) => compareFlights(left, right, criteria.sortBy, sortOrder))
+      .slice(pagination.offset, pagination.offset + pagination.limit);
   }
 }

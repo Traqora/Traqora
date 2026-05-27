@@ -32,11 +32,13 @@ async function startServer() {
     const server = http.createServer(app);
 
     initWebSocket(server);
-    initPriceMonitorCron();
+    if (process.env.E2E_TEST_MODE !== 'true') {
+      initPriceMonitorCron();
+    }
 
     const PORT = config.port || 3001;
 
-    if (process.env.NODE_ENV !== 'test') {
+    if (process.env.NODE_ENV !== 'test' || process.env.E2E_TEST_MODE === 'true') {
       await initDataSource();
 
       server.listen(PORT, () => {
@@ -46,8 +48,10 @@ async function startServer() {
           stellarNetwork: config.stellarNetwork,
         });
 
-        contractMonitorModule.setupDefaultEventListeners();
-        contractMonitorModule.contractMonitor.startMonitoring(5000);
+        if (process.env.E2E_TEST_MODE !== 'true') {
+          contractMonitorModule.setupDefaultEventListeners();
+          contractMonitorModule.contractMonitor.startMonitoring(5000);
+        }
 
         const wallets = [
           { address: process.env.OPERATIONAL_WALLET_ADDRESS || '', type: 'operational' },

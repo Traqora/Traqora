@@ -97,8 +97,8 @@ export const useBookingFlow = (): [UseBookingFlowState, UseBookingFlowActions] =
       setState(prev => ({
         ...prev,
         booking: response.data!.data,
-        unsignedXdr: response.data!.soroban.unsignedXdr,
-        networkPassphrase: response.data!.soroban.networkPassphrase,
+        unsignedXdr: response.data!.soroban?.unsignedXdr || null,
+        networkPassphrase: response.data!.soroban?.networkPassphrase || null,
         step: 'signing',
         isProcessing: false,
       }));
