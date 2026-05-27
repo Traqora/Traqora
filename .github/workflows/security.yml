@@ -47,4 +47,4 @@ jobs:
           tar -xzf gitleaks.tar.gz
           sudo mv gitleaks /usr/local/bin/gitleaks
       - name: Run Gitleaks Scan
-        run: gitleaks detect --verbose --redact
+        run: gitleaks detect --verbose --redact --config .gitleaks.toml
