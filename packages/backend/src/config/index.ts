@@ -183,7 +183,7 @@ export const loadConfig = async (): Promise<Config> => {
 
     databaseUrl: await secretManager.getSecret('DATABASE_URL', 'sqlite::memory:'),
     redisUrl: await secretManager.getSecret('REDIS_URL', 'redis://localhost:6379'),
-    mongoUrl: await secretManager.getSecret('MONGO_URI', ''),
+    mongoUrl: (await secretManager.getSecret('MONGO_URI', '')) || undefined,
 
     jwtSecret,
     jwtExpiresIn: await secretManager.getSecret('JWT_EXPIRES_IN', '1h'),
@@ -227,7 +227,7 @@ export const loadConfig = async (): Promise<Config> => {
 
     clientId: await secretManager.getSecret('AMADEUS_CLIENT_ID', ''),
     clientSecret: await secretManager.getSecret('AMADEUS_CLIENT_SECRET', ''),
-    baseUrl: await secretManager.getSecret('AMADEUS_BASE_URL', ''),
+    baseUrl: (await secretManager.getSecret('AMADEUS_BASE_URL', '')) || undefined,
     timeout: parseInteger(await secretManager.getSecret('AMADEUS_TIMEOUT_MS', '30000'), 30000),
   };
 
