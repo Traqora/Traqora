@@ -73,48 +73,88 @@ docker-compose up -d
 ## Installation & Setup
 
 Before you begin, ensure the following tools are installed on your machine:
-- soroban CLI (for Soroban smart contract development)
-- stellar CLI (to interact with the Stellar network)
-- Node.js (for running the frontend application)
+- [Stellar CLI](https://developers.stellar.org/docs/tools/developer-shells) (to interact with the Stellar network)
+- Node.js (v18 or higher)
 - Git (to clone and manage the repository)
+- Docker & Docker Compose (optional, for local infrastructure dependencies)
 
 ### Step 1: Clone the Repository
 
 Run the following commands in your terminal:
 
+```bash
 git clone https://github.com/your-username/traqora.git  
 cd traqora
+```
 
-### Step 2: Install Dependencies
+### Step 2: Configure Environment Variables
 
-For building the Soroban smart contracts:
+Copy the example environment variable files:
+```bash
+# Central env.example at repo root
+cp env.example .env
 
-soroban build
+# Backend env.example in packages/backend/
+cp packages/backend/env.example packages/backend/.env
+```
+Open these files and configure the environment variables as needed. Refer to the comments in [env.example](./env.example) and [packages/backend/env.example](./packages/backend/env.example) for detailed information on types and default values.
 
-For setting up the frontend:
+### Step 3: Install Dependencies
 
-cd frontend  
-npm install  
+From the repository root, install dependencies for the entire monorepo:
+```bash
+npm install --legacy-peer-deps
+```
+
+### Step 4: Run the Application
+
+To run both the backend and client packages in development mode:
+```bash
 npm run dev
+```
 
-### Step 3: Connect Your Wallet
+Alternatively, you can run individual packages:
+```bash
+# Start backend dev server only
+npm run dev --workspace=packages/backend
 
-Use either Freighter, Albedo, or Rabet wallet to connect and interact with the Traqora dApp.
+# Start client/frontend dev server only
+npm run dev --workspace=packages/client
+```
+
+### Step 5: Connect Your Wallet
+
+Use Freighter, Albedo, or Rabet wallet in your browser to connect and interact with the Traqora dApp.
 
 ## Testing
 
-To test the smart contract logic locally:
+To run tests across all workspaces:
+```bash
+npm run test
+```
 
+For smart contract testing:
+```bash
 soroban test
+```
 
-For end-to-end testing after deployment:
+## Production Deployment
 
-You can use the Stellar CLI or Soroban tools to simulate real-world usage and verify contract behavior.
+Before deploying Traqora to a staging or production environment, review the [Production Deployment Checklist](./docs/DEPLOYMENT_CHECKLIST.md) to ensure all steps are correctly followed.
+
+Key sections of the checklist include:
+- **Pre-deployment checks** (verifying tests, building contracts, configuring secrets)
+- **Soroban contract deployment** and retrieving contract IDs
+- **Configuring backend and client environment variables**
+- **Running database migrations**
+- **Post-deployment smoke testing and health checks**
+- **Rollback strategies**
 
 ## Contributing
 
-We welcome contributions from the community. Please refer to our Contributing Guide before submitting any pull requests.
+We welcome contributions from the community. Please refer to our [Contributing Guide](./CONTRIBUTING.md) before submitting any pull requests.
 
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for more information.
+

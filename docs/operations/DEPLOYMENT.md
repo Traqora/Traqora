@@ -1,5 +1,8 @@
 # Production Deployment Guide
 
+> [!NOTE]
+> For a comprehensive, step-by-step production deployment checklist, refer to the [Production Deployment Checklist](../DEPLOYMENT_CHECKLIST.md). For environment variable configurations, refer to the root [env.example](../../env.example) and [packages/backend/env.example](../../packages/backend/env.example).
+
 ## Purpose
 This guide describes the production deployment process for Traqora, including pre-flight checks, deployment steps, verification, rollback, and change management.
 
