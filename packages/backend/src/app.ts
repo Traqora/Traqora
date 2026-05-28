@@ -140,6 +140,44 @@ export const createApp = (options: AppOptions = {}) => {
     });
   });
 
+  app.get('/health/schema', async (_req: express.Request, res: express.Response) => {
+    try {
+      if (!AppDataSource.isInitialized) {
+        return res.status(503).json({
+          status: 'unhealthy',
+          database: 'disconnected',
+          reason: 'Database is not initialized',
+        });
+      }
+
+      await AppDataSource.query('SELECT 1');
+
+      const hasPending = await AppDataSource.showMigrations();
+
+      if (hasPending) {
+        return res.status(503).json({
+          status: 'unhealthy',
+          database: 'connected',
+          schema: 'out_of_date',
+          reason: 'Pending migrations exist in the database',
+        });
+      }
+
+      return res.json({
+        status: 'healthy',
+        database: 'connected',
+        schema: 'up_to_date',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      return res.status(503).json({
+        status: 'unhealthy',
+        database: 'error',
+        reason: error?.message || 'Database connection error',
+      });
+    }
+  });
+
   app.get('/metrics', async (_req: express.Request, res: express.Response) => {
     try {
       res.set('Content-Type', register.contentType);
@@ -179,8 +217,8 @@ export const createApp = (options: AppOptions = {}) => {
   app.use('/api/v1/auth', validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
-  app.use('/api/v1/bookings', requireAuth, validateRequest('/api/v1/bookings'), bookingRoutes);
-  app.use('/api/v1/refunds', requireAuth, validateRequest('/api/v1/refunds/request'), refundRoutes);
+  app.use('/api/v1/bookings', requireAuth, bookingRoutes);
+  app.use('/api/v1/refunds', requireAuth, refundRoutes);
   app.use('/api/v1/security', requireAuth, securityRoutes);
 
   // Admin routes

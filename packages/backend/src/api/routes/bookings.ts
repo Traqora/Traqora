@@ -116,11 +116,12 @@ router.post(
       logger.error("Booking creation failed", { error: error.message });
       
       const statusCode = error.message === "Flight not found" ? 404 : 409;
+      const errorCode = error.message === "Flight sold out" ? "FLIGHT_SOLD_OUT" : "BOOKING_FAILED";
       return res.status(statusCode).json({
         success: false,
         error: {
           message: error.message,
-          code: "BOOKING_FAILED",
+          code: errorCode,
         },
       });
     }

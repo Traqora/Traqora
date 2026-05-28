@@ -86,5 +86,6 @@ async function startServer() {
 
 const serverPromise = startServer();
 
-export const appPromise = serverPromise.then((server) => server.app);
-export default serverPromise;
+export const appPromise = serverPromise.then((server) => server?.app);
+export const app = undefined as any;
+export default (serverPromise as any);
