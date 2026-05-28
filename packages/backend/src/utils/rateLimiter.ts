@@ -142,8 +142,10 @@ class InMemoryAbuseStore {
   }
 }
 
+const inMemoryStore = new InMemoryAbuseStore();
+
 class RedisAbuseStore {
-  private readonly inMemoryStore = new InMemoryAbuseStore();
+  private readonly inMemoryStore = inMemoryStore;
   private readonly redisUrl: string;
   private redisClient: Redis | null = null;
   private redisDisabled = false;
@@ -307,7 +309,6 @@ class RedisAbuseStore {
   }
 }
 
-const inMemoryStore = new InMemoryAbuseStore();
 let sharedRedisStore: RedisAbuseStore | null = null;
 
 const getAbuseStore = (redisUrl?: string) => {
