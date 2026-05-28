@@ -5,9 +5,9 @@
     "lib": [
       "ES2022"
     ],
+    // @ts-ignore - @types/node must be installed separately
     "types": [
-      "node",
-      "jest"
+      "node"
     ],
     "outDir": "./dist",
     "rootDir": "./src",

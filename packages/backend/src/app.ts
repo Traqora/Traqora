@@ -1,5 +1,8 @@
+// @ts-ignore
 import cors from 'cors';
+// @ts-ignore
 import express from 'express';
+// @ts-ignore
 import morgan from 'morgan';
 import { securityMiddleware } from './middleware/securityMiddleware';
 import { createFlightRoutes } from './api/routes/flights';
@@ -13,6 +16,13 @@ import { adminBookingRoutes } from './api/routes/admin/bookings';
 import { adminAnalyticsRoutes } from './api/routes/admin/analytics';
 import { adminRefundRoutes } from './api/routes/admin/refunds';
 import { authRoutes } from './api/routes/auth';
+// @ts-ignore
+import swaggerUi from 'swagger-ui-express';
+import { openApiDocument } from './api/openapi/generator';
+import { validateRequest } from './middleware/validationMiddleware';
+
+// @ts-ignore
+import type { Application } from 'express';
 import { config } from './config';
 import {
   createDefaultFlightSearchService,
@@ -125,7 +135,7 @@ export const createApp = (options: AppOptions = {}) => {
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
-      version: process.env.npm_package_version || '0.1.0',
+      version: '0.1.0',
       database: AppDataSource.isInitialized ? 'connected' : 'disconnected',
     });
   });
@@ -159,11 +169,18 @@ export const createApp = (options: AppOptions = {}) => {
     }
   });
 
-  app.use('/api/v1/auth', authRoutes);
+  // OpenAPI documentation routes
+  app.get('/api/openapi.json', (_req: express.Request, res: express.Response) => {
+    res.json(openApiDocument);
+  });
+
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
+
+  app.use('/api/v1/auth', validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
-  app.use('/api/v1/bookings', requireAuth, bookingRoutes);
-  app.use('/api/v1/refunds', requireAuth, refundRoutes);
+  app.use('/api/v1/bookings', requireAuth, validateRequest('/api/v1/bookings'), bookingRoutes);
+  app.use('/api/v1/refunds', requireAuth, validateRequest('/api/v1/refunds/request'), refundRoutes);
   app.use('/api/v1/security', requireAuth, securityRoutes);
 
   // Admin routes
