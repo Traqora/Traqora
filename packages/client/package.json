@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "build": "npm run generate:api-types && next build",
     "dev": "next dev",
     "lint": "next lint",
     "start": "next start",
-    "typecheck": "rimraf .next && tsc --noEmit"
+    "typecheck": "rimraf .next && tsc --noEmit",
+    "generate:api-types": "ts-node --project tsconfig.json scripts/generate-api-types.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

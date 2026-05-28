@@ -10,7 +10,10 @@
     "test": "jest --config jest.config.cjs",
     "test:integration": "jest --config jest.config.cjs --runInBand",
     "lint": "eslint src/**/*.ts",
-    "typecheck": "rimraf dist && tsc --noEmit"
+    "typecheck": "rimraf dist && tsc --noEmit",
+    "generate:openapi": "ts-node --project tsconfig.json src/api/openapi/generator.ts",
+    "verify:openapi": "ts-node --project tsconfig.json scripts/verify-openapi.ts",
+    "prebuild": "npm run generate:openapi"
   },
   "dependencies": {
     "@opentelemetry/auto-instrumentations-node": "^0.73.0",
