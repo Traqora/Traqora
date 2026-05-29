@@ -2,7 +2,7 @@
  * Stellar Wallet Connect
  *
  * A self-contained package for connecting Stellar wallets in React / Next.js
- * applications using `@creit-tech/stellar-wallets-kit`.
+ * applications using `@creit.tech/stellar-wallets-kit`.
  *
  * @example
  * ```tsx
@@ -28,10 +28,10 @@ export type {
   UseWalletReturn,
   WalletInfoProps,
   WalletConnectionPromptProps,
-} from './types';
+} from "./types";
 
 // ---- Store ----
-export { default as useWalletStore } from './store';
+export { default as useWalletStore } from "./store";
 
 // ---- Kit (init, sign, helpers) ----
 export {
@@ -41,11 +41,11 @@ export {
   getConfiguredNetwork,
   getKit,
   signTransaction,
-} from './kit';
+} from "./kit";
 
 // ---- React Hook ----
-export { useWallet } from './use-wallet';
+export { useWallet } from "./use-wallet";
 
 // ---- UI Components ----
-export { WalletInfo } from './components/WalletInfo';
-export { WalletConnectionPrompt } from './components/WalletConnectionPrompt';
+export { WalletInfo } from "./components/WalletInfo";
+export { WalletConnectionPrompt } from "./components/WalletConnectionPrompt";
