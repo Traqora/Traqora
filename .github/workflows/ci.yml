@@ -16,7 +16,7 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@stable
               with:
-                  toolchain: stable
+                  toolchain: 1.94.1
                   targets: wasm32-unknown-unknown
 
             - name: Cache Cargo
@@ -37,19 +37,23 @@ jobs:
 
             - name: Install Soroban CLI
               run: |
-                  if ! command -v soroban &> /dev/null; then
-                    cargo install --locked soroban-cli
-                  fi
+                  cargo install --locked --version 26.1.0 soroban-cli
 
             - name: Contract Compilation
               run: |
                   cd contracts
-                  cargo build --target wasm32-unknown-unknown --release
+                  cargo build --locked --target wasm32-unknown-unknown --release
 
             - name: Contract Tests
               run: |
                   cd contracts
-                  cargo test
+                  cargo test --locked
+
+            - name: Upload Contract Artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: traqora-contracts-wasm
+                  path: contracts/target/wasm32-unknown-unknown/release/*.wasm
 
             - name: Install cargo-llvm-cov
               run: cargo install cargo-llvm-cov
