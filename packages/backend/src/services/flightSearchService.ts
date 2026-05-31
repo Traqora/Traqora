@@ -5,6 +5,7 @@ import {
   FlightRepository,
   InMemoryFlightRepository,
   PostgresFlightRepository,
+  TypeOrmFlightRepository,
 } from '../repositories/flightRepository';
 import {
   EnrichedFlight,
@@ -158,9 +159,12 @@ export class FlightSearchService {
 }
 
 export const createDefaultFlightSearchService = (): FlightSearchService => {
-  const repository: FlightRepository = config.databaseUrl
-    ? new PostgresFlightRepository(getPostgresPool())
-    : new InMemoryFlightRepository();
+  const repository: FlightRepository =
+    process.env.E2E_TEST_MODE === 'true' || process.env.NODE_ENV === 'test'
+      ? new TypeOrmFlightRepository()
+      : config.databaseUrl
+        ? new PostgresFlightRepository(getPostgresPool())
+        : new InMemoryFlightRepository();
 
   const cache = createSearchCache(config.redisUrl || undefined, 'flight-search');
 

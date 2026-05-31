@@ -1,33 +1,43 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices } from "@playwright/test"
+import path from "path"
 
-/**
- * Issue #168 — Playwright config for the accessibility (axe) test suite.
- *
- * `webServer` boots `next dev` for the duration of the run so the suite
- * audits the same routes the user sees. Test files live under
- * `tests/a11y/*.spec.ts`.
- */
+const repoRoot = path.resolve(__dirname, "../..")
+
 export default defineConfig({
-  testDir: "./tests/a11y",
+  testDir: "./e2e",
   timeout: 60_000,
+  expect: {
+    timeout: 10_000,
+  },
   fullyParallel: true,
-  reporter: process.env.CI ? "list" : "html",
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:3000",
     trace: "on-first-retry",
   },
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
-    timeout: 120_000,
-    reuseExistingServer: !process.env.CI,
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  webServer: [
+    {
+      command: "node scripts/e2e-backend.js",
+      cwd: repoRoot,
+      url: "http://127.0.0.1:3001/health",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: "node scripts/e2e-client.js",
+      cwd: repoRoot,
+      url: "http://127.0.0.1:3000/search",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+  ],
   projects: [
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-});
+})

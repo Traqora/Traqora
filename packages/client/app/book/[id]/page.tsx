@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -26,6 +26,7 @@ import { useBooking } from "@/hooks/use-booking"
 import { useFlightSearch } from "@/hooks/use-flight-search"
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
 import { cn } from "@/lib/utils"
+import { apiClient, generateIdempotencyKey } from "@/lib/api"
 
 // Mock flight data - in real app this would come from API
 const mockFlightDetails = {
@@ -65,10 +66,6 @@ export default function BookFlightPage() {
     isProcessing, 
     selectedSeat, 
     selectSeat,
-    connectWallet,
-    createBooking,
-    signAndSubmitTransaction,
-    booking
   } = useBooking()
 
   const { flights } = useFlightSearch()
@@ -108,6 +105,11 @@ export default function BookFlightPage() {
   }
 
   const handleWalletConnect = async () => {
+    if (process.env.NEXT_PUBLIC_E2E_TEST_MODE === "true") {
+      setCurrentStep("confirm")
+      return
+    }
+
     try {
       await handleConnect()
       // If successful, the store will update and we can proceed
@@ -120,9 +122,26 @@ export default function BookFlightPage() {
   }
 
   const handleFinalConfirm = async () => {
-    setBookingId("TRAQ-" + Math.random().toString(36).substring(2, 9).toUpperCase())
-    setCurrentStep("success")
-    // In real app, call signAndSubmitTransaction()
+    const response = await apiClient.createBooking(
+      {
+        flightId: String(params.id),
+        walletAddress: address || "GDE2EBOOKINGTESTWALLET000000000000000000000000000000",
+        seatId: selectedSeat?.id,
+        passenger: {
+          email: "john.doe@traqora.test",
+          firstName: "John",
+          lastName: "Doe",
+          phone: "+15555550156",
+          sorobanAddress: address || "GDE2EBOOKINGTESTWALLET000000000000000000000000000000",
+        },
+      },
+      generateIdempotencyKey()
+    )
+
+    if (response.success && response.data?.data?.id) {
+      setBookingId(response.data.data.id)
+      setCurrentStep("success")
+    }
   }
 
   return (

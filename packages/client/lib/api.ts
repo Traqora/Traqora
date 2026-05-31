@@ -46,17 +46,23 @@ export interface FlightSearchResponse {
 
 export interface CreateBookingRequest {
   flightId: string
-  passengerCount: number
+  passenger?: {
+    email: string
+    firstName: string
+    lastName: string
+    phone?: string
+    sorobanAddress: string
+  }
+  passengerCount?: number
   seatId?: string
   walletAddress: string
 }
 
 export interface Booking {
   id: string
-  flightId: string
-  status: 'pending' | 'confirmed' | 'failed'
-  price: string
-  currency: string
+  status: 'created' | 'awaiting_payment' | 'payment_processing' | 'paid' | 'onchain_pending' | 'onchain_submitted' | 'confirmed' | 'failed' | 'refunded' | 'refund_rejected'
+  amountCents: number
+  sorobanTxHash?: string | null
 }
 
 export interface TransactionStatus {
@@ -77,6 +83,19 @@ export class ApiError extends Error {
 
 export function generateIdempotencyKey(): string {
   return Math.random().toString(36).substring(2, 15)
+}
+
+const getAuthHeaders = () => {
+  if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_E2E_TEST_MODE === "true") {
+    return { Authorization: "Bearer e2e-test-token" }
+  }
+
+  if (typeof window !== "undefined") {
+    const token = window.localStorage.getItem("traqora_access_token")
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  }
+
+  return {}
 }
 
 export async function searchFlights(params: FlightSearchParams): Promise<FlightSearchResponse> {
@@ -124,21 +143,35 @@ export const apiClient = {
   },
   
   createBooking: async (request: CreateBookingRequest, idempotencyKey?: string) => {
-    return {
-      success: true,
-      data: {
-        data: {
-          id: "BOOK-" + Math.random().toString(36).substring(2, 9).toUpperCase(),
-          flightId: request.flightId,
-          status: 'pending',
-          price: "450",
-          currency: "USDC"
-        },
-        soroban: {
-          unsignedXdr: "AAAA...",
-          networkPassphrase: "Test SDF Network ; September 2015"
-        }
+    try {
+      const passenger = request.passenger || {
+        email: "e2e.traveler@traqora.test",
+        firstName: "E2E",
+        lastName: "Traveler",
+        sorobanAddress: request.walletAddress,
       }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/bookings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey || generateIdempotencyKey(),
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          flightId: request.flightId,
+          passenger,
+        }),
+      })
+
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        return { success: false, error: { message: body.error?.message || `HTTP ${response.status}` } }
+      }
+
+      return { success: true, data: body }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message || "Failed to create booking" } }
     }
   },
   
@@ -147,10 +180,9 @@ export const apiClient = {
       success: true,
       data: {
         id: bookingId,
-        flightId: "1",
         status: 'confirmed',
-        price: "450",
-        currency: "USDC"
+        amountCents: 45000,
+        sorobanTxHash: signedXdr ? "HASH" + Math.random().toString(36).substring(2, 9).toUpperCase() : null
       }
     }
   },
