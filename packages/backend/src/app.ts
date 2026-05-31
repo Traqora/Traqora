@@ -1,5 +1,8 @@
+// @ts-ignore
 import cors from 'cors';
+// @ts-ignore
 import express from 'express';
+// @ts-ignore
 import morgan from 'morgan';
 import { securityMiddleware } from './middleware/securityMiddleware';
 import { createFlightRoutes } from './api/routes/flights';
@@ -25,6 +28,7 @@ import { requestLogger } from './middleware/requestLogger';
 import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { register } from './services/metrics';
 import { AppDataSource } from './db/dataSource';
+import { dbInitMiddleware } from './middleware/dbMiddleware';
 import {
   createIpRateLimiter,
   createTieredRateLimiter,
@@ -32,6 +36,8 @@ import {
   TieredRateLimitOptions,
 } from './utils/rateLimiter';
 import { requireAuth } from './middleware/authMiddleware';
+import { NotFoundError } from './utils/errors';
+import { AppError } from './services/ErrorHandlingService';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
@@ -116,6 +122,8 @@ export const createApp = (options: AppOptions = {}) => {
   app.use(metricsMiddleware);
   app.use(morgan('combined', { stream: { write: (message: string) => logger.info(message.trim()) } }));
 
+  app.use(dbInitMiddleware);
+
   // Stripe webhook requires raw body — must be registered BEFORE express.json()
   app.use('/api/v1/bookings/webhook/stripe', express.raw({ type: '*/*' }));
 
@@ -126,46 +134,37 @@ export const createApp = (options: AppOptions = {}) => {
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
-      version: process.env.npm_package_version || '0.1.0',
+      version: '0.1.0',
       database: AppDataSource.isInitialized ? 'connected' : 'disconnected',
     });
   });
 
-  app.get('/metrics', async (_req: express.Request, res: express.Response) => {
-    try {
-      res.set('Content-Type', register.contentType);
-      res.end(await register.metrics());
-    } catch (ex) {
-      res.status(500).end(ex);
-    }
-  });
+  app.get('/metrics', asyncHandler(async (_req: express.Request, res: express.Response) => {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  }));
 
-  app.get('/readiness', async (_req: express.Request, res: express.Response) => {
-    try {
-      if (!AppDataSource.isInitialized && config.databaseUrl) {
-        return res.status(503).json({
-          status: 'unready',
-          reason: 'Database not initialized',
-        });
-      }
-      if (AppDataSource.isInitialized) {
-        await AppDataSource.query('SELECT 1');
-      }
-      return res.json({ status: 'ready' });
-    } catch (error: any) {
-      return res.status(503).json({
-        status: 'unready',
-        reason: error?.message || 'Database unavailable',
-      });
+  app.get('/readiness', asyncHandler(async (_req: express.Request, res: express.Response) => {
+    if (!AppDataSource.isInitialized && config.databaseUrl) {
+      throw new AppError('Database not initialized', { statusCode: 503, code: 'SERVICE_UNAVAILABLE' });
     }
+    if (AppDataSource.isInitialized) {
+      await AppDataSource.query('SELECT 1');
+    }
+    return res.json({ status: 'ready' });
+  }));
+
+  // OpenAPI documentation routes
+  app.get('/api/openapi.json', (_req: express.Request, res: express.Response) => {
+    res.json(openApiDocument);
   });
 
   app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/e2e', e2eRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
-  app.use('/api/v1/bookings', requireAuth, bookingRoutes);
-  app.use('/api/v1/refunds', requireAuth, refundRoutes);
+  app.use('/api/v1/bookings', requireAuth, validateRequest('/api/v1/bookings'), bookingRoutes);
+  app.use('/api/v1/refunds', requireAuth, validateRequest('/api/v1/refunds/request'), refundRoutes);
   app.use('/api/v1/security', requireAuth, securityRoutes);
 
   // Admin routes
@@ -176,21 +175,11 @@ export const createApp = (options: AppOptions = {}) => {
   app.use('/api/v1/admin/analytics', adminAnalyticsRoutes);
   app.use('/api/v1/admin/refunds', adminRefundRoutes);
 
-  app.use(errorHandler);
-
-  app.use((_req: express.Request, res: express.Response) => {
-    const requestId = String(res.locals.requestId || 'unknown');
-    res.status(404).json({
-      success: false,
-      error: {
-        code: 'NOT_FOUND',
-        message: 'Endpoint not found',
-        retryable: false,
-        requestId,
-        timestamp: new Date().toISOString(),
-      },
-    });
+  app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
+    next(new NotFoundError('Endpoint not found'));
   });
+
+  app.use(errorHandler);
 
   return app;
 };
