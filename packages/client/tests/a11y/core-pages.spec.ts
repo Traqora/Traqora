@@ -21,6 +21,11 @@ const PAGES = [
   { name: "landing", path: "/" },
   { name: "search", path: "/search" },
   { name: "dashboard", path: "/dashboard" },
+  // /book is a dynamic route (app/book/[id]); we audit the listings
+  // entry point that links into it instead so the suite never 404s on
+  // a placeholder id.
+  { name: "payment", path: "/payment" },
+  { name: "governance", path: "/governance" },
 ] as const;
 
 // Severity bar that fails the workflow. `serious` is included so we
