@@ -1,18 +1,52 @@
-[package]
-name = "traqora-contracts"
+[workspace]
+resolver = "2"
+members = [
+    "packages/shared/access",
+    "packages/shared/storage_version",
+    "packages/admin",
+    "packages/airline",
+    "packages/booking",
+    "packages/booking_receipt",
+    "packages/dispute",
+    "packages/dispute_resolution",
+    "packages/flight_booking",
+    "packages/flight_registry",
+    "packages/governance",
+    "packages/loyalty",
+    "packages/oracle",
+    "packages/proxy",
+    "packages/refund",
+    "packages/refund_automation",
+    "packages/token",
+    "packages/upgrade",
+    "packages/integration-tests",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
+publish = false
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
+[workspace.dependencies]
 soroban-sdk = { version = "22.0.0" }
-
-[dev-dependencies]
-soroban-sdk = { version = "22.0.0", features = ["testutils"] }
-proptest = "1.2"
-serial_test = "3.0"
+access = { path = "packages/shared/access" }
+storage-version = { path = "packages/shared/storage_version" }
+airline = { path = "packages/airline" }
+booking = { path = "packages/booking" }
+booking-receipt = { path = "packages/booking_receipt" }
+dispute = { path = "packages/dispute" }
+dispute-resolution = { path = "packages/dispute_resolution" }
+flight-booking = { path = "packages/flight_booking" }
+flight-registry = { path = "packages/flight_registry" }
+governance = { path = "packages/governance" }
+loyalty = { path = "packages/loyalty" }
+oracle = { path = "packages/oracle" }
+proxy = { path = "packages/proxy" }
+refund = { path = "packages/refund" }
+refund-automation = { path = "packages/refund_automation" }
+token = { path = "packages/token" }
+upgrade = { path = "packages/upgrade" }
+admin = { path = "packages/admin" }
 
 [profile.release]
 opt-level = "z"
