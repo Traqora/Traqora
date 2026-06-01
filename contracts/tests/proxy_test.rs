@@ -146,6 +146,62 @@ fn test_upgrade_propose_and_execute() {
 }
 
 #[test]
+fn test_upgrade_timelock_enforced_before_execution() {
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    let signers = create_signers(&env, 3);
+    let implementation = create_dummy_hash(&env);
+    let new_implementation = BytesN::from_array(&env, &[1u8; 32]);
+
+    client.init_proxy(&admin, &implementation, &signers, &2);
+
+    let proposal_id = client.propose_upgrade(&signers.get(0).unwrap(), &new_implementation, &None);
+    client.approve_upgrade(&signers.get(1).unwrap(), &proposal_id);
+
+    // Attempt execution before the timelock expires
+    let result = std::panic::catch_unwind(|| {
+        client.upgrade_to(&signers.get(0).unwrap(), &proposal_id);
+    });
+    assert!(result.is_err());
+    assert!(format!("{:?}", result.err().unwrap()).contains("Upgrade timelock active"));
+
+    // Advance past the 48-hour timelock and execute successfully
+    let now = env.ledger().timestamp();
+    env.ledger().set_timestamp(now + 48 * 60 * 60 + 1);
+    client.upgrade_to(&signers.get(0).unwrap(), &proposal_id);
+
+    assert_eq!(client.get_implementation(), new_implementation);
+    assert_eq!(client.get_version(), 2);
+}
+
+#[test]
+fn test_upgrade_rollback_restores_previous_version() {
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    let signers = create_signers(&env, 3);
+    let implementation = create_dummy_hash(&env);
+    let new_implementation = BytesN::from_array(&env, &[1u8; 32]);
+
+    client.init_proxy(&admin, &implementation, &signers, &2);
+
+    let proposal_id = client.propose_upgrade(&signers.get(0).unwrap(), &new_implementation, &Some(2u32));
+    client.approve_upgrade(&signers.get(1).unwrap(), &proposal_id);
+    let now = env.ledger().timestamp();
+    env.ledger().set_timestamp(now + 48 * 60 * 60 + 1);
+    client.upgrade_to(&signers.get(0).unwrap(), &proposal_id);
+
+    assert_eq!(client.get_implementation(), new_implementation);
+    assert_eq!(client.get_version(), 2);
+    assert_eq!(client.get_storage_version(), 2);
+
+    client.rollback_upgrade(&signers.get(0).unwrap(), &proposal_id);
+
+    assert_eq!(client.get_implementation(), implementation);
+    assert_eq!(client.get_version(), 1);
+    assert_eq!(client.get_storage_version(), 1);
+}
+
+#[test]
 #[should_panic(expected = "Not an authorized signer")]
 fn test_upgrade_unauthorized_proposer() {
     let (env, client) = setup_env();

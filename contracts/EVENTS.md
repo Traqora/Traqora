@@ -103,7 +103,9 @@ const events = await server.getEvents({
 | `(signer, removed)`         | `removed_signer`                                                         | Signer removed                           |
 | `(threshold, updated)`      | `new_threshold`                                                          | Approval threshold changed               |
 | `(param, changed)`          | `(key, old_value, new_value)`                                            | Contract parameter changed               |
-| `(upgrade, executed)`       | `target_contract`                                                        | Contract upgraded                        |
+| `(upgrade, scheduled)`     | `(proposal_id, new_implementation, execute_after)`                       | Upgrade scheduled with timelock          |
+| `(upgrade, executed)`       | `(proposal_id, contract_version, previous_implementation, new_implementation)` | Contract upgraded                        |
+| `(upgrade, rolled_back)`   | `(proposal_id, previous_implementation, restored_implementation)`         | Upgrade rollback executed                |
 
 ---
 

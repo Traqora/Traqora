@@ -1,4 +1,4 @@
-use soroban_sdk::Symbol;
+use soroban_sdk::{Address, Env, Symbol};
 use traqora_contracts::loyalty::LoyaltyContract;
 
 mod common;
@@ -34,6 +34,15 @@ fn test_get_or_create_account_and_award_points() {
 
     let acct2 = contracts.loyalty.get_account(&actors.passenger).unwrap();
     assert_eq!(acct2.total_points, earned);
+}
+
+#[test]
+fn test_init_upgrade_owner_for_loyalty() {
+    let env = new_env();
+    let contracts = register_contracts(&env);
+    let owner = Address::generate(&env);
+
+    contracts.loyalty.init_upgrade_owner(&owner);
 }
 
 #[test]

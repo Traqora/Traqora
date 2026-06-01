@@ -5,6 +5,9 @@ pub mod access;
 #[path = "proxy/lib.rs"]
 pub mod proxy;
 
+#[path = "upgrade_timelock/lib.rs"]
+pub mod upgrade_timelock;
+
 #[path = "storage_version/lib.rs"]
 pub mod storage_version;
 

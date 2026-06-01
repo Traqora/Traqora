@@ -118,6 +118,7 @@ impl FlightOracle {
         );
         
         AccessControl::init_owner(&env, &owner);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
 
         assert!(min_stake > 0, "Invalid min_stake");
         assert!(consensus_threshold > 0, "Invalid threshold");

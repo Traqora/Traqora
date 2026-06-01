@@ -3,6 +3,7 @@ use soroban_sdk::{
     Vec,
 };
 use crate::access::{AccessControl, Role};
+use crate::upgrade_timelock::UPGRADE_TIMELOCK_SECS;
 
 // Contract meta for version tracking
 contractmeta!(key = "version", val = "1.0.0");
@@ -41,8 +42,14 @@ pub struct UpgradeProposal {
     pub new_implementation: BytesN<32>,
     pub new_storage_version: Option<u32>,
     pub proposed_at: u64,
+    pub scheduled_at: u64,
+    pub execute_after: u64,
+    pub previous_implementation: BytesN<32>,
+    pub previous_storage_version: u32,
+    pub previous_version: u32,
     pub approvals: Vec<Address>,
     pub executed: bool,
+    pub rolled_back: bool,
 }
 
 #[contracttype]
@@ -184,7 +191,7 @@ impl ContractProxy {
         );
     }
 
-    pub fn propose_upgrade(
+    pub fn schedule_upgrade(
         env: Env,
         proposer: Address,
         new_implementation: BytesN<32>,
@@ -198,8 +205,12 @@ impl ContractProxy {
             "Not an authorized signer"
         );
 
+        let mut config = ProxyStorage::get_config(&env).expect("Not initialized");
         let proposal_count = ProxyStorage::get_multisig_proposal_count(&env) + 1;
         ProxyStorage::set_multisig_proposal_count(&env, proposal_count);
+
+        let now = env.ledger().timestamp();
+        let execute_after = now + UPGRADE_TIMELOCK_SECS;
 
         let mut approvals = Vec::new(&env);
         approvals.push_back(proposer.clone());
@@ -208,20 +219,35 @@ impl ContractProxy {
             proposal_id: proposal_count,
             new_implementation: new_implementation.clone(),
             new_storage_version,
-            proposed_at: env.ledger().timestamp(),
+            proposed_at: now,
+            scheduled_at: now,
+            execute_after,
+            previous_implementation: config.implementation.clone(),
+            previous_storage_version: config.storage_version,
+            previous_version: config.version,
             approvals,
             executed: false,
+            rolled_back: false,
         };
 
         ProxyStorage::set_upgrade_proposal(&env, proposal_count, &proposal);
         ProxyStorage::record_approval(&env, proposal_count, &proposer);
 
         env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("proposed")),
-            (proposal_count, new_implementation),
+            (symbol_short!("upgrade"), symbol_short!("scheduled")),
+            (proposal_count, new_implementation, execute_after),
         );
 
         proposal_count
+    }
+
+    pub fn propose_upgrade(
+        env: Env,
+        proposer: Address,
+        new_implementation: BytesN<32>,
+        new_storage_version: Option<u32>,
+    ) -> u64 {
+        Self::schedule_upgrade(env, proposer, new_implementation, new_storage_version)
     }
 
     pub fn approve_upgrade(env: Env, signer: Address, proposal_id: u64) {
@@ -252,7 +278,7 @@ impl ContractProxy {
         );
     }
 
-    pub fn upgrade_to(env: Env, executor: Address, proposal_id: u64) {
+    pub fn execute_upgrade(env: Env, executor: Address, proposal_id: u64) {
         executor.require_auth();
 
         let multisig = ProxyStorage::get_multisig(&env).expect("Multisig not configured");
@@ -265,9 +291,14 @@ impl ContractProxy {
             ProxyStorage::get_upgrade_proposal(&env, proposal_id).expect("Proposal not found");
 
         assert!(!proposal.executed, "Already executed");
+        assert!(!proposal.rolled_back, "Upgrade rolled back");
         assert!(
             proposal.approvals.len() >= multisig.threshold,
             "Insufficient approvals"
+        );
+        assert!(
+            env.ledger().timestamp() >= proposal.execute_after,
+            "Upgrade timelock active"
         );
 
         let mut config = ProxyStorage::get_config(&env).expect("Not initialized");
@@ -306,6 +337,46 @@ impl ContractProxy {
                 old_implementation,
                 proposal.new_implementation,
             ),
+        );
+    }
+
+    pub fn upgrade_to(env: Env, executor: Address, proposal_id: u64) {
+        Self::execute_upgrade(env, executor, proposal_id)
+    }
+
+    pub fn rollback_upgrade(env: Env, executor: Address, proposal_id: u64) {
+        executor.require_auth();
+
+        let multisig = ProxyStorage::get_multisig(&env).expect("Multisig not configured");
+        assert!(
+            Self::is_signer(&multisig, &executor),
+            "Not an authorized signer"
+        );
+
+        let mut proposal =
+            ProxyStorage::get_upgrade_proposal(&env, proposal_id).expect("Proposal not found");
+
+        assert!(proposal.executed, "Upgrade not executed");
+        assert!(!proposal.rolled_back, "Already rolled back");
+
+        let mut config = ProxyStorage::get_config(&env).expect("Not initialized");
+        config.state = ProxyState::Upgrading;
+        ProxyStorage::set_config(&env, &config);
+
+        let current_implementation = config.implementation.clone();
+        config.implementation = proposal.previous_implementation.clone();
+        config.version = proposal.previous_version;
+        config.storage_version = proposal.previous_storage_version;
+
+        config.state = ProxyState::Active;
+        ProxyStorage::set_config(&env, &config);
+
+        proposal.rolled_back = true;
+        ProxyStorage::set_upgrade_proposal(&env, proposal_id, &proposal);
+
+        env.events().publish(
+            (symbol_short!("upgrade"), symbol_short!("rolled_back")),
+            (proposal_id, current_implementation, config.implementation.clone()),
         );
     }
 

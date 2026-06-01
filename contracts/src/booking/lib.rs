@@ -1,5 +1,6 @@
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec, token, String};
 use crate::booking_receipt::BookingReceiptContractClient;
+use crate::access::AccessControl;
 
 #[contracttype]
 #[derive(Clone)]
@@ -75,6 +76,12 @@ pub struct BookingContract;
 
 #[contractimpl]
 impl BookingContract {
+    /// Initialize booking contract with owner and upgrade timelock
+    pub fn initialize(env: Env, owner: Address) {
+        AccessControl::init_owner(&env, &owner);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
+    }
+
     // Register the trusted oracle contract address
     pub fn initialize_oracle(env: Env, admin: Address, oracle: Address) {
         admin.require_auth();

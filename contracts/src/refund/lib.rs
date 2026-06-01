@@ -64,6 +64,7 @@ pub struct RefundContract;
 impl RefundContract {
     pub fn initialize(env: Env, owner: Address) {
         AccessControl::init_owner(&env, &owner);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
     }
 
     // Set refund policy for airline

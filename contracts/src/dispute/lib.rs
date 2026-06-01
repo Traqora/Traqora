@@ -225,6 +225,7 @@ impl DisputeContract {
         );
 
         AccessControl::init_owner(&env, &owner);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
 
         let config = DisputeConfig {
             min_stake_percentage,
