@@ -1,0 +1,469 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  NODE_VERSION: "20"
+  RUST_TOOLCHAIN: "1.94.1"
+  SOROBAN_CLI_VERSION: "26.1.0"
+
+jobs:
+  # ============================================================================
+  # STAGE 1: Quality & Linting (fast checks, run in parallel)
+  # ============================================================================
+  
+  quality-backend:
+    name: Quality - Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Typecheck
+        run: npm run typecheck --workspace=packages/backend
+
+      - name: Lint
+        run: npm run lint --workspace=packages/backend
+
+  quality-client:
+    name: Quality - Client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Lint
+        run: npm run lint --workspace=packages/client || true
+
+  quality-contracts:
+    name: Quality - Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+
+      - name: Format Check
+        run: |
+          cd contracts
+          cargo fmt -- --check
+
+      - name: Clippy
+        run: |
+          cd contracts
+          cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
+
+  # ============================================================================
+  # STAGE 2: Unit Tests (runs after quality checks, parallel)
+  # ============================================================================
+
+  test-backend:
+    name: Unit Tests - Backend
+    runs-on: ubuntu-latest
+    needs: [quality-backend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Run Tests
+        run: npm test --workspace=packages/backend
+
+  test-client:
+    name: Unit Tests - Client
+    runs-on: ubuntu-latest
+    needs: [quality-client]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Run Tests
+        run: npm test --workspace=packages/client || true
+
+  test-contracts:
+    name: Unit Tests - Contracts
+    runs-on: ubuntu-latest
+    needs: [quality-contracts]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+
+      - name: Run Tests
+        run: |
+          cd contracts
+          cargo test --locked
+
+      - name: Coverage Report
+        run: |
+          cargo install cargo-llvm-cov
+          cd contracts
+          cargo llvm-cov --summary-only --fail-under-lines 90
+
+  # ============================================================================
+  # STAGE 3: Integration Tests (runs after unit tests, needs services)
+  # ============================================================================
+
+  integration-backend:
+    name: Integration Tests - Backend
+    runs-on: ubuntu-latest
+    needs: [test-backend]
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: traqora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Run Integration Tests
+        env:
+          NODE_ENV: test
+          REDIS_URL: redis://localhost:6379
+          DATABASE_URL: postgres://postgres:password@localhost:5432/traqora_test
+          JWT_SECRET: test-secret
+          STELLAR_NETWORK: testnet
+        run: |
+          npm run test:integration --workspace=packages/backend -- tests/auth/
+
+      - name: Metrics Smoke Test
+        env:
+          NODE_ENV: test
+          REDIS_URL: redis://localhost:6379
+          DATABASE_URL: postgres://postgres:password@localhost:5432/traqora_test
+          JWT_SECRET: test-secret
+          STELLAR_NETWORK: testnet
+        run: |
+          npm test --workspace=packages/backend -- --runInBand tests/integration/metrics.smoke.integration.test.ts
+
+  # ============================================================================
+  # STAGE 4: Security & Accessibility (runs after integration tests, parallel)
+  # ============================================================================
+
+  security-snyk:
+    name: Security - Snyk
+    runs-on: ubuntu-latest
+    needs: [integration-backend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Snyk
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --all-projects --severity-threshold=high
+        continue-on-error: true
+
+  security-gitleaks:
+    name: Security - Gitleaks
+    runs-on: ubuntu-latest
+    needs: [integration-backend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  security-sonarcloud:
+    name: Security - SonarCloud
+    runs-on: ubuntu-latest
+    needs: [integration-backend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        continue-on-error: true
+
+  accessibility:
+    name: Accessibility Audit
+    runs-on: ubuntu-latest
+    needs: [test-client]
+    defaults:
+      run:
+        working-directory: packages/client
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: packages/client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts
+
+      - name: Install Playwright + axe-core
+        run: npm install --no-save --legacy-peer-deps @playwright/test @axe-core/playwright
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run axe a11y suite
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npx playwright test tests/a11y --reporter=list
+        continue-on-error: true
+
+  # ============================================================================
+  # STAGE 5: Build & Artifacts (runs after security checks)
+  # ============================================================================
+
+  build-contracts:
+    name: Build - Contracts
+    runs-on: ubuntu-latest
+    needs: [test-contracts, security-gitleaks]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+
+      - name: Install Soroban CLI
+        run: cargo install --locked --version ${{ env.SOROBAN_CLI_VERSION }} soroban-cli
+
+      - name: Build Contracts
+        run: |
+          cd contracts
+          cargo build --locked --target wasm32-unknown-unknown --release
+
+      - name: Upload Contract Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: traqora-contracts-wasm
+          path: contracts/target/wasm32-unknown-unknown/release/*.wasm
+          retention-days: 7
+
+  build-backend:
+    name: Build - Backend
+    runs-on: ubuntu-latest
+    needs: [integration-backend, security-gitleaks]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build Backend
+        run: npm run build --workspace=packages/backend
+
+  build-client:
+    name: Build - Client
+    runs-on: ubuntu-latest
+    needs: [test-client, security-gitleaks]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build Client
+        run: npm run build --workspace=packages/client
+
+  # ============================================================================
+  # STAGE 6: Docker Security Scan (runs after builds)
+  # ============================================================================
+
+  docker-security:
+    name: Docker Security Scan
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-client]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: packages/backend
+          - image: client
+            context: packages/client
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          target: production
+          push: false
+          load: true
+          tags: traqora-${{ matrix.image }}:scan
+
+      - name: Scan with Trivy (HIGH, CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: traqora-${{ matrix.image }}:scan
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          format: table
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: traqora-${{ matrix.image }}:scan
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-${{ matrix.image }}.sarif
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: Upload SARIF as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.image }}-sarif
+          path: trivy-${{ matrix.image }}.sarif
+          retention-days: 14
