@@ -23,7 +23,6 @@ import { validateRequest } from './middleware/validationMiddleware';
 
 // @ts-ignore
 import type { Application } from 'express';
-import { config } from './config';
 import {
   createDefaultFlightSearchService,
   FlightSearchService,
@@ -49,8 +48,9 @@ export interface AppOptions {
   searchRateLimit?: Partial<IpRateLimitOptions>;
 }
 
-export const createApp = (options: AppOptions = {}) => {
+export const createApp = async (options: AppOptions = {}) => {
   const app = express();
+  const { config } = await import('./config');
 
   if (config.trustProxy) {
     app.set('trust proxy', 1);

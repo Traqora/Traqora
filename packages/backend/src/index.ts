@@ -11,7 +11,7 @@ async function startServer() {
     initializeTracing(config);
 
     const [
-      { createApp },
+      appModule,
       { initDataSource },
       { initWebSocket },
       { initPriceMonitorCron },
@@ -28,7 +28,7 @@ async function startServer() {
 
     await verifyConnectivity();
 
-    const app = createApp();
+    const app = await appModule.createApp();
     const server = http.createServer(app);
 
     initWebSocket(server);
