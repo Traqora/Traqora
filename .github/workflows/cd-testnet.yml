@@ -15,7 +15,7 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@stable
               with:
-                  toolchain: stable
+                  toolchain: 1.94.1
                   targets: wasm32-unknown-unknown
 
             - name: Cache Cargo
@@ -31,14 +31,18 @@ jobs:
 
             - name: Install Soroban CLI
               run: |
-                  if ! command -v soroban &> /dev/null; then
-                    cargo install --locked soroban-cli
-                  fi
+                  cargo install --locked --version 26.1.0 soroban-cli
 
             - name: Build Contracts
               run: |
                   cd contracts
-                  cargo build --target wasm32-unknown-unknown --release
+                  cargo build --locked --target wasm32-unknown-unknown --release
+
+            - name: Upload Contract Artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: traqora-contracts-wasm
+                  path: contracts/target/wasm32-unknown-unknown/release/*.wasm
 
             - name: Deploy to Testnet
               env:
@@ -52,8 +56,10 @@ jobs:
                   soroban config identity add --secret-key deployer < secret.txt
                   rm secret.txt
 
+                  # Deploy all contracts or specific ones as needed
+                  # Here we deploy the booking contract as an example
                   CONTRACT_ID=$(soroban contract deploy \
-                    --wasm contracts/target/wasm32-unknown-unknown/release/traqora_contracts.wasm \
+                    --wasm contracts/target/wasm32-unknown-unknown/release/booking.wasm \
                     --source deployer \
                     --network $NETWORK)
 

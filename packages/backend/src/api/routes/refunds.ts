@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
-import { initDataSource } from '../../db/dataSource';
 import { RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
 import { logger } from '../../utils/logger';
@@ -38,23 +37,16 @@ const submitOnchainSchema = z.object({
   signedXdr: z.string().min(1),
 });
 
+import { BadRequestError, NotFoundError, ForbiddenError } from '../../utils/errors';
+
 /**
  * POST /api/v1/refunds/request
  * Create a new refund request
  */
 router.post('/request', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   const parsed = createRefundSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: 'Validation error',
-        code: 'VALIDATION_ERROR',
-        details: parsed.error.flatten(),
-      },
-    });
+    throw new BadRequestError('Validation error', parsed.error.flatten());
   }
 
   try {
@@ -67,13 +59,7 @@ router.post('/request', asyncHandler(async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error('Failed to create refund request', error);
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: error.message || 'Failed to create refund request',
-        code: 'REFUND_REQUEST_FAILED',
-      },
-    });
+    throw new BadRequestError(error.message || 'Failed to create refund request');
   }
 }));
 
@@ -82,18 +68,10 @@ router.post('/request', asyncHandler(async (req: Request, res: Response) => {
  * Get refund details by ID
  */
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   const refund = await refundService.getRefund(req.params.id);
 
   if (!refund) {
-    return res.status(404).json({
-      success: false,
-      error: {
-        message: 'Refund not found',
-        code: 'REFUND_NOT_FOUND',
-      },
-    });
+    throw new NotFoundError('Refund not found');
   }
 
   return res.json({
@@ -107,8 +85,6 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
  * Get all refunds for a specific booking
  */
 router.get('/booking/:bookingId', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   const refunds = await refundService.getRefundsByBooking(req.params.bookingId);
 
   return res.json({
@@ -122,18 +98,9 @@ router.get('/booking/:bookingId', asyncHandler(async (req: Request, res: Respons
  * Submit signed Soroban refund transaction
  */
 router.post('/:id/submit-onchain', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   const parsed = submitOnchainSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: 'Validation error',
-        code: 'VALIDATION_ERROR',
-        details: parsed.error.flatten(),
-      },
-    });
+    throw new BadRequestError('Validation error', parsed.error.flatten());
   }
 
   try {
@@ -148,13 +115,7 @@ router.post('/:id/submit-onchain', asyncHandler(async (req: Request, res: Respon
     });
   } catch (error: any) {
     logger.error('Failed to submit on-chain refund', error);
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: error.message || 'Failed to submit on-chain refund',
-        code: 'ONCHAIN_SUBMIT_FAILED',
-      },
-    });
+    throw new BadRequestError(error.message || 'Failed to submit on-chain refund');
   }
 }));
 
@@ -163,8 +124,6 @@ router.post('/:id/submit-onchain', asyncHandler(async (req: Request, res: Respon
  * Check refund and on-chain transaction status
  */
 router.get('/:id/status', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   try {
     const refund = await refundService.checkOnchainStatus(req.params.id);
 
@@ -181,13 +140,7 @@ router.get('/:id/status', asyncHandler(async (req: Request, res: Response) => {
     // If refund doesn't have on-chain tx, just return current status
     const refund = await refundService.getRefund(req.params.id);
     if (!refund) {
-      return res.status(404).json({
-        success: false,
-        error: {
-          message: 'Refund not found',
-          code: 'REFUND_NOT_FOUND',
-        },
-      });
+      throw new NotFoundError('Refund not found');
     }
 
     return res.json({
@@ -207,18 +160,10 @@ router.get('/:id/status', asyncHandler(async (req: Request, res: Response) => {
  * Get all refunds requiring manual review (admin only)
  */
 router.get('/admin/review-queue', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
   if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
-    return res.status(403).json({
-      success: false,
-      error: {
-        message: 'Unauthorized',
-        code: 'UNAUTHORIZED',
-      },
-    });
+    throw new ForbiddenError('Unauthorized');
   }
 
   const refunds = await refundService.getManualReviewQueue();
@@ -235,18 +180,10 @@ router.get('/admin/review-queue', asyncHandler(async (req: Request, res: Respons
  * Get all refunds with optional filters (admin only)
  */
 router.get('/admin/all', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
   if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
-    return res.status(403).json({
-      success: false,
-      error: {
-        message: 'Unauthorized',
-        code: 'UNAUTHORIZED',
-      },
-    });
+    throw new ForbiddenError('Unauthorized');
   }
 
   const status = req.query.status as any;
@@ -273,30 +210,15 @@ router.get('/admin/all', asyncHandler(async (req: Request, res: Response) => {
  * Manually review and approve/reject a refund (admin only)
  */
 router.post('/:id/review', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
   if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
-    return res.status(403).json({
-      success: false,
-      error: {
-        message: 'Unauthorized',
-        code: 'UNAUTHORIZED',
-      },
-    });
+    throw new ForbiddenError('Unauthorized');
   }
 
   const parsed = manualReviewSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: 'Validation error',
-        code: 'VALIDATION_ERROR',
-        details: parsed.error.flatten(),
-      },
-    });
+    throw new BadRequestError('Validation error', parsed.error.flatten());
   }
 
   try {
@@ -316,13 +238,7 @@ router.post('/:id/review', asyncHandler(async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error('Failed to review refund', error);
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: error.message || 'Failed to review refund',
-        code: 'REVIEW_FAILED',
-      },
-    });
+    throw new BadRequestError(error.message || 'Failed to review refund');
   }
 }));
 
@@ -331,18 +247,10 @@ router.post('/:id/review', asyncHandler(async (req: Request, res: Response) => {
  * Get audit trail for a specific refund (admin only)
  */
 router.get('/:id/audit-trail', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
   if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
-    return res.status(403).json({
-      success: false,
-      error: {
-        message: 'Unauthorized',
-        code: 'UNAUTHORIZED',
-      },
-    });
+    throw new ForbiddenError('Unauthorized');
   }
 
   const auditTrail = await auditService.getAuditTrail(req.params.id);
@@ -358,8 +266,6 @@ router.get('/:id/audit-trail', asyncHandler(async (req: Request, res: Response) 
  * Cancel a delayed refund request during the waiting period
  */
 router.post('/:id/cancel', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   const cancelSchema = z.object({
     cancelledBy: z.string().min(1),
     cancellationReason: z.string().min(1),
@@ -367,14 +273,7 @@ router.post('/:id/cancel', asyncHandler(async (req: Request, res: Response) => {
 
   const parsed = cancelSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: 'Validation error',
-        code: 'VALIDATION_ERROR',
-        details: parsed.error.flatten(),
-      },
-    });
+    throw new BadRequestError('Validation error', parsed.error.flatten());
   }
 
   try {
@@ -392,13 +291,7 @@ router.post('/:id/cancel', asyncHandler(async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     logger.error('Failed to cancel delayed refund', error);
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: error.message || 'Failed to cancel delayed refund',
-        code: 'CANCEL_FAILED',
-      },
-    });
+    throw new BadRequestError(error.message || 'Failed to cancel delayed refund');
   }
 }));
 
@@ -407,8 +300,6 @@ router.post('/:id/cancel', asyncHandler(async (req: Request, res: Response) => {
  * Process a delayed refund after timelock expiration
  */
 router.post('/:id/process-delayed', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   try {
     const refund = await refundService.processDelayedRefund(req.params.id);
 
@@ -420,13 +311,7 @@ router.post('/:id/process-delayed', asyncHandler(async (req: Request, res: Respo
     });
   } catch (error: any) {
     logger.error('Failed to process delayed refund', error);
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: error.message || 'Failed to process delayed refund',
-        code: 'PROCESS_DELAYED_FAILED',
-      },
-    });
+    throw new BadRequestError(error.message || 'Failed to process delayed refund');
   }
 }));
 
@@ -435,18 +320,10 @@ router.post('/:id/process-delayed', asyncHandler(async (req: Request, res: Respo
  * Emergency override to process a delayed refund immediately (admin only)
  */
 router.post('/:id/emergency-override', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
   if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
-    return res.status(403).json({
-      success: false,
-      error: {
-        message: 'Unauthorized',
-        code: 'UNAUTHORIZED',
-      },
-    });
+    throw new ForbiddenError('Unauthorized');
   }
 
   const overrideSchema = z.object({
@@ -456,14 +333,7 @@ router.post('/:id/emergency-override', asyncHandler(async (req: Request, res: Re
 
   const parsed = overrideSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: 'Validation error',
-        code: 'VALIDATION_ERROR',
-        details: parsed.error.flatten(),
-      },
-    });
+    throw new BadRequestError('Validation error', parsed.error.flatten());
   }
 
   try {
@@ -483,13 +353,7 @@ router.post('/:id/emergency-override', asyncHandler(async (req: Request, res: Re
     });
   } catch (error: any) {
     logger.error('Failed to apply emergency override', error);
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: error.message || 'Failed to apply emergency override',
-        code: 'EMERGENCY_OVERRIDE_FAILED',
-      },
-    });
+    throw new BadRequestError(error.message || 'Failed to apply emergency override');
   }
 }));
 
@@ -498,18 +362,10 @@ router.post('/:id/emergency-override', asyncHandler(async (req: Request, res: Re
  * Get all pending delayed refunds (admin only)
  */
 router.get('/admin/delayed-pending', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
   if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
-    return res.status(403).json({
-      success: false,
-      error: {
-        message: 'Unauthorized',
-        code: 'UNAUTHORIZED',
-      },
-    });
+    throw new ForbiddenError('Unauthorized');
   }
 
   const refunds = await refundService.getPendingDelayedRefunds();
@@ -526,18 +382,10 @@ router.get('/admin/delayed-pending', asyncHandler(async (req: Request, res: Resp
  * Get delayed refunds ready for processing (admin only)
  */
 router.get('/admin/delayed-ready', asyncHandler(async (req: Request, res: Response) => {
-  await initDataSource();
-
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
   if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
-    return res.status(403).json({
-      success: false,
-      error: {
-        message: 'Unauthorized',
-        code: 'UNAUTHORIZED',
-      },
-    });
+    throw new ForbiddenError('Unauthorized');
   }
 
   const refunds = await refundService.getDelayedRefundsReadyForProcessing();

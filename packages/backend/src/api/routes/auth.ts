@@ -3,9 +3,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { AuthService } from '../../services/authService';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { AppDataSource } from '../../db/dataSource';
-
-// @ts-ignore
-import type { Router as ExpressRouter } from 'express';
+import { UnauthorizedError } from '../../utils/errors';
 
 export const authRoutes = Router();
 
@@ -30,23 +28,18 @@ authRoutes.post('/verify', async (req: Request, res: Response, next: NextFunctio
         const { walletAddress, signature, walletType } = req.body;
         const authService = getAuthService();
 
-        // Auth errors should generally result in 401
-        try {
-            const result = await authService.verifySignature(walletAddress, signature, walletType);
-            res.json(result);
-        } catch (authErr: any) {
-            if (
-                authErr.message.includes('Invalid signature') ||
-                authErr.message.includes('Nonce missing or expired') ||
-                authErr.message.includes('Unsupported wallet')
-            ) {
-                res.status(401).json({ error: authErr.message });
-            } else {
-                throw authErr;
-            }
-        }
+        const result = await authService.verifySignature(walletAddress, signature, walletType);
+        res.json(result);
     } catch (err: any) {
-        next(err);
+        if (
+            err.message.includes('Invalid signature') ||
+            err.message.includes('Nonce missing or expired') ||
+            err.message.includes('Unsupported wallet')
+        ) {
+            next(new UnauthorizedError(err.message));
+        } else {
+            next(err);
+        }
     }
 });
 
@@ -55,14 +48,10 @@ authRoutes.post('/refresh', async (req: Request, res: Response, next: NextFuncti
         const { refreshToken } = req.body;
         const authService = getAuthService();
 
-        try {
-            const result = await authService.refreshTokens(refreshToken);
-            res.json(result);
-        } catch (authErr: any) {
-            res.status(401).json({ error: authErr.message });
-        }
+        const result = await authService.refreshTokens(refreshToken);
+        res.json(result);
     } catch (err: any) {
-        next(err);
+        next(new UnauthorizedError(err.message));
     }
 });
 
@@ -70,8 +59,7 @@ authRoutes.post('/logout', requireAuth, async (req: Request, res: Response, next
     try {
         const walletAddress = req.user?.walletAddress;
         if (!walletAddress) {
-            res.status(401).json({ error: 'Unauthorized' });
-            return;
+            throw new UnauthorizedError();
         }
         const authService = getAuthService();
         await authService.logout(walletAddress);

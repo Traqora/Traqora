@@ -56,5 +56,27 @@ export const submitOnchainSchema = z.object({
   signedXdr: z.string().min(1),
 });
 
-// Additional schemas for other routes
-// TODO: Add schemas from airlines.ts, flights.ts, governance.ts, loyalty.ts, metrics.ts, security.ts, subscriptions.ts, users.ts, wallet.ts
+export const userPreferencesSchema = z.object({
+  emailEnabled: z.boolean(),
+  smsEnabled: z.boolean(),
+  pushEnabled: z.boolean(),
+});
+
+export const createAirlineSchema = z.object({
+  airlineCode: z.string().min(2).max(10),
+  airlineName: z.string().min(1),
+  airlineSorobanAddress: z.string().min(1).optional(),
+});
+
+export const walletVerifySchema = z.object({
+  walletAddress: z.string().min(56).max(56).startsWith('G'),
+  walletType: z.enum(['freighter', 'albedo', 'rabet']),
+});
+
+export const loyaltyActionSchema = z.object({
+  points: z.number().int().min(1),
+});
+
+export const loyaltyTierSchema = z.object({
+  tier: z.enum(['bronze', 'silver', 'gold', 'platinum']),
+});

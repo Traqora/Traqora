@@ -1,0 +1,27 @@
+[package]
+name = "integration-tests"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+airline = { workspace = true }
+booking = { workspace = true }
+booking-receipt = { workspace = true }
+dispute = { workspace = true }
+dispute-resolution = { workspace = true }
+flight-booking = { workspace = true }
+flight-registry = { workspace = true }
+governance = { workspace = true }
+loyalty = { workspace = true }
+oracle = { workspace = true }
+proxy = { workspace = true }
+refund = { workspace = true }
+refund-automation = { workspace = true }
+token = { workspace = true }
+upgrade = { workspace = true }
+admin = { workspace = true }
+
+[dev-dependencies]
+proptest = "1.2"

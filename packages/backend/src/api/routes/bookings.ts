@@ -2,9 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/authMiddleware";
 import { asyncHandler } from "../../utils/errorHandler";
-import { initDataSource, AppDataSource } from "../../db/dataSource";
-import { Flight } from "../../db/entities/Flight";
-import { Passenger } from "../../db/entities/Passenger";
+import { AppDataSource } from "../../db/dataSource";
 import { Booking } from "../../db/entities/Booking";
 import { IdempotencyKey } from "../../db/entities/IdempotencyKey";
 import {
@@ -14,12 +12,10 @@ import {
 import { BookingOrchestrationService } from "../../services/bookingOrchestrationService";
 import { stripe, stripeWebhookSecret } from "../../services/stripe";
 import {
-  buildCreateBookingUnsignedXdr,
   submitSignedSorobanXdr,
   getTransactionStatus,
 } from "../../services/soroban";
 import { withRetries } from "../../services/retry";
-import { config } from "../../config";
 import { getWebSocketServer } from "../../websockets/server";
 import { logger } from "../../utils/logger";
 
@@ -38,40 +34,25 @@ const createBookingSchema = z.object({
   passenger: passengerSchema,
 });
 
+import { BadRequestError, NotFoundError, ConflictError, InternalServerError } from "../../utils/errors";
+
 router.post(
   "/",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    await initDataSource();
-
     const parsed = createBookingSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          message: "Validation error",
-          code: "VALIDATION_ERROR",
-          details: parsed.error.flatten(),
-        },
-      });
+      throw new BadRequestError("Validation error", parsed.error.flatten());
     }
 
     const idempotencyKeyHeader = req.header("Idempotency-Key");
     if (!idempotencyKeyHeader) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          message: "Missing Idempotency-Key header",
-          code: "IDEMPOTENCY_KEY_REQUIRED",
-        },
-      });
+      throw new BadRequestError("Missing Idempotency-Key header");
     }
 
     const requestHash = hashObject(parsed.data);
 
     const bookingRepo = AppDataSource.getRepository(Booking);
-    const flightRepo = AppDataSource.getRepository(Flight);
-    const passengerRepo = AppDataSource.getRepository(Passenger);
     const idempotencyRepo = AppDataSource.getRepository(IdempotencyKey);
 
     const idem = await getOrCreateIdempotencyKey({
@@ -82,13 +63,7 @@ router.post(
     });
 
     if (idem.requestHash !== requestHash) {
-      return res.status(409).json({
-        success: false,
-        error: {
-          message: "Idempotency key reuse with different payload",
-          code: "IDEMPOTENCY_CONFLICT",
-        },
-      });
+      throw new ConflictError("Idempotency key reuse with different payload");
     }
 
     if (idem.resourceId) {
@@ -121,14 +96,10 @@ router.post(
     } catch (error: any) {
       logger.error("Booking creation failed", { error: error.message });
       
-      const statusCode = error.message === "Flight not found" ? 404 : 409;
-      return res.status(statusCode).json({
-        success: false,
-        error: {
-          message: error.message,
-          code: "BOOKING_FAILED",
-        },
-      });
+      if (error.message === "Flight not found") {
+        throw new NotFoundError(error.message);
+      }
+      throw new ConflictError(error.message || "Booking failed");
     }
   }),
 );
@@ -137,16 +108,10 @@ router.get(
   "/:id",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    await initDataSource();
     const bookingRepo = AppDataSource.getRepository(Booking);
     const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
     if (!booking) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          error: { message: "Booking not found", code: "BOOKING_NOT_FOUND" },
-        });
+      throw new NotFoundError("Booking not found");
     }
     return res.json({ success: true, data: booking });
   }),
@@ -156,37 +121,20 @@ router.post(
   "/:id/submit-onchain",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    await initDataSource();
     const schema = z.object({ signedXdr: z.string().min(1) });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: { message: "Validation error", code: "VALIDATION_ERROR" },
-        });
+      throw new BadRequestError("Validation error");
     }
 
     const bookingRepo = AppDataSource.getRepository(Booking);
     const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
     if (!booking) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          error: { message: "Booking not found", code: "BOOKING_NOT_FOUND" },
-        });
+      throw new NotFoundError("Booking not found");
     }
 
     if (booking.status !== "paid" && booking.status !== "onchain_pending") {
-      return res.status(409).json({
-        success: false,
-        error: {
-          message: "Booking not ready for on-chain submission",
-          code: "BOOKING_NOT_READY",
-        },
-      });
+      throw new ConflictError("Booking not ready for on-chain submission");
     }
 
     booking.status = "onchain_pending";
@@ -215,30 +163,12 @@ router.post(
 router.post(
   "/webhook/stripe",
   asyncHandler(async (req: Request, res: Response) => {
-    await initDataSource();
-
     const sig = req.headers["stripe-signature"];
     if (!stripeWebhookSecret) {
-      return res
-        .status(500)
-        .json({
-          success: false,
-          error: {
-            message: "Stripe webhook secret not configured",
-            code: "CONFIG_ERROR",
-          },
-        });
+      throw new InternalServerError("Stripe webhook secret not configured");
     }
     if (!sig || typeof sig !== "string") {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: {
-            message: "Missing stripe-signature header",
-            code: "SIGNATURE_REQUIRED",
-          },
-        });
+      throw new BadRequestError("Missing stripe-signature header");
     }
 
     let event;
@@ -249,15 +179,7 @@ router.post(
         stripeWebhookSecret,
       );
     } catch (err: any) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: {
-            message: err.message || "Invalid signature",
-            code: "INVALID_SIGNATURE",
-          },
-        });
+      throw new BadRequestError(err.message || "Invalid signature");
     }
 
     if (event.type === "payment_intent.succeeded") {
@@ -288,17 +210,11 @@ router.get(
   "/:id/transaction-status",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    await initDataSource();
     const bookingRepo = AppDataSource.getRepository(Booking);
     const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
 
     if (!booking) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          error: { message: "Booking not found", code: "BOOKING_NOT_FOUND" },
-        });
+      throw new NotFoundError("Booking not found");
     }
 
     if (!booking.sorobanTxHash) {
