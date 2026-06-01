@@ -86,6 +86,7 @@ impl GovernanceContract {
         );
         
         AccessControl::init_owner(&env, &owner);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
         
         GovernanceStorageKey::set_config(
             &env,

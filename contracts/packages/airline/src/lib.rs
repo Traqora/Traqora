@@ -198,6 +198,7 @@ pub struct AirlineContract;
 impl AirlineContract {
     pub fn initialize(env: Env, owner: Address) {
         AccessControl::init_owner(&env, &owner);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
     }
 
     fn is_valid_status(status: &Symbol) -> bool {

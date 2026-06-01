@@ -111,6 +111,10 @@ impl LoyaltyContract {
         );
     }
 
+    pub fn init_upgrade_owner(env: Env, owner: Address) {
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
+    }
+
     // Get or create loyalty account
     pub fn get_or_create_account(env: Env, user: Address) -> LoyaltyAccount {
         if let Some(account) = LoyaltyStorageKey::get_account(&env, &user) {

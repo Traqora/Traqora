@@ -85,4 +85,8 @@ impl FlightBookingContract {
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
         env.storage().persistent().get(&DataKey::Booking(booking_id))
     }
+
+    pub fn init_upgrade_owner(env: Env, owner: Address) {
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
+    }
 }

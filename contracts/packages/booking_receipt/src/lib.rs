@@ -108,6 +108,7 @@ impl BookingReceiptContract {
         }
 
         ReceiptStorage::set_admin(&env, &admin);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &admin);
 
         let metadata = TokenMetadata { name, symbol };
         ReceiptStorage::set_metadata(&env, &metadata);
