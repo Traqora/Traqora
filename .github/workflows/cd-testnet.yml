@@ -75,7 +75,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download Contract Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: traqora-contracts-wasm
           path: contracts/target/wasm32-unknown-unknown/release/
