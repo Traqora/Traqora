@@ -21,6 +21,8 @@ import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
 import { validateRequest } from './middleware/validationMiddleware';
 
+// @ts-ignore
+import type { Application } from 'express';
 import { config } from './config';
 import {
   createDefaultFlightSearchService,
@@ -50,8 +52,9 @@ export interface AppOptions {
   searchRateLimit?: Partial<IpRateLimitOptions>;
 }
 
-export const createApp = (options: AppOptions = {}) => {
+export const createApp = async (options: AppOptions = {}) => {
   const app = express();
+  const { config } = await import('./config');
 
   if (config.trustProxy) {
     app.set('trust proxy', 1);
