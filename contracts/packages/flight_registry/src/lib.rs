@@ -68,6 +68,7 @@ pub struct FlightRegistryContract;
 impl FlightRegistryContract {
     pub fn initialize(env: Env, owner: Address) {
         AccessControl::init_owner(&env, &owner);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
     }
 
     pub fn register_airline(env: Env, executor: Address, admin: Address, airline_id: Symbol, name: Symbol) {

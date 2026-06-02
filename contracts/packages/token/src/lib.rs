@@ -80,6 +80,7 @@ impl TRQTokenContract {
         }
 
         AccessControl::init_owner(&env, &admin);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &admin);
         TokenStorage::set_admin(&env, &admin);
 
         let metadata = TokenMetadata {

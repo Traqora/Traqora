@@ -1,6 +1,8 @@
 use soroban_sdk::{Symbol};
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::Env;
+use soroban_sdk::{Address, Env, Symbol};
+use soroban_sdk::testutils::Address as _;
 
 use flight_booking::{FlightBookingContract, FlightBookingContractClient};
 
@@ -38,4 +40,16 @@ fn test_double_booking_rejected() {
     let seat = Symbol::new(&env, "12A");
     client.reserve_seat(&passenger, &flight_id, &seat, &1_000i128);
     client.reserve_seat(&passenger, &flight_id, &seat, &1_000i128);
+}
+
+#[test]
+fn test_init_upgrade_owner_for_flight_booking() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    client.init_upgrade_owner(&owner);
 }

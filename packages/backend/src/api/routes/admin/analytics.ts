@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../../../utils/errorHandler';
-import { initDataSource, AppDataSource } from '../../../db/dataSource';
+import { AppDataSource } from '../../../db/dataSource';
 import { Booking } from '../../../db/entities/Booking';
 import { Flight } from '../../../db/entities/Flight';
 import { Passenger } from '../../../db/entities/Passenger';
@@ -10,7 +10,7 @@ const router = Router();
 
 // GET /api/v1/admin/analytics
 router.get('/', requireAdmin, requireRole('admin'), asyncHandler(async (_req: Request, res: Response) => {
-    await initDataSource();
+    
 
     const bookingRepo = AppDataSource.getRepository(Booking);
     const flightRepo = AppDataSource.getRepository(Flight);

@@ -50,6 +50,7 @@ impl DisputeResolutionContract {
 
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &admin);
         env.storage().instance().set(&DataKey::NextDisputeId, &1u32);
 
         let mut i = 0u32;

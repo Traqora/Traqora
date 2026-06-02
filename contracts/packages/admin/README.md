@@ -298,7 +298,8 @@ The Admin Multisig contract can manage other contracts by:
 2. Executing cross-contract calls after approval
 3. Managing contract parameters through ParameterChange actions
 4. Coordinating upgrades across multiple contracts
-
+5. Integrating with proxy-based upgrade timelocks to enforce delayed execution after approval
+5. Integrating with proxy-based upgrade timelocks to enforce delayed execution after approval
 ### Example Integration
 
 ```rust
@@ -313,7 +314,17 @@ let proposal_id = client.propose_admin_action(
     &None,
 );
 ```
+## Upgrade Timelock Procedure
 
+1. Use `propose_upgrade` to schedule a new implementation with a mandatory 48-hour delay.
+2. Approve the proposal with a quorum of authorized signers using `approve_upgrade`.
+3. After the timelock expires, call `upgrade_to` (alias for `execute_upgrade`) to activate the new implementation.
+4. If the upgrade produces an issue, call `rollback_upgrade` to restore the previous implementation, storage version, and contract version.
+5. Monitor emitted events:
+   - `(upgrade, scheduled)` when the upgrade is scheduled
+   - `(upgrade, approved)` as signers approve
+   - `(upgrade, executed)` when the upgrade completes
+   - `(upgrade, rolled_back)` when the upgrade is rolled back
 ## Best Practices
 
 1. **Threshold Selection**: Use 2-of-3 for small teams, 3-of-5 for larger organizations
@@ -331,7 +342,7 @@ let proposal_id = client.propose_admin_action(
 - Expired proposals cannot be revived (must create new proposal)
 - Threshold must be at least 2 (single-signature not supported)
 - Signers must be available to reach threshold
-- No built-in time-lock for additional security delay
+- No built-in time-lock for additional security delay in admin-only execution workflows
 
 ## Future Enhancements
 
