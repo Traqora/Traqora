@@ -31,6 +31,7 @@ jest.mock('../src/services/soroban', () => ({
     status: 'success',
     result: { bookingId: '42' },
   })),
+  signAndSubmitCreateBooking: jest.fn(async () => ({ txHash: 'txhash_bf', bookingId: '42' })),
 }));
 
 describe('Booking Flow Integration Tests', () => {

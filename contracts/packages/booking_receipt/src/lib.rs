@@ -108,10 +108,14 @@ impl BookingReceiptContract {
         }
 
         ReceiptStorage::set_admin(&env, &admin);
-crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &admin);
 
         let metadata = TokenMetadata { name, symbol };
         ReceiptStorage::set_metadata(&env, &metadata);
+    }
+
+    pub fn init_upgrade_owner(env: Env, owner: Address) {
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
     }
 
     // --- Custom NFT Functions ---
@@ -177,7 +181,9 @@ crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
         }
     }
 
-    // --- Soroban Token Interface (Fungible compatibility) ---
+    // --- Soroban Token Interface (Fungible compatibility stubs) ---
+    // Prefixed with sep41_ to avoid symbol conflicts with TRQTokenContract.
+    // These stubs exist only for interface compatibility.
 
     pub fn sbt_allowance(_env: Env, _from: Address, _spender: Address) -> i128 {
         0

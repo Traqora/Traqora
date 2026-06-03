@@ -6,6 +6,10 @@ import { Horizon } from '@stellar/stellar-sdk';
 
 export async function verifyConnectivity() {
   const config = getConfig();
+  if (process.env.NODE_ENV === 'test') {
+    logger.info('Skipping infrastructure connectivity checks in test environment.');
+    return { database: true, redis: true, stellar: true };
+  }
   logger.info('Starting infrastructure connectivity checks...');
 
   const results = {

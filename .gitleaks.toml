@@ -1,0 +1,16 @@
+# Gitleaks configuration for Traqora
+# https://github.com/gitleaks/gitleaks#configuration
+
+title = "Traqora Gitleaks Config"
+
+[allowlist]
+  description = "Historical false positives and documentation examples"
+
+  # The commit below is a historical commit (2026-02-25) that contained a
+  # curl example with a placeholder JWT in FLIGHT_SYNC_API.md. The value
+  # was a documentation example, not a real credential. The current HEAD
+  # version of the file uses <YOUR_JWT_TOKEN> as the placeholder.
+  # Fingerprint: a92c8193249dbbd7f6df20549fe0ea3ec9ef09bd:backend/FLIGHT_SYNC_API.md:curl-auth-header:584
+  commits = [
+    "a92c8193249dbbd7f6df20549fe0ea3ec9ef09bd",
+  ]

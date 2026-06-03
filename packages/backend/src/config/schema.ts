@@ -6,7 +6,7 @@ export const configSchema = z.object({
   corsOrigin: z.string().url().default('http://localhost:3000'),
   trustProxy: z.boolean().default(false),
 
-  stellarNetwork: z.enum(['production', 'testnet', 'standalone']).default('testnet'),
+  stellarNetwork: z.enum(['production', 'mainnet', 'testnet', 'standalone']).default('testnet'),
   stellarSecretKey: z.string().optional(),
   horizonUrl: z.string().url(),
   sorobanRpcUrl: z.string().url(),
@@ -31,6 +31,7 @@ export const configSchema = z.object({
   jwtRefreshExpiresIn: z.string().default('7d'),
   
   adminApiKey: z.string().min(12, "Admin API key must be at least 12 characters"),
+  encryptionKey: z.string().min(32, "Encryption key must be at least 32 characters").default('dev-encryption-key-at-least-32-chars-long'),
 
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   auditLogEnabled: z.boolean().default(false),

@@ -23,12 +23,12 @@ import { validateRequest } from './middleware/validationMiddleware';
 
 // @ts-ignore
 import type { Application } from 'express';
-import { config } from './config';
+
 import {
   createDefaultFlightSearchService,
   FlightSearchService,
 } from './services/flightSearchService';
-import { errorHandler } from './utils/errorHandler';
+import { errorHandler, asyncHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
 import { requestLogger } from './middleware/requestLogger';
 import { metricsMiddleware } from './middleware/metricsMiddleware';
@@ -146,6 +146,36 @@ export const createApp = async (options: AppOptions = {}) => {
     });
   });
 
+  app.get('/health/schema', asyncHandler(async (_req: express.Request, res: express.Response) => {
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        status: 'unhealthy',
+        database: 'disconnected',
+        reason: 'Database is not initialized',
+      });
+    }
+
+    await AppDataSource.query('SELECT 1');
+
+    const hasPending = await AppDataSource.showMigrations();
+
+    if (hasPending) {
+      return res.status(503).json({
+        status: 'unhealthy',
+        database: 'connected',
+        schema: 'out_of_date',
+        reason: 'Pending migrations exist in the database',
+      });
+    }
+
+    return res.json({
+      status: 'healthy',
+      database: 'connected',
+      schema: 'up_to_date',
+      timestamp: new Date().toISOString(),
+    });
+  }));
+
   app.get('/metrics', asyncHandler(async (_req: express.Request, res: express.Response) => {
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
@@ -171,9 +201,9 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/auth', validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
-  app.use('/api/v1/bookings', requireAuth, validateRequest('/api/v1/bookings'), bookingRoutes);
-  app.use('/api/v1/refunds', requireAuth, validateRequest('/api/v1/refunds/request'), refundRoutes);
-  app.use('/api/v1/security', requireAuth, securityRoutes);
+  app.use('/api/v1/bookings', requireAuth, bookingRoutes);
+  app.use('/api/v1/refunds', requireAuth, refundRoutes);
+  app.use('/api/v1/security', securityRoutes);
 
   // Admin routes
   app.use('/api/v1/admin/auth', adminAuthRoutes);
@@ -183,7 +213,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/admin/analytics', adminAnalyticsRoutes);
   app.use('/api/v1/admin/refunds', adminRefundRoutes);
 
-  app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
+  app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {
     next(new NotFoundError('Endpoint not found'));
   });
 

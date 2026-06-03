@@ -713,7 +713,7 @@ export class RefundService {
     refund.requiresManualReview = eligibility.requiresManualReview;
 
     if (eligibility.isEligible && !eligibility.requiresManualReview) {
-      await this.approveRefund(refundId, eligibility.refundPercentage);
+      return await this.approveRefund(refundId, eligibility.refundPercentage);
     } else if (eligibility.requiresManualReview) {
       refund.status = 'manual_review';
       await refundRepo.save(refund);
@@ -794,7 +794,7 @@ export class RefundService {
     refund.requiresManualReview = eligibility.requiresManualReview;
 
     if (eligibility.isEligible && !eligibility.requiresManualReview) {
-      await this.approveRefund(refundId, eligibility.refundPercentage);
+      return await this.approveRefund(refundId, eligibility.refundPercentage);
     } else if (eligibility.requiresManualReview) {
       refund.status = 'manual_review';
       await refundRepo.save(refund);

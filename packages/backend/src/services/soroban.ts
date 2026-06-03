@@ -228,6 +228,9 @@ export const signAndSubmitCreateBooking = async (params: {
 
     const server = getSorobanServer();
     const networkPassphrase = getNetworkPassphrase();
+    if (!config.stellarSecretKey) {
+      throw new Error('stellarSecretKey is not configured');
+    }
     const sourceKeypair = StellarSdk.Keypair.fromSecret(config.stellarSecretKey);
     const sourceAccount = await executeSorobanOperation(
       'soroban_get_account',

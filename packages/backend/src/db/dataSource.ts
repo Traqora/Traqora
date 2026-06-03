@@ -18,7 +18,7 @@ const isTest = process.env.NODE_ENV === "test";
 export const AppDataSource = new DataSource(
   isTest
     ? {
-      type: "sqlite",
+      type: "better-sqlite3",
       database: ":memory:",
       dropSchema: true,
       synchronize: true,
@@ -39,7 +39,7 @@ export const AppDataSource = new DataSource(
     : {
       type: "postgres",
       url: config.databaseUrl,
-      synchronize: true,
+      synchronize: false,
       logging: false,
       entities: [
         Booking,
@@ -53,6 +53,7 @@ export const AppDataSource = new DataSource(
         Refund,
         User,
       ],
+      migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:
         config.environment === "production"
           ? { rejectUnauthorized: false }
@@ -78,4 +79,19 @@ export const initDataSource = async () => {
   }
 
   await AppDataSource.initialize();
+
+  try {
+    logger.info("Checking database migrations...");
+    const hasPending = await AppDataSource.showMigrations();
+    if (hasPending) {
+      logger.info("Pending migrations found. Running migrations...");
+      const runMigrations = await AppDataSource.runMigrations();
+      logger.info(`Successfully executed ${runMigrations.length} migrations.`);
+    } else {
+      logger.info("Database schema is up to date.");
+    }
+  } catch (error) {
+    logger.error("Failed to run database migrations on startup:", error as Error);
+    throw error;
+  }
 };
