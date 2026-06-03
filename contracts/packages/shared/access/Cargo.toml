@@ -1,0 +1,7 @@
+[package]
+name = "access"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+soroban-sdk.workspace = true

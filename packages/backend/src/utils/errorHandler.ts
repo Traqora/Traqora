@@ -62,16 +62,12 @@ export const errorHandler = (
   }
 
   res.status(statusCode).json({
-    success: false,
-    error: {
-      code,
-      message,
-      retryable,
-      requestId,
-      timestamp: new Date().toISOString(),
-      ...(retryAfterMs ? { retryAfterMs } : {}),
-      ...(details ? { details } : {}),
-    },
+    error: message,
+    code,
+    details: details || null,
+    requestId,
+    timestamp: new Date().toISOString(),
+    success: false, // Keep for backward compatibility
   });
 };
 

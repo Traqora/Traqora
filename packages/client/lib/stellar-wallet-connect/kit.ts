@@ -1,14 +1,14 @@
 /**
  * Stellar Wallet Connect - Kit Initialisation & Transaction Signing
  *
- * Wraps `@creit-tech/stellar-wallets-kit` to provide a single
+ * Wraps `@creit.tech/stellar-wallets-kit` to provide a single
  * initialisation entry-point and a transaction signing helper.
  */
 
-import { StellarWalletsKit } from '@creit-tech/stellar-wallets-kit';
-import { defaultModules } from '@creit-tech/stellar-wallets-kit/modules/utils';
-import { Networks } from '@stellar/stellar-sdk';
-import type { StellarNetwork, SignTransactionOptions } from './types';
+import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/sdk";
+import { defaultModules } from "@creit.tech/stellar-wallets-kit/modules/utils";
+import { Networks } from "@stellar/stellar-sdk";
+import type { StellarNetwork, SignTransactionOptions } from "./types";
 
 // ---------------------------------------------------------------------------
 // Internal state
@@ -16,7 +16,7 @@ import type { StellarNetwork, SignTransactionOptions } from './types';
 
 let isInitialized = false;
 let initializationError: Error | null = null;
-let configuredNetwork: StellarNetwork = 'testnet';
+let configuredNetwork: StellarNetwork = "testnet";
 
 const networkEnumMap: Record<StellarNetwork, Networks> = {
   testnet: Networks.TESTNET,
@@ -24,8 +24,8 @@ const networkEnumMap: Record<StellarNetwork, Networks> = {
 };
 
 const networkPassphraseMap: Record<StellarNetwork, string> = {
-  testnet: 'Test SDF Network ; September 2015',
-  mainnet: 'Public Global Stellar Network ; September 2015',
+  testnet: "Test SDF Network ; September 2015",
+  mainnet: "Public Global Stellar Network ; September 2015",
 };
 
 // ---------------------------------------------------------------------------
@@ -40,30 +40,31 @@ const networkPassphraseMap: Record<StellarNetwork, string> = {
  *
  * @param network - `'testnet'` (default) or `'mainnet'`.
  */
-export function initializeWalletKit(network: StellarNetwork = 'testnet'): void {
-  if (typeof window === 'undefined') return; // SSR guard
+export function initializeWalletKit(network: StellarNetwork = "testnet"): void {
+  if (typeof window === "undefined") return; // SSR guard
 
   if (!isInitialized) {
     try {
       configuredNetwork = network;
-      
+
       StellarWalletsKit.init({
         modules: defaultModules(),
         network: networkEnumMap[network],
       });
-      
+
       isInitialized = true;
       initializationError = null;
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
-          : 'Failed to initialize StellarWalletsKit';
+          : "Failed to initialize StellarWalletsKit";
       initializationError = new Error(message);
-      console.error('Failed to initialize StellarWalletsKit:', {
+      console.error("Failed to initialize StellarWalletsKit:", {
         error,
         message,
-        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        errorType:
+          error instanceof Error ? error.constructor.name : typeof error,
       });
       throw initializationError;
     }
@@ -91,8 +92,8 @@ export function getConfiguredNetwork(): StellarNetwork {
  * Initialises the kit if it hasn't been already.
  */
 export function getKit() {
-  if (typeof window === 'undefined') {
-    throw new Error('StellarWalletsKit can only be used on the client side');
+  if (typeof window === "undefined") {
+    throw new Error("StellarWalletsKit can only be used on the client side");
   }
   if (!isInitialized) {
     initializeWalletKit();
@@ -110,8 +111,8 @@ export async function signTransaction({
   address,
   network,
 }: SignTransactionOptions): Promise<string> {
-  if (typeof window === 'undefined') {
-    throw new Error('signTransaction can only be called on the client side');
+  if (typeof window === "undefined") {
+    throw new Error("signTransaction can only be called on the client side");
   }
 
   if (!isInitialized) {
@@ -122,7 +123,7 @@ export async function signTransaction({
 
   const { signedTxXdr } = await StellarWalletsKit.signTransaction(
     unsignedTransaction,
-    { address, networkPassphrase: passphrase }
+    { address, networkPassphrase: passphrase },
   );
 
   return signedTxXdr;

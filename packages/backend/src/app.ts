@@ -23,17 +23,18 @@ import { validateRequest } from './middleware/validationMiddleware';
 
 // @ts-ignore
 import type { Application } from 'express';
-import { config } from './config';
+
 import {
   createDefaultFlightSearchService,
   FlightSearchService,
 } from './services/flightSearchService';
-import { errorHandler } from './utils/errorHandler';
+import { errorHandler, asyncHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
 import { requestLogger } from './middleware/requestLogger';
 import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { register } from './services/metrics';
 import { AppDataSource } from './db/dataSource';
+import { dbInitMiddleware } from './middleware/dbMiddleware';
 import {
   createIpRateLimiter,
   createTieredRateLimiter,
@@ -41,6 +42,8 @@ import {
   TieredRateLimitOptions,
 } from './utils/rateLimiter';
 import { requireAuth } from './middleware/authMiddleware';
+import { NotFoundError } from './utils/errors';
+import { AppError } from './services/ErrorHandlingService';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
@@ -49,8 +52,9 @@ export interface AppOptions {
   searchRateLimit?: Partial<IpRateLimitOptions>;
 }
 
-export const createApp = (options: AppOptions = {}) => {
+export const createApp = async (options: AppOptions = {}) => {
   const app = express();
+  const { config } = await import('./config');
 
   if (config.trustProxy) {
     app.set('trust proxy', 1);
@@ -125,6 +129,8 @@ export const createApp = (options: AppOptions = {}) => {
   app.use(metricsMiddleware);
   app.use(morgan('combined', { stream: { write: (message: string) => logger.info(message.trim()) } }));
 
+  app.use(dbInitMiddleware);
+
   // Stripe webhook requires raw body — must be registered BEFORE express.json()
   app.use('/api/v1/bookings/webhook/stripe', express.raw({ type: '*/*' }));
 
@@ -140,72 +146,50 @@ export const createApp = (options: AppOptions = {}) => {
     });
   });
 
-  app.get('/health/schema', async (_req: express.Request, res: express.Response) => {
-    try {
-      if (!AppDataSource.isInitialized) {
-        return res.status(503).json({
-          status: 'unhealthy',
-          database: 'disconnected',
-          reason: 'Database is not initialized',
-        });
-      }
-
-      await AppDataSource.query('SELECT 1');
-
-      const hasPending = await AppDataSource.showMigrations();
-
-      if (hasPending) {
-        return res.status(503).json({
-          status: 'unhealthy',
-          database: 'connected',
-          schema: 'out_of_date',
-          reason: 'Pending migrations exist in the database',
-        });
-      }
-
-      return res.json({
-        status: 'healthy',
-        database: 'connected',
-        schema: 'up_to_date',
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error: any) {
+  app.get('/health/schema', asyncHandler(async (_req: express.Request, res: express.Response) => {
+    if (!AppDataSource.isInitialized) {
       return res.status(503).json({
         status: 'unhealthy',
-        database: 'error',
-        reason: error?.message || 'Database connection error',
+        database: 'disconnected',
+        reason: 'Database is not initialized',
       });
     }
-  });
 
-  app.get('/metrics', async (_req: express.Request, res: express.Response) => {
-    try {
-      res.set('Content-Type', register.contentType);
-      res.end(await register.metrics());
-    } catch (ex) {
-      res.status(500).end(ex);
-    }
-  });
+    await AppDataSource.query('SELECT 1');
 
-  app.get('/readiness', async (_req: express.Request, res: express.Response) => {
-    try {
-      if (!AppDataSource.isInitialized && config.databaseUrl) {
-        return res.status(503).json({
-          status: 'unready',
-          reason: 'Database not initialized',
-        });
-      }
-      if (AppDataSource.isInitialized) {
-        await AppDataSource.query('SELECT 1');
-      }
-      return res.json({ status: 'ready' });
-    } catch (error: any) {
+    const hasPending = await AppDataSource.showMigrations();
+
+    if (hasPending) {
       return res.status(503).json({
-        status: 'unready',
-        reason: error?.message || 'Database unavailable',
+        status: 'unhealthy',
+        database: 'connected',
+        schema: 'out_of_date',
+        reason: 'Pending migrations exist in the database',
       });
     }
-  });
+
+    return res.json({
+      status: 'healthy',
+      database: 'connected',
+      schema: 'up_to_date',
+      timestamp: new Date().toISOString(),
+    });
+  }));
+
+  app.get('/metrics', asyncHandler(async (_req: express.Request, res: express.Response) => {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  }));
+
+  app.get('/readiness', asyncHandler(async (_req: express.Request, res: express.Response) => {
+    if (!AppDataSource.isInitialized && config.databaseUrl) {
+      throw new AppError('Database not initialized', { statusCode: 503, code: 'SERVICE_UNAVAILABLE' });
+    }
+    if (AppDataSource.isInitialized) {
+      await AppDataSource.query('SELECT 1');
+    }
+    return res.json({ status: 'ready' });
+  }));
 
   // OpenAPI documentation routes
   app.get('/api/openapi.json', (_req: express.Request, res: express.Response) => {
@@ -229,21 +213,11 @@ export const createApp = (options: AppOptions = {}) => {
   app.use('/api/v1/admin/analytics', adminAnalyticsRoutes);
   app.use('/api/v1/admin/refunds', adminRefundRoutes);
 
-  app.use(errorHandler);
-
-  app.use((_req: express.Request, res: express.Response) => {
-    const requestId = String(res.locals.requestId || 'unknown');
-    res.status(404).json({
-      success: false,
-      error: {
-        code: 'NOT_FOUND',
-        message: 'Endpoint not found',
-        retryable: false,
-        requestId,
-        timestamp: new Date().toISOString(),
-      },
-    });
+  app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {
+    next(new NotFoundError('Endpoint not found'));
   });
+
+  app.use(errorHandler);
 
   return app;
 };
