@@ -361,7 +361,7 @@ jobs:
           cargo build --locked --target wasm32-unknown-unknown --release
 
       - name: Upload Contract Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: traqora-contracts-wasm
           path: contracts/target/wasm32-unknown-unknown/release/*.wasm
@@ -462,7 +462,7 @@ jobs:
 
       - name: Upload SARIF as artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-${{ matrix.image }}-sarif
           path: trivy-${{ matrix.image }}.sarif

@@ -77,7 +77,7 @@ jobs:
           echo "contracts-built=true" >> $GITHUB_OUTPUT
 
       - name: Upload Contract Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: traqora-contracts-wasm
           path: contracts/target/wasm32-unknown-unknown/release/*.wasm
