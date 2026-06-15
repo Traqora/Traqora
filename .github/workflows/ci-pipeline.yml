@@ -440,7 +440,7 @@ jobs:
           tags: traqora-${{ matrix.image }}:scan
 
       - name: Scan with Trivy (HIGH, CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: traqora-${{ matrix.image }}:scan
           severity: HIGH,CRITICAL
@@ -451,7 +451,7 @@ jobs:
 
       - name: Upload Trivy SARIF
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: traqora-${{ matrix.image }}:scan
           severity: HIGH,CRITICAL
