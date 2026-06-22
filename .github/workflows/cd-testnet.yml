@@ -21,7 +21,7 @@ jobs:
     outputs:
       contracts-built: ${{ steps.build.outputs.contracts-built }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -72,7 +72,7 @@ jobs:
     needs: build-contracts
     environment: testnet
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download Contract Artifacts
         uses: actions/download-artifact@v4
@@ -135,7 +135,7 @@ jobs:
     needs: deploy-contracts
     environment: testnet
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
