@@ -30,7 +30,9 @@ import {
 } from './services/flightSearchService';
 import { errorHandler, asyncHandler } from './utils/errorHandler';
 import { logger } from './utils/logger';
-import { requestLogger } from './middleware/requestLogger';
+import { cspMiddleware } from './middleware/csp';
+import { rateLimitMiddleware } from './middleware/rate-limit';
+import healthRouter from './routes/health';
 import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { register } from './services/metrics';
 import { AppDataSource } from './db/dataSource';
@@ -109,6 +111,10 @@ export const createApp = async (options: AppOptions = {}) => {
     ...options.searchRateLimit,
   });
 
+  app.use(cspMiddleware);
+  app.use(rateLimitMiddleware);
+  app.use('/health', healthRouter);
+
   app.use(securityMiddleware);
   app.use(
     cors({
@@ -136,45 +142,6 @@ export const createApp = async (options: AppOptions = {}) => {
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
-
-  app.get('/health', (_req: express.Request, res: express.Response) => {
-    res.json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      version: '0.1.0',
-      database: AppDataSource.isInitialized ? 'connected' : 'disconnected',
-    });
-  });
-
-  app.get('/health/schema', asyncHandler(async (_req: express.Request, res: express.Response) => {
-    if (!AppDataSource.isInitialized) {
-      return res.status(503).json({
-        status: 'unhealthy',
-        database: 'disconnected',
-        reason: 'Database is not initialized',
-      });
-    }
-
-    await AppDataSource.query('SELECT 1');
-
-    const hasPending = await AppDataSource.showMigrations();
-
-    if (hasPending) {
-      return res.status(503).json({
-        status: 'unhealthy',
-        database: 'connected',
-        schema: 'out_of_date',
-        reason: 'Pending migrations exist in the database',
-      });
-    }
-
-    return res.json({
-      status: 'healthy',
-      database: 'connected',
-      schema: 'up_to_date',
-      timestamp: new Date().toISOString(),
-    });
-  }));
 
   app.get('/metrics', asyncHandler(async (_req: express.Request, res: express.Response) => {
     res.set('Content-Type', register.contentType);
