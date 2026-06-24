@@ -1,5 +1,6 @@
 "use client";
-import React, { useEffect } from "react";
+
+import React, { useEffect, useState } from "react";
 import { Trophy, Star } from "lucide-react";
 import { useConfetti } from "@/lib/use-confetti";
 
@@ -7,7 +8,7 @@ export type LoyaltySummary = {
   tier: string;
   points: number;
   nextTier?: string | null;
-  progressPct?: number; // 0-100
+  progressPct?: number;
   benefits: { id: string; label: string; description?: string }[];
 };
 
@@ -21,12 +22,17 @@ export function LoyaltySummaryCard({
   upgradeCelebration?: boolean;
 }) {
   const confetti = useConfetti();
+  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    if (upgradeCelebration) {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (isMounted && upgradeCelebration) {
       confetti();
     }
-  }, [upgradeCelebration, confetti]);
+  }, [upgradeCelebration, confetti, isMounted]);
 
   return (
     <div className="rounded-lg border p-4 bg-background">

@@ -1,11 +1,12 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import dynamic from "next/dynamic";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import {
   Trophy,
   Star,
@@ -16,21 +17,84 @@ import {
   Coins,
   Target,
   Award,
-} from "lucide-react"
-import { LoyaltySummaryCard } from "@/components/loyalty/LoyaltySummaryCard"
-import { PointsHistoryTable } from "@/components/loyalty/PointsHistoryTable"
-import { RedeemPointsForm } from "@/components/loyalty/RedeemPointsForm"
-import { ReferralInvite } from "@/components/loyalty/ReferralInvite"
-import { TierProgress } from "@/components/loyalty/TierProgress"
-import { TierBenefits } from "@/components/loyalty/TierBenefits"
-import { useLoyaltySummary } from "@/hooks/loyalty/useLoyaltySummary"
-import { usePointsHistory } from "@/hooks/loyalty/usePointsHistory"
-import { NavWalletButton } from "@/components/nav-wallet-button"
+} from "lucide-react";
+import { NavWalletButton } from "@/components/nav-wallet-button";
+import { useLoyaltySummary } from "@/hooks/loyalty/useLoyaltySummary";
+import { usePointsHistory } from "@/hooks/loyalty/usePointsHistory";
+
+// Dynamically import components that might use browser APIs
+const LoyaltySummaryCard = dynamic(
+  () => import("@/components/loyalty/LoyaltySummaryCard").then(mod => mod.LoyaltySummaryCard),
+  { ssr: false }
+);
+
+const PointsHistoryTable = dynamic(
+  () => import("@/components/loyalty/PointsHistoryTable").then(mod => mod.PointsHistoryTable),
+  { ssr: false }
+);
+
+const RedeemPointsForm = dynamic(
+  () => import("@/components/loyalty/RedeemPointsForm").then(mod => mod.RedeemPointsForm),
+  { ssr: false }
+);
+
+const ReferralInvite = dynamic(
+  () => import("@/components/loyalty/ReferralInvite").then(mod => mod.ReferralInvite),
+  { ssr: false }
+);
+
+const TierProgress = dynamic(
+  () => import("@/components/loyalty/TierProgress").then(mod => mod.TierProgress),
+  { ssr: false }
+);
+
+const TierBenefits = dynamic(
+  () => import("@/components/loyalty/TierBenefits").then(mod => mod.TierBenefits),
+  { ssr: false }
+);
+
+// Loading skeleton component
+function LoyaltyPageSkeleton() {
+  return (
+    <div className="min-h-screen bg-background">
+      <nav className="border-b border-border bg-background/95 backdrop-blur">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-2">
+              <Trophy className="h-8 w-8 text-primary" />
+              <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+            </div>
+          </div>
+        </div>
+      </nav>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="animate-pulse space-y-8">
+          <div className="h-8 w-48 bg-muted rounded" />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-24 bg-muted rounded" />
+            ))}
+          </div>
+          <div className="h-64 bg-muted rounded" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function LoyaltyPage() {
-  const [activeTab, setActiveTab] = useState("overview")
-  const { data: summary, isLoading: summaryLoading, upgradeCelebration } = useLoyaltySummary()
-  const history = usePointsHistory()
+  const [isMounted, setIsMounted] = useState(false);
+  const [activeTab, setActiveTab] = useState("overview");
+  const { data: summary, isLoading: summaryLoading, upgradeCelebration } = useLoyaltySummary();
+  const history = usePointsHistory();
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) {
+    return <LoyaltyPageSkeleton />;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -234,5 +298,5 @@ export default function LoyaltyPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }
