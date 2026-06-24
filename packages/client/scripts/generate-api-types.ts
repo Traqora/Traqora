@@ -10,15 +10,13 @@ async function generateApiTypes() {
     
     // Generate TypeScript types from OpenAPI spec
     const output = await openapiTS(specUrl, {
-      // Use fetch client for better compatibility
-      httpClient: 'fetch',
       // Add type transformations
-      transform: (schema: any, name: string) => {
+      transform: (schemaObject: any, options: any) => {
         // Custom transformation for better type names
-        if (name === 'paths') {
+        if (options?.name === 'paths') {
           return 'ApiPaths';
         }
-        return name;
+        return options?.name;
       },
     });
     
@@ -30,7 +28,7 @@ async function generateApiTypes() {
       fs.mkdirSync(outputDir, { recursive: true });
     }
     
-    fs.writeFileSync(outputPath, output);
+    fs.writeFileSync(outputPath, output.toString());
     console.log(`✅ API types generated successfully at: ${outputPath}`);
   } catch (error) {
     console.error('❌ Failed to generate API types:', error);
