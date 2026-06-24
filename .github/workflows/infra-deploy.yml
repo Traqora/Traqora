@@ -28,7 +28,7 @@ jobs:
     name: Validate Application Code
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -63,7 +63,7 @@ jobs:
     outputs:
       tf-workspace: ${{ steps.env.outputs.tf-workspace }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
@@ -120,7 +120,7 @@ jobs:
     needs: validate-terraform
     environment: ${{ needs.validate-terraform.outputs.tf-workspace }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
@@ -175,7 +175,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -234,7 +234,7 @@ jobs:
     if: always()
     environment: ${{ needs.validate-terraform.outputs.tf-workspace }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download Outputs
         uses: actions/download-artifact@v4
