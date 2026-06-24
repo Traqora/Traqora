@@ -3,6 +3,7 @@ export enum LoyaltyTier {
   SILVER = 'silver',
   GOLD = 'gold',
   PLATINUM = 'platinum',
+  DIAMOND = 'diamond',
 }
 
 export enum PointsTransactionType {
