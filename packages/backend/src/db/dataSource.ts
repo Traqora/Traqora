@@ -13,6 +13,9 @@ import { AdminAuditLog } from "./entities/AdminAuditLog";
 import { Refund } from "./entities/Refund";
 import { User } from "./entities/User";
 import { TravelDocument } from "./entities/TravelDocument";
+import { Tenant } from "./entities/Tenant";
+import { DashboardShare } from "./entities/DashboardShare";
+import { DashboardComment } from "./entities/DashboardComment";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -35,6 +38,9 @@ export const AppDataSource = new DataSource(
         Refund,
         User,
         TravelDocument,
+        Tenant,
+        DashboardShare,
+        DashboardComment,
       ],
       logging: false,
     }
@@ -55,6 +61,9 @@ export const AppDataSource = new DataSource(
         Refund,
         User,
         TravelDocument,
+        Tenant,
+        DashboardShare,
+        DashboardComment,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:

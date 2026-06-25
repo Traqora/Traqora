@@ -15,6 +15,8 @@ import { adminUserRoutes } from './api/routes/admin/users';
 import { adminBookingRoutes } from './api/routes/admin/bookings';
 import { adminAnalyticsRoutes } from './api/routes/admin/analytics';
 import { adminRefundRoutes } from './api/routes/admin/refunds';
+import { tenantAnalyticsRoutes } from './api/routes/admin/tenantAnalytics';
+import { collaborationRoutes } from './api/routes/collaboration';
 import { authRoutes } from './api/routes/auth';
 import { documentRoutes } from './api/routes/documents';
 // @ts-ignore
@@ -180,7 +182,9 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/admin/users', adminUserRoutes);
   app.use('/api/v1/admin/bookings', adminBookingRoutes);
   app.use('/api/v1/admin/analytics', adminAnalyticsRoutes);
+  app.use('/api/v1/admin/analytics', tenantAnalyticsRoutes);
   app.use('/api/v1/admin/refunds', adminRefundRoutes);
+  app.use('/api/v1/collaboration', collaborationRoutes);
 
   app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {
     next(new NotFoundError('Endpoint not found'));

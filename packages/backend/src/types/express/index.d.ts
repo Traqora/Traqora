@@ -7,6 +7,8 @@ declare global {
                 walletAddress: string;
                 walletType: string;
             };
+            tenantId?: string;
+            tenantRole?: 'owner' | 'admin' | 'member' | 'viewer';
         }
     }
 }
