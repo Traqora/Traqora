@@ -7,6 +7,7 @@
  */
 
 import cron from 'node-cron';
+import type { ScheduledTask } from 'node-cron';
 import { logger } from '../utils/logger';
 import { DataRetentionService, DataType } from '../services/analytics/dataRetentionService';
 
@@ -20,7 +21,7 @@ const CRON_EXPRESSION = process.env.ARCHIVAL_JOB_CRON || '0 3 * * *';
 export class ArchivalJob {
   private readonly svc: DataRetentionService;
   private readonly datasets: LiveDataset[];
-  private task: cron.ScheduledTask | null = null;
+  private task: ScheduledTask | null = null;
 
   constructor(datasets: LiveDataset[] = [], svc?: DataRetentionService) {
     this.datasets = datasets;

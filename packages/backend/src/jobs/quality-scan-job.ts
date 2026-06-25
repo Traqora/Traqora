@@ -8,6 +8,7 @@
  */
 
 import cron from 'node-cron';
+import type { ScheduledTask } from 'node-cron';
 import { logger } from '../utils/logger';
 import { DataQualityService, DataQualityConfig, QualityScanResult } from '../services/analytics/dataQualityService';
 
@@ -22,7 +23,7 @@ const CRON_EXPRESSION = process.env.QUALITY_SCAN_CRON || '0 2 * * *';
 export class QualityScanJob {
   private readonly svc: DataQualityService;
   private readonly datasets: DatasetDescriptor[];
-  private task: cron.ScheduledTask | null = null;
+  private task: ScheduledTask | null = null;
   readonly lastResults: Map<string, QualityScanResult> = new Map();
 
   constructor(datasets: DatasetDescriptor[] = [], svc?: DataQualityService) {

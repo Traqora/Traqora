@@ -53,9 +53,7 @@ pub struct AdminStorage;
 
 impl AdminStorage {
     pub fn get_multisig_config(env: &Env) -> Option<MultisigConfig> {
-        env.storage()
-            .instance()
-            .get(&symbol_short!("ms_config"))
+        env.storage().instance().get(&symbol_short!("ms_config"))
     }
 
     pub fn set_multisig_config(env: &Env, config: &MultisigConfig) {
@@ -121,22 +119,20 @@ pub struct AdminMultisig;
 #[contractimpl]
 impl AdminMultisig {
     /// Initialize the multi-signature admin system
-    /// 
+    ///
     /// # Arguments
     /// * `signers` - Initial list of authorized signers
     /// * `threshold` - Number of signatures required (2-of-3, 3-of-5, etc.)
     /// * `proposal_expiration` - Time in seconds before proposals expire
-    pub fn initialize(
-        env: Env,
-        signers: Vec<Address>,
-        threshold: u32,
-        proposal_expiration: u64,
-    ) {
+    pub fn initialize(env: Env, signers: Vec<Address>, threshold: u32, proposal_expiration: u64) {
         assert!(
             AdminStorage::get_multisig_config(&env).is_none(),
             "Already initialized"
         );
-        assert!(signers.len() >= threshold as u32, "Threshold exceeds signer count");
+        assert!(
+            signers.len() >= threshold as u32,
+            "Threshold exceeds signer count"
+        );
         assert!(threshold > 0, "Threshold must be > 0");
         assert!(threshold >= 2, "Threshold must be at least 2 for security");
         assert!(proposal_expiration > 0, "Expiration must be > 0");
@@ -149,14 +145,12 @@ impl AdminMultisig {
 
         AdminStorage::set_multisig_config(&env, &config);
 
-        env.events().publish(
-            (symbol_short!("admin"), symbol_short!("init")),
-            threshold,
-        );
+        env.events()
+            .publish((symbol_short!("admin"), symbol_short!("init")), threshold);
     }
 
     /// Propose an admin action
-    /// 
+    ///
     /// # Arguments
     /// * `proposer` - Address of the proposer (must be a signer)
     /// * `action_type` - Type of admin action to perform
@@ -236,7 +230,7 @@ impl AdminMultisig {
     }
 
     /// Approve an admin action proposal
-    /// 
+    ///
     /// # Arguments
     /// * `signer` - Address of the approving signer
     /// * `proposal_id` - ID of the proposal to approve
@@ -274,7 +268,7 @@ impl AdminMultisig {
     }
 
     /// Execute an approved admin action
-    /// 
+    ///
     /// # Arguments
     /// * `executor` - Address executing the action (must be a signer)
     /// * `proposal_id` - ID of the proposal to execute
@@ -477,7 +471,7 @@ impl AdminMultisig {
             false
         }
     }
-pub fn init_upgrade_owner(env: Env, owner: Address) {
-    crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
-}
+    pub fn init_upgrade_owner(env: Env, owner: Address) {
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
+    }
 }

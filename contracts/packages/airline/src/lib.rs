@@ -1,8 +1,8 @@
 #![no_std]
+use access::{AccessControl, Role};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol, Vec,
 };
-use access::{AccessControl, Role};
 
 #[contracttype]
 #[derive(Clone)]
@@ -198,7 +198,7 @@ pub struct AirlineContract;
 impl AirlineContract {
     pub fn initialize(env: Env, owner: Address) {
         AccessControl::init_owner(&env, &owner);
-crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
+        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
     }
 
     fn is_valid_status(status: &Symbol) -> bool {
@@ -315,15 +315,15 @@ crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
         currency: Symbol,
     ) -> u64 {
         airline.require_auth();
-        
-        let mut profile = AirlineRegistry::get_airline(&env, &airline)
-            .expect("Airline not registered");
-        
+
+        let mut profile =
+            AirlineRegistry::get_airline(&env, &airline).expect("Airline not registered");
+
         assert!(profile.is_verified, "Airline not verified");
         assert!(arrival_time > departure_time, "Invalid flight times");
         assert!(total_seats > 0, "Invalid seat count");
         assert!(price > 0, "Invalid price");
-        
+
         let flight_id = AirlineRegistry::next_flight_id(&env);
 
         let flight = Flight {
@@ -403,8 +403,8 @@ crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
         assert!(flights.len() > 0, "Empty batch");
         assert!(flights.len() <= MAX_BATCH_SIZE, "Batch too large");
 
-        let mut profile = AirlineRegistry::get_airline(&env, &airline)
-            .expect("Airline not registered");
+        let mut profile =
+            AirlineRegistry::get_airline(&env, &airline).expect("Airline not registered");
         assert!(profile.is_verified, "Airline not verified");
 
         let mut created_flight_ids = Vec::new(&env);

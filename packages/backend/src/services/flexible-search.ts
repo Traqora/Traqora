@@ -365,7 +365,7 @@ export class FlexibleDateSearchService {
           }
         }
 
-        const trend =
+        const trend: "up" | "down" | "stable" =
           percentageChange > 2
             ? "up"
             : percentageChange < -2

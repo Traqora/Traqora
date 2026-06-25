@@ -47,6 +47,7 @@ import {
 import { requireAuth } from './middleware/authMiddleware';
 import { NotFoundError } from './utils/errors';
 import { AppError } from './services/ErrorHandlingService';
+import { requestLogger } from './middleware/requestLogger';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
