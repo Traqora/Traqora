@@ -42,3 +42,21 @@ export const refundTemplate = (data: any) => ({
     </div>
   `,
 });
+
+export const analyticsExportTemplate = (data: any) => ({
+  subject: `Analytics export ready: ${data.dataset}`,
+  text: `Your ${data.dataset} analytics export is ready. Download it here: ${data.downloadUrl}. This link expires at ${data.expiresAt}.`,
+  html: `
+    <div style="font-family: Arial, sans-serif; padding: 20px;">
+      <h2>Analytics Export Ready</h2>
+      <p>Your requested analytics export is ready for download.</p>
+      <ul>
+        <li><strong>Dataset:</strong> ${data.dataset}</li>
+        <li><strong>Format:</strong> ${data.format}</li>
+        <li><strong>Rows:</strong> ${data.rowCount}</li>
+        <li><strong>Expires:</strong> ${data.expiresAt}</li>
+      </ul>
+      <p><a href="${data.downloadUrl}">Download export</a></p>
+    </div>
+  `,
+});

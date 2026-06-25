@@ -1,12 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
 import { asyncHandler } from '../../../utils/errorHandler';
 import { AppDataSource } from '../../../db/dataSource';
 import { Booking } from '../../../db/entities/Booking';
 import { Flight } from '../../../db/entities/Flight';
 import { Passenger } from '../../../db/entities/Passenger';
 import { requireAdmin, requireRole } from '../../../middleware/adminAuth';
-import { BadRequestError, TooManyRequestsError } from '../../../utils/errors';
+import { BadRequestError, NotFoundError, TooManyRequestsError } from '../../../utils/errors';
+import { emailService } from '../../../services/EmailService';
 import { SelectQueryBuilder } from 'typeorm';
 
 const router = Router();
@@ -17,6 +19,28 @@ const exportUsage = new Map<string, { day: string; count: number }>();
 type ExportDataset = 'revenue' | 'bookings' | 'distribution-history' | 'collaborator-earnings';
 type ExportFormat = 'json' | 'csv' | 'xlsx';
 type ExportRow = Record<string, string | number | null>;
+type ExportJobStatus = 'queued' | 'processing' | 'ready' | 'failed' | 'expired';
+
+interface ExportJob {
+    id: string;
+    adminId: string;
+    dataset: ExportDataset;
+    format: ExportFormat;
+    status: ExportJobStatus;
+    createdAt: Date;
+    expiresAt: Date;
+    filename: string;
+    contentType: string;
+    rowCount: number;
+    downloadUrl: string;
+    error?: string;
+    payload?: Buffer;
+    notification?: {
+        email: string;
+        status: 'pending' | 'sent' | 'failed';
+        error?: string;
+    };
+}
 
 const exportQuerySchema = z.object({
     dataset: z.enum(['revenue', 'bookings', 'distribution-history', 'collaborator-earnings']).default('bookings'),
@@ -25,6 +49,12 @@ const exportQuerySchema = z.object({
     endDate: z.coerce.date().optional(),
     limit: z.coerce.number().int().min(1).max(MAX_EXPORT_ROWS).default(10000),
 });
+
+const exportJobRequestSchema = exportQuerySchema.extend({
+    notifyEmail: z.string().email().optional(),
+});
+
+const exportJobs = new Map<string, ExportJob>();
 
 const distributionAnalyticsQuerySchema = z.object({
     startDate: z.coerce.date().optional(),
@@ -428,6 +458,101 @@ function sendExport(res: Response, dataset: ExportDataset, format: ExportFormat,
     return res.send(toCsv(rows));
 }
 
+function buildExportPayload(dataset: ExportDataset, format: ExportFormat, rows: ExportRow[]) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `${dataset}-${timestamp}.${format}`;
+
+    if (format === 'json') {
+        return {
+            filename,
+            contentType: 'application/json; charset=utf-8',
+            payload: Buffer.from(JSON.stringify({ success: true, data: { dataset, count: rows.length, rows } }, null, 2)),
+        };
+    }
+
+    if (format === 'xlsx') {
+        return {
+            filename,
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            payload: toXlsx(rows),
+        };
+    }
+
+    return {
+        filename,
+        contentType: 'text/csv; charset=utf-8',
+        payload: Buffer.from(toCsv(rows)),
+    };
+}
+
+function serializeExportJob(job: ExportJob) {
+    return {
+        id: job.id,
+        dataset: job.dataset,
+        format: job.format,
+        status: job.status,
+        rowCount: job.rowCount,
+        filename: job.filename,
+        downloadUrl: job.status === 'ready' ? job.downloadUrl : null,
+        createdAt: job.createdAt.toISOString(),
+        expiresAt: job.expiresAt.toISOString(),
+        error: job.error ?? null,
+        notification: job.notification ?? null,
+    };
+}
+
+async function processExportJob(
+    job: ExportJob,
+    params: { startDate?: Date; endDate?: Date; limit: number; notifyEmail?: string }
+) {
+    job.status = 'processing';
+
+    try {
+        const rows = await buildExportRows(job.dataset, params.startDate, params.endDate, params.limit);
+        const { filename, contentType, payload } = buildExportPayload(job.dataset, job.format, rows);
+        job.filename = filename;
+        job.contentType = contentType;
+        job.payload = payload;
+        job.rowCount = rows.length;
+        job.status = 'ready';
+
+        if (params.notifyEmail) {
+            job.notification = { email: params.notifyEmail, status: 'pending' };
+            try {
+                await emailService.send(params.notifyEmail, 'analytics-export', {
+                    dataset: job.dataset,
+                    format: job.format,
+                    rowCount: job.rowCount,
+                    downloadUrl: job.downloadUrl,
+                    expiresAt: job.expiresAt.toISOString(),
+                });
+                job.notification.status = 'sent';
+            } catch (error) {
+                job.notification.status = 'failed';
+                job.notification.error = error instanceof Error ? error.message : String(error);
+            }
+        }
+    } catch (error) {
+        job.status = 'failed';
+        job.error = error instanceof Error ? error.message : String(error);
+    }
+}
+
+function getExportJobForAdmin(req: Request) {
+    const job = exportJobs.get(req.params.id);
+    if (!job) {
+        throw new NotFoundError('Export job not found');
+    }
+    if (job.adminId !== (req.admin?.adminId || 'unknown')) {
+        throw new NotFoundError('Export job not found');
+    }
+    if (job.status === 'ready' && job.expiresAt.getTime() <= Date.now()) {
+        job.status = 'expired';
+        job.payload = undefined;
+    }
+    return job;
+}
+
 // GET /api/v1/admin/analytics
 router.get('/', requireAdmin, requireRole('admin'), asyncHandler(async (_req: Request, res: Response) => {
     
@@ -520,6 +645,61 @@ router.get('/export', requireAdmin, requireRole('admin'), asyncHandler(async (re
     checkExportRateLimit(req);
     const rows = await buildExportRows(dataset, startDate, endDate, limit);
     return sendExport(res, dataset, format, rows);
+}));
+
+// POST /api/v1/admin/analytics/export/jobs
+router.post('/export/jobs', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+    const parsed = exportJobRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+        throw new BadRequestError('Validation Error', parsed.error.flatten());
+    }
+
+    const { dataset, format, startDate, endDate, limit, notifyEmail } = parsed.data;
+    if (startDate && endDate && startDate > endDate) {
+        throw new BadRequestError('startDate must be before endDate');
+    }
+
+    checkExportRateLimit(req);
+
+    const id = randomUUID();
+    const job: ExportJob = {
+        id,
+        adminId: req.admin?.adminId || 'unknown',
+        dataset,
+        format,
+        status: 'queued',
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        filename: `${dataset}.${format}`,
+        contentType: 'application/octet-stream',
+        rowCount: 0,
+        downloadUrl: `/api/v1/admin/analytics/export/jobs/${id}/download`,
+    };
+
+    exportJobs.set(id, job);
+    void processExportJob(job, { startDate, endDate, limit, notifyEmail });
+
+    return res.status(202).json({ success: true, data: serializeExportJob(job) });
+}));
+
+// GET /api/v1/admin/analytics/export/jobs/:id
+router.get('/export/jobs/:id', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+    return res.json({ success: true, data: serializeExportJob(getExportJobForAdmin(req)) });
+}));
+
+// GET /api/v1/admin/analytics/export/jobs/:id/download
+router.get('/export/jobs/:id/download', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+    const job = getExportJobForAdmin(req);
+    if (job.status === 'expired') {
+        return res.status(410).json({ success: false, error: 'Export download link has expired' });
+    }
+    if (job.status !== 'ready' || !job.payload) {
+        return res.status(409).json({ success: false, error: `Export job is ${job.status}` });
+    }
+
+    res.setHeader('Content-Type', job.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${job.filename}"`);
+    return res.send(job.payload);
 }));
 
 export const adminAnalyticsRoutes = router;
