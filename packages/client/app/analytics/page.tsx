@@ -15,7 +15,10 @@ import {
   LineChart,
   Award,
   DollarSign,
+  Building2,
 } from "lucide-react"
+import { ShareButton } from "@/components/ShareButton"
+import { CommentsPanel } from "@/components/CommentsPanel"
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart as ReLineChart, Line } from 'recharts'
 import { Separator } from '@/components/ui/separator'
 
@@ -154,13 +157,22 @@ export default function AnalyticsPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="font-serif font-bold text-3xl text-foreground mb-2">
-            Travel Analytics
-          </h1>
-          <p className="text-muted-foreground">
-            Track your travel history, spending patterns, and environmental impact.
-          </p>
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="font-serif font-bold text-3xl text-foreground mb-2">
+              Travel Analytics
+            </h1>
+            <p className="text-muted-foreground">
+              Track your travel history, spending patterns, and environmental impact.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a href="/analytics/tenant-settings" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border rounded-md px-3 py-1.5 transition-colors">
+              <Building2 className="h-4 w-4" />
+              Tenant
+            </a>
+            <ShareButton dashboardId="analytics/main" />
+          </div>
         </div>
 
         {/* Travel Stats Overview */}
@@ -359,6 +371,15 @@ export default function AnalyticsPage() {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Collaboration panel */}
+        <div className="mt-8">
+          <CommentsPanel
+            dashboardId="analytics/main"
+            targetType="dashboard"
+            className="w-full"
+          />
+        </div>
       </div>
     </div>
   )
