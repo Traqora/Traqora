@@ -8,9 +8,13 @@
 const express = require('express');
 const router = express.Router();
 const { RevenueForecastingService } = require('../analytics/forecasting');
+const { CohortAnalysisService } = require('../analytics/cohort');
+const { FunnelAnalysisService } = require('../analytics/funnel');
 const { QueryCache } = require('../database/query-cache');
 
 const forecastingService = new RevenueForecastingService();
+const cohortAnalysisService = new CohortAnalysisService();
+const funnelAnalysisService = new FunnelAnalysisService();
 const queryCache = new QueryCache();
 
 // Initialize cache on first load
@@ -198,6 +202,30 @@ router.get('/user-metrics', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/analytics/cohorts
+ * Returns collaborator cohort analysis with retention, LTV, churn, and export data.
+ */
+router.get('/cohorts', async (req, res) => {
+  try {
+    const { period = 'month' } = req.query;
+    res.json(cohortAnalysisService.getReport({ period }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/analytics/funnel
+ * Returns royalty accrual to distribution funnel metrics.
+ */
+router.get('/funnel', async (req, res) => {
+  try {
+    res.json(funnelAnalysisService.getReport());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 /**
  * GET /api/analytics/cache-stats
  * Query cache statistics.
