@@ -30,6 +30,9 @@ class EmailService {
       case "refund":
         template = templatesV1.refundTemplate(data);
         break;
+      case "analytics-export":
+        template = templatesV1.analyticsExportTemplate(data);
+        break;
       default:
         throw new Error(`Email template not found for type: ${type}`);
     }
