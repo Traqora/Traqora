@@ -26,6 +26,13 @@ const exportQuerySchema = z.object({
     limit: z.coerce.number().int().min(1).max(MAX_EXPORT_ROWS).default(10000),
 });
 
+const distributionAnalyticsQuerySchema = z.object({
+    startDate: z.coerce.date().optional(),
+    endDate: z.coerce.date().optional(),
+    interval: z.enum(['day', 'hour']).default('day'),
+    limit: z.coerce.number().int().min(1).max(MAX_EXPORT_ROWS).default(10000),
+});
+
 function checkExportRateLimit(req: Request) {
     const key = req.admin?.adminId || req.ip;
     const day = new Date().toISOString().slice(0, 10);
@@ -59,6 +66,95 @@ function centsToDollars(cents: number) {
 
 function dateKey(date: Date) {
     return date.toISOString().slice(0, 10);
+}
+
+function timeBucket(date: Date, interval: 'day' | 'hour') {
+    const iso = date.toISOString();
+    return interval === 'hour' ? iso.slice(0, 13) + ':00:00.000Z' : iso.slice(0, 10);
+}
+
+function percentile(values: number[], percentileRank: number) {
+    if (values.length === 0) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const index = Math.ceil((percentileRank / 100) * sorted.length) - 1;
+    return sorted[Math.max(0, Math.min(sorted.length - 1, index))];
+}
+
+function errorCategory(error: string | null | undefined) {
+    if (!error) return 'unknown';
+    const normalized = error.toLowerCase();
+    if (normalized.includes('timeout')) return 'timeout';
+    if (normalized.includes('auth') || normalized.includes('signature')) return 'authorization';
+    if (normalized.includes('balance') || normalized.includes('fund')) return 'insufficient_funds';
+    if (normalized.includes('sequence') || normalized.includes('tx_bad_seq')) return 'sequence';
+    if (normalized.includes('network') || normalized.includes('horizon') || normalized.includes('rpc')) return 'network';
+    return 'other';
+}
+
+async function buildDistributionAnalytics(
+    startDate: Date | undefined,
+    endDate: Date | undefined,
+    interval: 'day' | 'hour',
+    limit: number
+) {
+    const bookings = await getFilteredBookings(startDate, endDate, limit);
+    const successfulStatuses = new Set(['confirmed', 'paid', 'onchain_submitted']);
+    const failedStatuses = new Set(['failed', 'refunded', 'refund_rejected']);
+    const pendingStatuses = new Set(['created', 'awaiting_payment', 'payment_processing', 'onchain_pending']);
+    const statusCounts: Record<string, number> = {};
+    const failureReasons: Record<string, number> = {};
+    const volumeByPeriod = new Map<string, { total: number; successful: number; failed: number; pending: number }>();
+    const latencyMs: number[] = [];
+
+    for (const booking of bookings) {
+        statusCounts[booking.status] = (statusCounts[booking.status] ?? 0) + 1;
+        const bucket = timeBucket(booking.createdAt, interval);
+        const volume = volumeByPeriod.get(bucket) ?? { total: 0, successful: 0, failed: 0, pending: 0 };
+        volume.total += 1;
+
+        if (successfulStatuses.has(booking.status)) {
+            volume.successful += 1;
+            latencyMs.push(Math.max(0, booking.updatedAt.getTime() - booking.createdAt.getTime()));
+        } else if (failedStatuses.has(booking.status)) {
+            volume.failed += 1;
+            failureReasons[errorCategory(booking.lastError)] = (failureReasons[errorCategory(booking.lastError)] ?? 0) + 1;
+            latencyMs.push(Math.max(0, booking.updatedAt.getTime() - booking.createdAt.getTime()));
+        } else if (pendingStatuses.has(booking.status)) {
+            volume.pending += 1;
+        }
+
+        volumeByPeriod.set(bucket, volume);
+    }
+
+    const successful = bookings.filter((booking) => successfulStatuses.has(booking.status)).length;
+    const failed = bookings.filter((booking) => failedStatuses.has(booking.status)).length;
+    const pending = bookings.length - successful - failed;
+    const total = bookings.length;
+
+    return {
+        total,
+        successful,
+        failed,
+        pending,
+        successRate: total > 0 ? Number(((successful / total) * 100).toFixed(2)) : 0,
+        failureRate: total > 0 ? Number(((failed / total) * 100).toFixed(2)) : 0,
+        averageDistributionTimeMs:
+            latencyMs.length > 0 ? Math.round(latencyMs.reduce((sum, value) => sum + value, 0) / latencyMs.length) : 0,
+        latencyPercentilesMs: {
+            p50: percentile(latencyMs, 50),
+            p95: percentile(latencyMs, 95),
+            p99: percentile(latencyMs, 99),
+        },
+        statusCounts,
+        failureReasons,
+        volumeByPeriod: Array.from(volumeByPeriod.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([period, metrics]) => ({ period, ...metrics })),
+        alert: total > 0 && successful / total < 0.95
+            ? { type: 'success_rate_below_threshold', threshold: 95 }
+            : null,
+        retentionDays: 180,
+    };
 }
 
 async function getFilteredBookings(startDate: Date | undefined, endDate: Date | undefined, limit: number) {
@@ -378,6 +474,33 @@ router.get('/', requireAdmin, requireRole('admin'), asyncHandler(async (_req: Re
             bookingsByStatus,
             totalFlights,
             totalPassengers,
+        },
+    });
+}));
+
+// GET /api/v1/admin/analytics/distributions
+router.get('/distributions', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+    const parsed = distributionAnalyticsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+        throw new BadRequestError('Validation Error', parsed.error.flatten());
+    }
+
+    const { startDate, endDate, interval, limit } = parsed.data;
+    if (startDate && endDate && startDate > endDate) {
+        throw new BadRequestError('startDate must be before endDate');
+    }
+
+    const analytics = await buildDistributionAnalytics(startDate, endDate, interval, limit);
+    return res.json({
+        success: true,
+        data: {
+            ...analytics,
+            filters: {
+                startDate: startDate?.toISOString() ?? null,
+                endDate: endDate?.toISOString() ?? null,
+                interval,
+                limit,
+            },
         },
     });
 }));
