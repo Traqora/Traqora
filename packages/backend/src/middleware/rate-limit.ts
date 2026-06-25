@@ -14,7 +14,7 @@ const redisUrl = process.env.RATE_LIMIT_REDIS_URL || process.env.REDIS_URL || un
 const redisClient = redisUrl ? new Redis(redisUrl) : null;
 
 const maxRequests = parseInt(process.env.RATE_LIMIT_MAX ?? '100', 10);
-const windowMs = ms(process.env.RATE_LIMIT_WINDOW ?? '1m');
+const windowMs = ms((process.env.RATE_LIMIT_WINDOW ?? '1m') as Parameters<typeof ms>[0]);
 
 export async function rateLimitMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
@@ -26,8 +26,8 @@ export async function rateLimitMiddleware(req: Request, res: Response, next: Nex
         .incr(key)
         .pttl(key)
         .exec();
-      current = Number(results[0][1]);
-      const ttl = Number(results[1][1]);
+      current = results ? Number(results[0][1]) : 0;
+      const ttl = results ? Number(results[1][1]) : -1;
       if (ttl === -1) {
         await redisClient.pexpire(key, windowMs);
       }

@@ -1,7 +1,6 @@
 import { AppDataSource } from "../../db/dataSource";
 import {
   DataPrivacyImpactAssessment,
-  PIAStatus,
   RiskLevel,
 } from "../../db/entities/DataPrivacyImpactAssessment";
 import {
@@ -9,7 +8,7 @@ import {
   ClassificationLevel,
   DataType,
 } from "../../db/entities/DataClassificationLabel";
-import { DataAccessPolicy } from "../../db/entities/DataAccessPolicy";
+import { DataAccessPolicy, AccessLevel } from "../../db/entities/DataAccessPolicy";
 import { AdminAuditLog } from "../../db/entities/AdminAuditLog";
 import { logger } from "../../utils/logger";
 
@@ -230,7 +229,7 @@ export class DataPrivacyService {
         policyName,
         description,
         dataClassification,
-        requiredRoles,
+        requiredRoles: requiredRoles as unknown as AccessLevel[],
         applicableFrameworks: applicableFrameworks as any,
         createdBy: createdByEmail,
       });
@@ -293,7 +292,7 @@ export class DataPrivacyService {
         return false;
       }
 
-      return policy.requiredRoles.includes(userRole);
+      return policy.requiredRoles.includes(userRole as AccessLevel);
     } catch (error) {
       logger.error("Error checking data access", {
         error: error instanceof Error ? error.message : String(error),

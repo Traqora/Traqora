@@ -6,8 +6,6 @@ import {
 } from "../../db/entities/ConsentRecord";
 import { AdminAuditLog } from "../../db/entities/AdminAuditLog";
 import { logger } from "../../utils/logger";
-import crypto from "crypto";
-
 interface ConsentRequestInput {
   userWalletAddress: string;
   consentType: ConsentType;

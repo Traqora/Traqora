@@ -32,7 +32,7 @@ export interface UserAnalytics {
 }
 
 export class UserAnalyticsService {
-  async getUserAnalytics(userId: string): Promise<UserAnalytics> {
+  async getUserAnalytics(_userId: string): Promise<UserAnalytics> {
     // TODO: Replace with real DB/aggregation queries
     return {
       bookingHistory: [],

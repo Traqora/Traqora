@@ -64,7 +64,7 @@ export class ComplianceReport {
 
   @Index()
   @Column({
-    type: 'process.env.NODE_ENV === "test" ? "datetime" : "timestamptz"',
+    type: process.env.NODE_ENV === "test" ? "datetime" : "timestamptz",
     nullable: true,
   })
   reportPeriodStart?: Date | null;

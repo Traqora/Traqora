@@ -2,16 +2,13 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { loyaltyService } from '../../services/loyalty/loyaltyService';
-import { TierManager } from '../../services/loyalty/tierManager';
 import { LoyaltyStore } from '../../services/loyalty/store';
-import { TIER_CONFIGS } from '../../services/loyalty/tierConfig';
 import { BadRequestError, NotFoundError } from '../../utils/errors';
 import { loyaltyTierSchema, loyaltyActionSchema } from '../schemas';
 
 const router = Router();
 
 const loyaltyStore = LoyaltyStore.getInstance();
-const tierManager = new TierManager(loyaltyStore);
 
 router.get(
   '/balance',
