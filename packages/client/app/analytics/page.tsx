@@ -16,11 +16,17 @@ import {
   Award,
   DollarSign,
   Building2,
+  Brain,
+  FlaskConical,
+  ChartLine,
 } from "lucide-react"
 import { ShareButton } from "@/components/ShareButton"
 import { CommentsPanel } from "@/components/CommentsPanel"
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, LineChart as ReLineChart, Line } from 'recharts'
 import { Separator } from '@/components/ui/separator'
+import { RevenueForecast } from "@/components/RevenueForecast"
+import { InsightsPanel } from "@/components/InsightsPanel"
+import { ABTestConfig } from "@/components/ABTestConfig"
 
 interface BookingHistoryItem {
   id: string
@@ -198,7 +204,7 @@ export default function AnalyticsPage() {
         </div>
 
         <Tabs defaultValue="history" className="space-y-6">
-          <TabsList>
+          <TabsList className="flex-wrap">
             <TabsTrigger value="history" className="flex items-center gap-2">
               <Calendar className="h-4 w-4" />
               Booking History
@@ -210,6 +216,18 @@ export default function AnalyticsPage() {
             <TabsTrigger value="environment" className="flex items-center gap-2">
               <Leaf className="h-4 w-4" />
               Carbon Footprint
+            </TabsTrigger>
+            <TabsTrigger value="forecast" className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              Revenue Forecast
+            </TabsTrigger>
+            <TabsTrigger value="insights" className="flex items-center gap-2">
+              <Brain className="h-4 w-4" />
+              ML Insights
+            </TabsTrigger>
+            <TabsTrigger value="ab-testing" className="flex items-center gap-2">
+              <FlaskConical className="h-4 w-4" />
+              A/B Testing
             </TabsTrigger>
           </TabsList>
 
@@ -369,6 +387,21 @@ export default function AnalyticsPage() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          {/* Revenue Forecast */}
+          <TabsContent value="forecast" className="space-y-4">
+            <RevenueForecast />
+          </TabsContent>
+
+          {/* ML Insights */}
+          <TabsContent value="insights" className="space-y-4">
+            <InsightsPanel />
+          </TabsContent>
+
+          {/* A/B Testing */}
+          <TabsContent value="ab-testing" className="space-y-4">
+            <ABTestConfig />
           </TabsContent>
         </Tabs>
 
