@@ -16,6 +16,7 @@ import { TravelDocument } from "./entities/TravelDocument";
 import { Tenant } from "./entities/Tenant";
 import { DashboardShare } from "./entities/DashboardShare";
 import { DashboardComment } from "./entities/DashboardComment";
+import { AnalyticsAuditLog } from "./entities/AnalyticsAuditLog";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -41,6 +42,7 @@ export const AppDataSource = new DataSource(
         Tenant,
         DashboardShare,
         DashboardComment,
+        AnalyticsAuditLog,
       ],
       logging: false,
     }
@@ -64,6 +66,7 @@ export const AppDataSource = new DataSource(
         Tenant,
         DashboardShare,
         DashboardComment,
+        AnalyticsAuditLog,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:

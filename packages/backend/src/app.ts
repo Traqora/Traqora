@@ -16,6 +16,7 @@ import { adminBookingRoutes } from './api/routes/admin/bookings';
 import { adminAnalyticsRoutes } from './api/routes/admin/analytics';
 import { adminRefundRoutes } from './api/routes/admin/refunds';
 import { tenantAnalyticsRoutes } from './api/routes/admin/tenantAnalytics';
+import { analyticsAuditRoutes } from './api/routes/admin/analyticsAudit';
 import { collaborationRoutes } from './api/routes/collaboration';
 import { authRoutes } from './api/routes/auth';
 import { documentRoutes } from './api/routes/documents';
@@ -50,6 +51,7 @@ import { requireAuth } from './middleware/authMiddleware';
 import { NotFoundError } from './utils/errors';
 import { AppError } from './services/ErrorHandlingService';
 import { requestLogger } from './middleware/requestLogger';
+import { analyticsAuditLogger } from './middleware/audit-logger';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
@@ -182,6 +184,8 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/admin/flights', adminFlightRoutes);
   app.use('/api/v1/admin/users', adminUserRoutes);
   app.use('/api/v1/admin/bookings', adminBookingRoutes);
+  app.use('/api/v1/admin/analytics', analyticsAuditRoutes);
+  app.use('/api/v1/admin/analytics', analyticsAuditLogger);
   app.use('/api/v1/admin/analytics', adminAnalyticsRoutes);
   app.use('/api/v1/admin/analytics', tenantAnalyticsRoutes);
   app.use('/api/v1/admin/refunds', adminRefundRoutes);
