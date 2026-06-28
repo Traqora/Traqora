@@ -7,7 +7,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Plane,
   Calendar,
-  MapPin,
   TrendingUp,
   Leaf,
   BarChart3,
@@ -18,7 +17,7 @@ import {
   Building2,
   Brain,
   FlaskConical,
-  ChartLine,
+  ShieldCheck,
 } from "lucide-react"
 import { ShareButton } from "@/components/ShareButton"
 import { CommentsPanel } from "@/components/CommentsPanel"
@@ -62,6 +61,7 @@ interface UserAnalytics {
 }
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
 
 export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true)
@@ -116,6 +116,14 @@ export default function AnalyticsPage() {
       setAnalytics(mockAnalytics)
       setLoading(false)
     }, 1000)
+  }, [])
+
+  useEffect(() => {
+    void fetch(`${API_BASE_URL}/api/v1/admin/analytics/audit/dashboard-view`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dashboardId: "analytics/main" }),
+    }).catch(() => undefined)
   }, [])
 
   if (loading) {
@@ -176,6 +184,10 @@ export default function AnalyticsPage() {
             <a href="/analytics/tenant-settings" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border rounded-md px-3 py-1.5 transition-colors">
               <Building2 className="h-4 w-4" />
               Tenant
+            </a>
+            <a href="/analytics/audit" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground border rounded-md px-3 py-1.5 transition-colors">
+              <ShieldCheck className="h-4 w-4" />
+              Audit
             </a>
             <ShareButton dashboardId="analytics/main" />
           </div>
