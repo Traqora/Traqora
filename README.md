@@ -1,5 +1,5 @@
 # Traqora – Decentralized Travel Booking on Stellar
-//WIP
+
 Traqora is a decentralized travel booking platform that allows users to book flights directly using blockchain technology on the Stellar ecosystem.
 
 ## What is Traqora?
