@@ -64,6 +64,83 @@ export interface TransactionStatus {
   hash?: string
 }
 
+export interface PerformanceSnapshot {
+  status: 'healthy' | 'degraded' | 'critical'
+  generatedAt: string
+  queryPerformance: {
+    totalQueries: number
+    errorCount: number
+    averageMs: number
+    p50Ms: number
+    p95Ms: number
+    p99Ms: number
+    slowest: null | {
+      component: string
+      operation: string
+      status: 'success' | 'error'
+      durationMs: number
+      timestamp: string
+    }
+  }
+  cache: {
+    overallHitRate: number
+    caches: Array<{
+      cache: string
+      hits: number
+      misses: number
+      sets: number
+      fallbacks: number
+      errors: number
+      totalGets: number
+      hitRate: number
+      averageDurationMs: number
+    }>
+  }
+  systemHealth: {
+    uptimeSeconds: number
+    memoryUsageMb: {
+      rss: number
+      heapUsed: number
+      heapTotal: number
+    }
+    cpuLoadAverage: number[]
+    cpuCount: number
+  }
+  alerts: Array<{
+    id: string
+    severity: 'info' | 'warning' | 'critical'
+    metric: string
+    message: string
+    value: number
+    threshold: number
+    timestamp: string
+  }>
+  capacityPlanning: {
+    heapUsedRatio: number
+    projectedDailyQueries: number
+    cacheEfficiency: number
+    recommendations: string[]
+  }
+  sla: {
+    targets: {
+      queryP95Ms: number
+      cacheHitRate: number
+      errorRate: number
+    }
+    queryP95WithinSla: boolean
+    cacheHitRateWithinSla: boolean
+    errorRateWithinSla: boolean
+    errorRate: number
+  }
+  recentQueries: Array<{
+    component: string
+    operation: string
+    status: 'success' | 'error'
+    durationMs: number
+    timestamp: string
+  }>
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -111,6 +188,15 @@ export async function searchFlights(params: FlightSearchParams): Promise<FlightS
     if (error instanceof ApiError) throw error
     throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
   }
+}
+
+export async function getPerformanceSnapshot(): Promise<PerformanceSnapshot> {
+  const response = await fetch(`${API_BASE_URL}/health/performance`, { cache: 'no-store' })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+  }
+  return response.json()
 }
 
 export const apiClient = {
@@ -162,6 +248,15 @@ export const apiClient = {
         status: 'success',
         hash: "HASH" + Math.random().toString(36).substring(2, 9).toUpperCase()
       }
+    }
+  },
+
+  getPerformanceSnapshot: async () => {
+    try {
+      const data = await getPerformanceSnapshot()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
     }
   }
 }

@@ -1,5 +1,6 @@
 import { Registry, Counter, Histogram, Gauge, collectDefaultMetrics } from 'prom-client';
 import { logger } from '../utils/logger';
+import { performanceMonitor } from '../monitoring/performance';
 
 // Create a Registry to register the metrics
 export const register = new Registry();
@@ -392,14 +393,17 @@ export const measureAsync = async <T>(
   operation: string,
   fn: () => Promise<T>
 ): Promise<T> => {
+  const start = Date.now();
   const endTimer = serviceOperationDuration.startTimer({ component, operation });
 
   try {
     const result = await fn();
     endTimer({ status: 'success' });
+    performanceMonitor.recordQuery(component, operation, 'success', (Date.now() - start) / 1000);
     return result;
   } catch (error) {
     endTimer({ status: 'error' });
+    performanceMonitor.recordQuery(component, operation, 'error', (Date.now() - start) / 1000);
     throw error;
   }
 };
@@ -413,6 +417,7 @@ export const recordCacheOperation = (
   const labels = { cache, operation, result };
   cacheOperationsTotal.inc(labels);
   cacheOperationDuration.observe(labels, durationSeconds);
+  performanceMonitor.recordCache(cache, result, durationSeconds);
 };
 
 // Update uptime every 10 seconds
