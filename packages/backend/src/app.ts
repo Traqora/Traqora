@@ -50,6 +50,9 @@ import { requireAuth } from './middleware/authMiddleware';
 import { NotFoundError } from './utils/errors';
 import { AppError } from './services/ErrorHandlingService';
 import { requestLogger } from './middleware/requestLogger';
+import { alertRoutes } from './api/routes/alerts';
+import { reviewRoutes } from './api/routes/reviews';
+
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
@@ -168,6 +171,10 @@ export const createApp = async (options: AppOptions = {}) => {
   });
 
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
+
+  app.use('/api/v1/alerts', requireAuth, alertRoutes);
+  app.use('/api/v1/reviews', reviewRoutes);
+
 
   app.use('/api/v1/auth', validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
