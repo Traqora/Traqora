@@ -152,6 +152,57 @@ export class ApiError extends Error {
   }
 }
 
+// Create a fetch wrapper with base URL and headers
+const api = {
+  get: async (endpoint: string, options?: RequestInit) => {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      ...options,
+    })
+    return response
+  },
+
+  post: async (endpoint: string, body: any, options?: RequestInit) => {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      ...options,
+    })
+    return response
+  },
+
+  put: async (endpoint: string, body: any, options?: RequestInit) => {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      ...options,
+    })
+    return response
+  },
+
+  delete: async (endpoint: string, options?: RequestInit) => {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      ...options,
+    })
+    return response
+  },
+}
+
+export { api }
+
 export function generateIdempotencyKey(): string {
   return Math.random().toString(36).substring(2, 15)
 }
