@@ -8,7 +8,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/sdk";
+import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit";
 import { KitEventType } from "@creit.tech/stellar-wallets-kit/types";
 import {
   initializeWalletKit,

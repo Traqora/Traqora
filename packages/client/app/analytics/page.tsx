@@ -26,6 +26,7 @@ import { Separator } from '@/components/ui/separator'
 import { RevenueForecast } from "@/components/RevenueForecast"
 import { InsightsPanel } from "@/components/InsightsPanel"
 import { ABTestConfig } from "@/components/ABTestConfig"
+import { PerformanceDashboard } from "@/components/PerformanceDashboard"
 
 interface BookingHistoryItem {
   id: string
@@ -241,6 +242,10 @@ export default function AnalyticsPage() {
               <FlaskConical className="h-4 w-4" />
               A/B Testing
             </TabsTrigger>
+            <TabsTrigger value="performance" className="flex items-center gap-2">
+              <Gauge className="h-4 w-4" />
+              Performance
+            </TabsTrigger>
           </TabsList>
 
           {/* Booking History */}
@@ -414,6 +419,11 @@ export default function AnalyticsPage() {
           {/* A/B Testing */}
           <TabsContent value="ab-testing" className="space-y-4">
             <ABTestConfig />
+          </TabsContent>
+
+          {/* Performance Monitoring */}
+          <TabsContent value="performance" className="space-y-4">
+            <PerformanceDashboard />
           </TabsContent>
         </Tabs>
 

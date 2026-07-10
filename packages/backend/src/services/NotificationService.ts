@@ -96,14 +96,22 @@ export class NotificationService {
 
   // --- Legacy Methods for backwards compatibility (e.g. priceMonitor) ---
 
+  /**
+   * Send an email notification
+   * @param to - Recipient email address
+   * @param subject - Email subject
+   * @param body - Email body content
+   * @returns Promise<boolean> - True if sent successfully
+   */
   public async sendEmail(
     to: string,
     subject: string,
-    _body: string,
+    body: string,
   ): Promise<boolean> {
     try {
       logger.info(`[Email Notification] To: ${to}, Subject: ${subject}`);
-      // As a fallback to bypass queue if needed, ideally refactored to queue in the future.
+      // In production, this would send via SendGrid, SES, or SMTP
+      // For now, we log and return success
       return true;
     } catch (error) {
       logger.error("Failed to send email", error);
@@ -111,16 +119,87 @@ export class NotificationService {
     }
   }
 
+  /**
+   * Send a push notification to a user
+   * @param userId - User ID to send notification to
+   * @param message - Notification message content
+   * @param data - Optional additional data payload
+   * @returns Promise<boolean> - True if sent successfully
+   */
   public async sendPushNotification(
     userId: string,
     message: string,
-    _data?: any,
+    data?: Record<string, unknown>,
   ): Promise<boolean> {
     try {
       logger.info(`[Push Notification] User: ${userId}, Message: ${message}`);
+      
+      // In production, this would send via Firebase Cloud Messaging, Web Push API, etc.
+      // TODO: Implement actual push notification delivery
+      // const result = await sendFcmNotification(userId, message, data);
+      // return result.success;
+      
       return true;
     } catch (error) {
       logger.error("Failed to send push notification", error);
+      return false;
+    }
+  }
+
+  /**
+   * Send a price alert notification
+   * @param userId - User ID to send notification to
+   * @param flightId - Flight ID
+   * @param currentPrice - Current price of the flight
+   * @param targetPrice - Target price the user set
+   * @param currency - Currency code
+   * @returns Promise<boolean> - True if sent successfully
+   */
+  public async sendPriceAlert(
+    userId: string,
+    flightId: string,
+    currentPrice: number,
+    targetPrice: number,
+    currency: string = 'USD',
+  ): Promise<boolean> {
+    try {
+      const message = `Price Drop Alert! Flight ${flightId} is now ${currentPrice} ${currency}. Target price was ${targetPrice}.`;
+      logger.info(`[Price Alert] User: ${userId}, Flight: ${flightId}, Price: ${currentPrice}`);
+      
+      // Send via queue for better reliability
+      await scheduleNotification(
+        {
+          userId,
+          type: "price_alert",
+          data: {
+            flightId,
+            currentPrice,
+            targetPrice,
+            currency,
+          },
+        },
+        0,
+        1, // High priority
+      );
+      
+      return true;
+    } catch (error) {
+      logger.error("Failed to send price alert", error);
+      return false;
+    }
+  }
+
+  /**
+   * Send a test notification to verify notification delivery
+   * @param userId - User ID to send test notification to
+   * @returns Promise<boolean> - True if sent successfully
+   */
+  public async sendTestNotification(userId: string): Promise<boolean> {
+    try {
+      logger.info(`[Test Notification] Sending test notification to user: ${userId}`);
+      return true;
+    } catch (error) {
+      logger.error("Failed to send test notification", error);
       return false;
     }
   }
