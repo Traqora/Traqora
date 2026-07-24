@@ -11,11 +11,23 @@ interface ServerToClientEvents {
   priceUpdate: (data: { flightId: string; price: number; timestamp: Date }) => void;
   alert: (data: { message: string; flightId: string }) => void;
   booking_status: (data: { bookingId: string; status: string; timestamp: Date }) => void;
+  contract_event: (data: ContractEventPayload) => void;
 }
 
 interface ClientToServerEvents {
   subscribe: (flightId: string) => void;
   unsubscribe: (flightId: string) => void;
+  subscribe_address: (walletAddress: string) => void;
+  unsubscribe_address: (walletAddress: string) => void;
+}
+
+export interface ContractEventPayload {
+  contractId: string;
+  eventType: string;
+  ledger: number;
+  walletAddress?: string;
+  data: unknown;
+  timestamp: Date;
 }
 
 export class WebSocketServer {
@@ -135,6 +147,16 @@ export class WebSocketServer {
         socket.leave(`booking:${bookingId}`);
       });
 
+      socket.on('subscribe_address', (walletAddress: string) => {
+        logger.info(`Client ${socket.id} subscribed to address room ${walletAddress}`);
+        socket.join(`address:${walletAddress}`);
+      });
+
+      socket.on('unsubscribe_address', (walletAddress: string) => {
+        logger.info(`Client ${socket.id} unsubscribed from address room ${walletAddress}`);
+        socket.leave(`address:${walletAddress}`);
+      });
+
       socket.on('disconnect', () => {
         logger.info(`🔴 Client disconnected: ${socket.id}`);
       });
@@ -169,6 +191,26 @@ export class WebSocketServer {
       bookingId,
       status,
       timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Broadcast a Soroban contract event to all subscribers of the contract room
+   * and, when a wallet address is present, to that address-specific room too.
+   */
+  public broadcastContractEvent(payload: ContractEventPayload) {
+    const contractRoom = `contract:${payload.contractId}`;
+    this.io.to(contractRoom).emit('contract_event', payload);
+
+    if (payload.walletAddress) {
+      const addressRoom = `address:${payload.walletAddress}`;
+      this.io.to(addressRoom).emit('contract_event', payload);
+    }
+
+    logger.debug('Contract event broadcast', {
+      contractId: payload.contractId,
+      eventType: payload.eventType,
+      ledger: payload.ledger,
     });
   }
 

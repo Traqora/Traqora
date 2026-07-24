@@ -20,6 +20,9 @@ import { tenantAnalyticsRoutes } from './api/routes/admin/tenantAnalytics';
 import { analyticsAuditRoutes } from './api/routes/admin/analyticsAudit';
 import { collaborationRoutes } from './api/routes/collaboration';
 import { authRoutes } from './api/routes/auth';
+import disputeRoutes from './api/routes/disputes';
+import serviceRoutes from './api/routes/services';
+import contractEventRoutes from './api/routes/contract-events';
 import { documentRoutes } from './api/routes/documents';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
@@ -196,6 +199,9 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/admin/analytics', tenantAnalyticsRoutes);
   app.use('/api/v1/admin/refunds', adminRefundRoutes);
   app.use('/api/v1/collaboration', collaborationRoutes);
+  app.use('/api/v1/disputes', disputeRoutes);
+  app.use('/api/v1/services', serviceRoutes);
+  app.use('/api/v1/contract-events', contractEventRoutes);
 
   app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {
     next(new NotFoundError('Endpoint not found'));
