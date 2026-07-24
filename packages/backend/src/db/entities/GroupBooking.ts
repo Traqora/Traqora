@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { GroupMember } from './GroupMember';
+import { GroupBookingFlight } from './GroupBookingFlight';
 
 export type GroupBookingStatus =
   | 'pending'
@@ -71,6 +72,12 @@ export class GroupBooking {
     eager: true,
   })
   members!: GroupMember[];
+
+  @OneToMany(() => GroupBookingFlight, (flight) => flight.groupBooking, {
+    cascade: true,
+    eager: true,
+  })
+  flights!: GroupBookingFlight[];
 
   @CreateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   createdAt!: Date;

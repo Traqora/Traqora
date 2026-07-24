@@ -1,6 +1,7 @@
 import { AppDataSource } from '../db/dataSource';
-import { GroupBooking, GroupBookingStatus } from '../db/entities/GroupBooking';
-import { GroupMember, GroupMemberStatus } from '../db/entities/GroupMember';
+import { GroupBooking } from '../db/entities/GroupBooking';
+import { GroupMember } from '../db/entities/GroupMember';
+import { GroupBookingFlight } from '../db/entities/GroupBookingFlight';
 import { Booking } from '../db/entities/Booking';
 import { Flight } from '../db/entities/Flight';
 import { Passenger } from '../db/entities/Passenger';
@@ -10,7 +11,13 @@ import { v4 as uuidv4 } from 'uuid';
 
 export interface CreateGroupBookingRequest {
   groupName: string;
-  flightId: string;
+  flightId?: string; // Optional for multi-flight bookings
+  flights?: Array<{
+    flightId: string;
+    sequenceOrder: number;
+    flightType: 'outbound' | 'return' | 'connecting';
+    notes?: string;
+  }>;
   organizerEmail: string;
   organizerWalletAddress?: string;
   memberEmails: string[];
@@ -59,23 +66,41 @@ export class GroupBookingService {
   async createGroupBooking(request: CreateGroupBookingRequest): Promise<GroupBooking> {
     const groupBookingRepo = AppDataSource.getRepository(GroupBooking);
     const flightRepo = AppDataSource.getRepository(Flight);
+    const groupBookingFlightRepo = AppDataSource.getRepository(GroupBookingFlight);
 
-    // Validate flight exists
-    const flight = await flightRepo.findOne({
-      where: { id: request.flightId },
-    });
+    // Handle single flight (backward compatibility)
+    const flights = request.flights || (request.flightId ? [{
+      flightId: request.flightId,
+      sequenceOrder: 1,
+      flightType: 'outbound' as const,
+    }] : []);
 
-    if (!flight) {
-      throw new Error('Flight not found');
+    if (flights.length === 0) {
+      throw new Error('At least one flight must be provided');
     }
 
-    // Calculate total amount based on number of members
-    const totalAmountCents = request.memberEmails.length * flight.priceCents;
+    // Validate all flights exist
+    const flightIds = flights.map(f => f.flightId);
+    const flightEntities = await flightRepo.findBy({ id: flightIds as any });
+    const flightMap = new Map(flightEntities.map((f: Flight) => [f.id, f]));
+
+    for (const flightConfig of flights) {
+      if (!flightMap.has(flightConfig.flightId)) {
+        throw new Error(`Flight ${flightConfig.flightId} not found`);
+      }
+    }
+
+    // Calculate total amount based on number of members and flights
+    let totalAmountCents = 0;
+    for (const flightConfig of flights) {
+      const flight = flightMap.get(flightConfig.flightId) as Flight;
+      totalAmountCents += flight.priceCents * request.memberEmails.length;
+    }
 
     // Create group booking
     const groupBooking = groupBookingRepo.create({
       groupName: request.groupName,
-      flightId: request.flightId,
+      flightId: flights.length === 1 ? flights[0].flightId : null, // Set single flight ID for backward compatibility
       status: 'pending',
       totalAmountCents,
       paidAmountCents: 0,
@@ -87,6 +112,21 @@ export class GroupBookingService {
     });
 
     const savedGroup = await groupBookingRepo.save(groupBooking);
+
+    // Create group booking flights
+    const groupBookingFlights: GroupBookingFlight[] = [];
+    for (const flightConfig of flights) {
+      const groupBookingFlight = groupBookingFlightRepo.create({
+        groupBooking: savedGroup,
+        groupBookingId: savedGroup.id,
+        flightId: flightConfig.flightId,
+        sequenceOrder: flightConfig.sequenceOrder,
+        flightType: flightConfig.flightType,
+        notes: flightConfig.notes,
+      });
+      groupBookingFlights.push(groupBookingFlight);
+    }
+    await groupBookingFlightRepo.save(groupBookingFlights);
 
     // Create members
     const memberRepo = AppDataSource.getRepository(GroupMember);
@@ -128,7 +168,7 @@ export class GroupBookingService {
     // Calculate and assign shares based on split method
     await this.calculateMemberShares(savedGroup.id);
 
-    logger.info(`Group booking created: ${savedGroup.id} with ${members.length} members`);
+    logger.info(`Group booking created: ${savedGroup.id} with ${members.length} members and ${flights.length} flights`);
 
     return savedGroup;
   }

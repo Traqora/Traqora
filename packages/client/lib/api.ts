@@ -59,6 +59,70 @@ export interface Booking {
   currency: string
 }
 
+export interface BulkBooking {
+  id: string
+  name: string
+  type: 'corporate' | 'agency' | 'group' | 'custom'
+  status: 'pending' | 'processing' | 'partial_completed' | 'completed' | 'failed' | 'cancelled'
+  totalBookings: number
+  completedBookings: number
+  failedBookings: number
+  totalAmountCents: number
+  processedAmountCents: number
+  organizationName?: string
+  contactEmail?: string
+  contactPhone?: string
+  metadata?: Record<string, any>
+  notes?: string
+  failureReason?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BulkBookingRequest {
+  name: string
+  type?: 'corporate' | 'agency' | 'group' | 'custom'
+  organizationName?: string
+  contactEmail?: string
+  contactPhone?: string
+  bookings: Array<{
+    flightId: string
+    passenger: {
+      email: string
+      firstName: string
+      lastName: string
+      phone?: string
+      sorobanAddress: string
+    }
+  }>
+  metadata?: Record<string, any>
+  notes?: string
+}
+
+export interface GroupBookingTemplate {
+  id: string
+  name: string
+  description: string
+  visibility: 'private' | 'organization' | 'public'
+  templateConfig: {
+    flights: Array<{
+      origin: string
+      destination: string
+      cabinClass: string
+      preferredAirline?: string
+    }>
+    splitMethod: 'equal' | 'custom' | 'percentage'
+    defaultNotes?: string
+  }
+  usageCount: number
+  organizationId?: string
+  createdById?: string
+  tags?: string[]
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface TransactionStatus {
   status: 'pending' | 'success' | 'failed'
   hash?: string
@@ -309,5 +373,377 @@ export const apiClient = {
     } catch (error: any) {
       return { success: false, error: { message: error.message } }
     }
-  }
+  },
+
+  // Bulk Booking API methods
+  createBulkBooking: async (request: BulkBookingRequest, idempotencyKey?: string) => {
+    try {
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      }
+      if (idempotencyKey) {
+        headers['Idempotency-Key'] = idempotencyKey
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/bulk-bookings`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(request),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  getBulkBooking: async (id: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/bulk-bookings/${id}`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  getBulkBookings: async (params: { organization?: string; email?: string; status?: string; type?: string }) => {
+    try {
+      const searchParams = new URLSearchParams()
+      if (params.organization) searchParams.append('organization', params.organization)
+      if (params.email) searchParams.append('email', params.email)
+      if (params.status) searchParams.append('status', params.status)
+      if (params.type) searchParams.append('type', params.type)
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/bulk-bookings?${searchParams.toString()}`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  cancelBulkBooking: async (id: string, reason: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/bulk-bookings/${id}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  retryBulkBooking: async (id: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/bulk-bookings/${id}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  // Group Booking Templates API methods
+  createGroupBookingTemplate: async (template: Omit<GroupBookingTemplate, 'id' | 'usageCount' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/group-booking-templates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(template),
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  getGroupBookingTemplates: async (params: { userId?: string; organizationId?: string; visibility?: string; tags?: string[] }) => {
+    try {
+      const searchParams = new URLSearchParams()
+      if (params.userId) searchParams.append('userId', params.userId)
+      if (params.organizationId) searchParams.append('organizationId', params.organizationId)
+      if (params.visibility) searchParams.append('visibility', params.visibility)
+      if (params.tags) params.tags.forEach(tag => searchParams.append('tags', tag))
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/group-booking-templates?${searchParams.toString()}`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  getPopularTemplates: async (limit: number = 10) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/group-booking-templates/public/popular?limit=${limit}`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  // Notification Preferences API methods
+  getNotificationPreferences: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/preferences`, {
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  updateNotificationPreferences: async (preferences: Record<string, any>) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/preferences`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(preferences),
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  resetNotificationPreferences: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/preferences/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  setTypeChannelPreferences: async (type: string, channels: string[]) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/preferences/channels`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ type, channels }),
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  getEffectiveChannels: async (type: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/preferences/effective-channels/${type}`, {
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  // In-App Notifications API methods
+  getInAppNotifications: async (params: { limit?: number; offset?: number; unreadOnly?: boolean; includeArchived?: boolean } = {}) => {
+    try {
+      const searchParams = new URLSearchParams()
+      if (params.limit) searchParams.append('limit', params.limit.toString())
+      if (params.offset) searchParams.append('offset', params.offset.toString())
+      if (params.unreadOnly) searchParams.append('unreadOnly', 'true')
+      if (params.includeArchived) searchParams.append('includeArchived', 'true')
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/in-app?${searchParams.toString()}`, {
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  getUnreadNotificationCount: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/in-app/unread-count`, {
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  markNotificationAsRead: async (id: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/in-app/${id}/read`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  markAllNotificationsAsRead: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/in-app/read-all`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  archiveNotification: async (id: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/in-app/${id}/archive`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  getDeliveryLog: async (params: { limit?: number; offset?: number; channel?: string; status?: string } = {}) => {
+    try {
+      const searchParams = new URLSearchParams()
+      if (params.limit) searchParams.append('limit', params.limit.toString())
+      if (params.offset) searchParams.append('offset', params.offset.toString())
+      if (params.channel) searchParams.append('channel', params.channel)
+      if (params.status) searchParams.append('status', params.status)
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/delivery-log?${searchParams.toString()}`, {
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
+
+  retryFailedDeliveries: async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/notifications/delivery-log/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+      }
+      return await response.json()
+    } catch (error: any) {
+      if (error instanceof ApiError) throw error
+      throw new ApiError(error instanceof Error ? error.message : 'Unknown error', 0)
+    }
+  },
 }

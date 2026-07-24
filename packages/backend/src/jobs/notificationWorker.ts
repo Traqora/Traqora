@@ -1,147 +1,52 @@
 import { notificationQueue } from "./notificationQueue";
-import { AppDataSource } from "../db/dataSource";
-import { UserPreference } from "../db/entities/UserPreference";
-import { NotificationLog } from "../db/entities/NotificationLog";
-import { emailService } from "../services/EmailService";
-import { smsService } from "../services/SMSService";
-import { pushNotificationService } from "../services/PushNotificationService";
+import { NotificationDeliveryService } from "../services/NotificationDeliveryService";
+import { logger } from "../utils/logger";
 
 export const setupNotificationWorker = () => {
+  const deliveryService = NotificationDeliveryService.getInstance();
+
   notificationQueue.process(async (job) => {
     const { userId, type, data, channels } = job.data;
 
-    // In a real app we might fetch user details (e.g. email, phone) from a User service or entity
-    // For now we rely on UserPreference storing them.
-    const userPrefRepo = AppDataSource.getRepository(UserPreference);
-    const logRepo = AppDataSource.getRepository(NotificationLog);
+    logger.info(`Processing notification job ${job.id} for user ${userId}, type: ${type}`);
 
-    const userPref = await userPrefRepo.findOne({ where: { userId } });
+    // Use the new multi-channel delivery system
+    const results = await deliveryService.send({
+      userId,
+      type: type as any,
+      title: data?.subject || undefined,
+      body: data?.body || data?.message || generateDefaultBody(type, data),
+      data: data || {},
+      channels: channels as any,
+      priority: job.opts?.priority || 2,
+    });
 
-    if (!userPref) {
-      throw new Error(`User preferences not found for user: ${userId}`);
-    }
-
-    const targetChannels = channels || ["email", "sms", "push"];
-    const results = [];
-
-    // Email
-    if (
-      targetChannels.includes("email") &&
-      userPref.emailEnabled &&
-      userPref.email
-    ) {
-      try {
-        await emailService.send(userPref.email, type, data);
-        const log = logRepo.create({
-          userId,
-          channel: "email",
-          type,
-          payload: job.data,
-          status: "sent",
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({ channel: "email", status: "success" });
-      } catch (error: any) {
-        const log = logRepo.create({
-          userId,
-          channel: "email",
-          type,
-          payload: job.data,
-          status: "failed",
-          errorMessage: error.message,
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({
-          channel: "email",
-          status: "error",
-          error: error.message,
-        });
-      }
-    }
-
-    // SMS
-    if (
-      targetChannels.includes("sms") &&
-      userPref.smsEnabled &&
-      userPref.phoneNumber
-    ) {
-      try {
-        await smsService.send(userPref.phoneNumber, type, data);
-        const log = logRepo.create({
-          userId,
-          channel: "sms",
-          type,
-          payload: job.data,
-          status: "sent",
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({ channel: "sms", status: "success" });
-      } catch (error: any) {
-        const log = logRepo.create({
-          userId,
-          channel: "sms",
-          type,
-          payload: job.data,
-          status: "failed",
-          errorMessage: error.message,
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({ channel: "sms", status: "error", error: error.message });
-      }
-    }
-
-    // Push
-    if (
-      targetChannels.includes("push") &&
-      userPref.pushEnabled &&
-      userPref.fcmToken
-    ) {
-      try {
-        await pushNotificationService.send(userPref.fcmToken, type, data);
-        const log = logRepo.create({
-          userId,
-          channel: "push",
-          type,
-          payload: job.data,
-          status: "sent",
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({ channel: "push", status: "success" });
-      } catch (error: any) {
-        const log = logRepo.create({
-          userId,
-          channel: "push",
-          type,
-          payload: job.data,
-          status: "failed",
-          errorMessage: error.message,
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({
-          channel: "push",
-          status: "error",
-          error: error.message,
-        });
-      }
-    }
-
-    // If any channel we attempted failed, we might want to throw to let Bull retry the job,
-    // although this risks duplicate sends to successful channels unless we manage idempotency per channel.
-    // For simplicity, we just complete the job here. A sophisticated system would retry only failed channels.
     return results;
   });
 
   notificationQueue.on("failed", (job, err) => {
-    console.error(`Job ${job.id} failed with error: ${err.message}`);
+    logger.error(`Notification job ${job.id} failed with error: ${err.message}`);
   });
 
   notificationQueue.on("completed", (job, result) => {
-    console.log(`Job ${job.id} completed with result:`, result);
+    logger.info(`Notification job ${job.id} completed with result:`, result);
   });
 };
+
+// Helper function to generate default body text for notification types
+function generateDefaultBody(type: string, data: Record<string, any>): string {
+  switch (type) {
+    case 'booking':
+      return `Your flight ${data.flightNumber || ''} is confirmed! Ref: ${data.bookingReference || ''}`;
+    case 'reminder':
+      return `Your flight ${data.flightNumber || ''} departs in 24 hours!`;
+    case 'refund':
+      return `Refund of ${data.refundAmount || ''} for booking ${data.bookingReference || ''} processed.`;
+    case 'price_alert':
+      return `Price Drop Alert! Flight ${data.flightId || ''} is now ${data.currentPrice || ''} ${data.currency || 'USD'}.`;
+    case 'promotional':
+      return data.body || 'Check out our latest offers!';
+    default:
+      return data.body || data.message || 'You have a new notification';
+  }
+}
