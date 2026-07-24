@@ -9,6 +9,8 @@ import { createFlightRoutes } from './api/routes/flights';
 import { bookingRoutes } from './api/routes/bookings';
 import { refundRoutes } from './api/routes/refunds';
 import { groupBookingRoutes } from './api/routes/group-bookings';
+import { bulkBookingRoutes } from './api/routes/bulk-bookings';
+import { groupBookingTemplateRoutes } from './api/routes/group-booking-templates';
 import { securityRoutes } from './api/routes/security';
 import { adminAuthRoutes } from './api/routes/admin/auth';
 import { adminFlightRoutes } from './api/routes/admin/flights';
@@ -20,10 +22,14 @@ import { tenantAnalyticsRoutes } from './api/routes/admin/tenantAnalytics';
 import { analyticsAuditRoutes } from './api/routes/admin/analyticsAudit';
 import { collaborationRoutes } from './api/routes/collaboration';
 import { authRoutes } from './api/routes/auth';
+import { alertRoutes } from './api/routes/alerts';
+import { reviewRoutes } from './api/routes/reviews';
 import disputeRoutes from './api/routes/disputes';
 import serviceRoutes from './api/routes/services';
 import contractEventRoutes from './api/routes/contract-events';
 import { documentRoutes } from './api/routes/documents';
+import { notificationPreferenceRoutes } from './api/routes/notification-preferences';
+import { inAppNotificationRoutes } from './api/routes/in-app-notifications';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
@@ -184,9 +190,13 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/v1/bookings', requireAuth, bookingRoutes);
   app.use('/api/v1/refunds', requireAuth, refundRoutes);
-  app.use('/api/v1/group-bookings', requireAuth, groupBookingRoutes); // <-- Added group booking routes
+  app.use('/api/v1/group-bookings', requireAuth, groupBookingRoutes);
+  app.use('/api/v1/bulk-bookings', requireAuth, bulkBookingRoutes);
+  app.use('/api/v1/group-booking-templates', requireAuth, groupBookingTemplateRoutes);
   app.use('/api/v1/security', securityRoutes);
   app.use('/api/v1/documents', requireAuth, documentRoutes);
+  app.use('/api/v1/notifications', requireAuth, notificationPreferenceRoutes);
+  app.use('/api/v1/notifications', requireAuth, inAppNotificationRoutes);
 
   // Admin routes
   app.use('/api/v1/admin/auth', adminAuthRoutes);

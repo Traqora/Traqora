@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { apiClient } from '@/lib/api';
 import {
   Plane,
   ArrowLeft,
@@ -42,10 +43,18 @@ interface GroupMember {
   isInvited: boolean;
 }
 
+interface FlightConfig {
+  flightId: string;
+  sequenceOrder: number;
+  flightType: 'outbound' | 'return' | 'connecting';
+  notes?: string;
+}
+
 interface GroupBookingData {
   id: string;
   groupName: string;
-  flightId: string;
+  flightId?: string;
+  flights?: FlightConfig[];
   status: string;
   totalAmountCents: number;
   paidAmountCents: number;
@@ -60,9 +69,10 @@ export default function GroupBookingPage() {
   const { toast } = useToast();
   const { flights } = useFlightSearch();
 
-  const [step, setStep] = useState<'setup' | 'members' | 'split' | 'invite' | 'confirm'>('setup');
+  const [step, setStep] = useState<'setup' | 'flights' | 'members' | 'split' | 'invite' | 'confirm'>('setup');
   const [groupName, setGroupName] = useState('');
   const [selectedFlightId, setSelectedFlightId] = useState('');
+  const [selectedFlights, setSelectedFlights] = useState<FlightConfig[]>([]);
   const [organizerEmail, setOrganizerEmail] = useState('');
   const [memberEmails, setMemberEmails] = useState<string[]>([]);
   const [currentEmail, setCurrentEmail] = useState('');
@@ -71,12 +81,55 @@ export default function GroupBookingPage() {
   const [groupBooking, setGroupBooking] = useState<GroupBookingData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [inviteLink, setInviteLink] = useState('');
+  const [useTemplate, setUseTemplate] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
 
-  const selectedFlight = flights.find((f) => f.id === selectedFlightId);
+  const selectedFlight = flights.find((f: any) => f.id === selectedFlightId);
 
-  // Calculate total amount
-  const totalAmount = selectedFlight ? selectedFlight.price * (memberEmails.length + 1) : 0;
+  // Calculate total amount for multi-flight support
+  const totalAmount = selectedFlights.length > 0 
+    ? selectedFlights.reduce((sum, config) => {
+        const flight = flights.find((f: any) => f.id === config.flightId);
+        return sum + (flight ? flight.price * (memberEmails.length + 1) : 0);
+      }, 0)
+    : (selectedFlight ? selectedFlight.price * (memberEmails.length + 1) : 0);
   const equalShare = memberEmails.length > 0 ? Math.floor(totalAmount / (memberEmails.length + 1)) : 0;
+
+  const addFlight = () => {
+    if (selectedFlightId) {
+      const newFlight: FlightConfig = {
+        flightId: selectedFlightId,
+        sequenceOrder: selectedFlights.length + 1,
+        flightType: selectedFlights.length === 0 ? 'outbound' : 'connecting',
+      };
+      setSelectedFlights([...selectedFlights, newFlight]);
+      setSelectedFlightId('');
+    }
+  };
+
+  const removeFlight = (index: number) => {
+    setSelectedFlights(selectedFlights.filter((_, i) => i !== index));
+  };
+
+  const loadTemplate = async (templateId: string) => {
+    try {
+      const response = await apiClient.getGroupBookingTemplates({ visibility: 'public' });
+      const template = response.data.find((t: any) => t.id === templateId);
+      if (template) {
+        setSelectedTemplate(template);
+        setSplitMethod(template.templateConfig.splitMethod);
+        // Pre-fill flights from template
+        const templateFlights = template.templateConfig.flights.map((f: any, i: number) => ({
+          flightId: f.flightId || '', // Would need to match with actual flights
+          sequenceOrder: i + 1,
+          flightType: i === 0 ? 'outbound' : 'connecting',
+        }));
+        setSelectedFlights(templateFlights);
+      }
+    } catch (error) {
+      toast({ title: 'Error loading template', description: 'Failed to load the selected template.', variant: 'destructive' });
+    }
+  };
 
   const handleAddMember = () => {
     if (!currentEmail || !currentEmail.includes('@')) {

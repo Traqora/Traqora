@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { Flight } from './Flight';
 import { Passenger } from './Passenger';
+import { BulkBooking } from './BulkBooking';
 
 export type BookingStatus =
   | 'created'
@@ -28,6 +29,13 @@ export class Booking {
 
   @ManyToOne(() => Passenger, { eager: true, cascade: ['insert'] })
   passenger!: Passenger;
+
+  @ManyToOne(() => BulkBooking, { nullable: true })
+  bulkBooking?: BulkBooking | null;
+
+  @Index()
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  bulkBookingId?: string | null;
 
   @Column({ type: 'varchar', length: 32, default: 'created' })
   status!: BookingStatus;

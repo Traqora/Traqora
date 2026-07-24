@@ -1,12 +1,17 @@
 import { scheduleNotification } from "../jobs/notificationQueue";
 import { AppDataSource } from "../db/dataSource";
 import { UserPreference } from "../db/entities/UserPreference";
+import { NotificationDeliveryService, NotificationPayload } from "./NotificationDeliveryService";
+import { NotificationType } from "../db/entities/NotificationPreference";
 import { logger } from "../utils/logger";
 
 export class NotificationService {
   private static instance: NotificationService;
+  private deliveryService: NotificationDeliveryService;
 
-  public constructor() {}
+  public constructor() {
+    this.deliveryService = NotificationDeliveryService.getInstance();
+  }
 
   public static getInstance(): NotificationService {
     if (!NotificationService.instance) {
@@ -15,7 +20,7 @@ export class NotificationService {
     return NotificationService.instance;
   }
 
-  // --- New Queue-based Methods ---
+  // --- New Multi-Channel Delivery Methods ---
 
   public async sendBookingConfirmation(
     userId: string,
@@ -32,15 +37,15 @@ export class NotificationService {
       return;
     }
 
-    await scheduleNotification(
-      {
-        userId,
-        type: "booking",
-        data: { bookingReference, flightNumber, departureDate },
-      },
-      0,
-      1,
-    ); // High priority
+    // Use the new multi-channel delivery system
+    await this.deliveryService.send({
+      userId,
+      type: 'booking',
+      title: 'Booking Confirmed',
+      body: `Your flight ${flightNumber} on ${departureDate} is confirmed! Reference: ${bookingReference}`,
+      data: { bookingReference, flightNumber, departureDate },
+      priority: 1,
+    });
   }
 
   public async scheduleFlightReminder(
@@ -53,6 +58,7 @@ export class NotificationService {
 
     const delay = reminderTime.getTime() - Date.now();
     if (delay > 0) {
+      // Schedule via queue for delayed delivery
       await scheduleNotification(
         {
           userId,
@@ -61,20 +67,20 @@ export class NotificationService {
         },
         delay,
         2,
-      ); // Default priority
+      );
     } else {
       logger.warn(
         "Flight departs in less than 24 hours. Sending immediate reminder.",
       );
-      await scheduleNotification(
-        {
-          userId,
-          type: "reminder",
-          data: { flightNumber, departureDate: departureDate.toISOString() },
-        },
-        0,
-        2,
-      );
+      // Send immediately via multi-channel delivery
+      await this.deliveryService.send({
+        userId,
+        type: 'reminder',
+        title: 'Flight Reminder',
+        body: `Your flight ${flightNumber} departs in less than 24 hours! Please check in.`,
+        data: { flightNumber, departureDate: departureDate.toISOString() },
+        priority: 2,
+      });
     }
   }
 
@@ -83,15 +89,14 @@ export class NotificationService {
     bookingReference: string,
     refundAmount: string,
   ) {
-    await scheduleNotification(
-      {
-        userId,
-        type: "refund",
-        data: { bookingReference, refundAmount },
-      },
-      0,
-      2,
-    );
+    await this.deliveryService.send({
+      userId,
+      type: 'refund',
+      title: 'Refund Update',
+      body: `A refund of ${refundAmount} for booking ${bookingReference} has been processed.`,
+      data: { bookingReference, refundAmount },
+      priority: 1,
+    });
   }
 
   // --- Legacy Methods for backwards compatibility (e.g. priceMonitor) ---
@@ -110,8 +115,9 @@ export class NotificationService {
   ): Promise<boolean> {
     try {
       logger.info(`[Email Notification] To: ${to}, Subject: ${subject}`);
-      // In production, this would send via SendGrid, SES, or SMTP
-      // For now, we log and return success
+      // Use the email service directly for legacy compatibility
+      const { emailService } = await import('./EmailService');
+      await emailService.send(to, 'system', { subject, body });
       return true;
     } catch (error) {
       logger.error("Failed to send email", error);
@@ -134,10 +140,16 @@ export class NotificationService {
     try {
       logger.info(`[Push Notification] User: ${userId}, Message: ${message}`);
       
-      // In production, this would send via Firebase Cloud Messaging, Web Push API, etc.
-      // TODO: Implement actual push notification delivery
-      // const result = await sendFcmNotification(userId, message, data);
-      // return result.success;
+      // Use the new multi-channel delivery system
+      await this.deliveryService.send({
+        userId,
+        type: 'system',
+        title: 'Notification',
+        body: message,
+        data: data as Record<string, any>,
+        channels: ['push'],
+        priority: 2,
+      });
       
       return true;
     } catch (error) {
@@ -166,21 +178,15 @@ export class NotificationService {
       const message = `Price Drop Alert! Flight ${flightId} is now ${currentPrice} ${currency}. Target price was ${targetPrice}.`;
       logger.info(`[Price Alert] User: ${userId}, Flight: ${flightId}, Price: ${currentPrice}`);
       
-      // Send via queue for better reliability
-      await scheduleNotification(
-        {
-          userId,
-          type: "price_alert",
-          data: {
-            flightId,
-            currentPrice,
-            targetPrice,
-            currency,
-          },
-        },
-        0,
-        1, // High priority
-      );
+      // Use the new multi-channel delivery system
+      await this.deliveryService.send({
+        userId,
+        type: 'price_alert',
+        title: 'Price Alert',
+        body: message,
+        data: { flightId, currentPrice, targetPrice, currency },
+        priority: 1,
+      });
       
       return true;
     } catch (error) {
@@ -197,6 +203,16 @@ export class NotificationService {
   public async sendTestNotification(userId: string): Promise<boolean> {
     try {
       logger.info(`[Test Notification] Sending test notification to user: ${userId}`);
+      
+      await this.deliveryService.send({
+        userId,
+        type: 'system',
+        title: 'Test Notification',
+        body: 'This is a test notification to verify your notification delivery settings.',
+        data: { test: true },
+        priority: 3,
+      });
+      
       return true;
     } catch (error) {
       logger.error("Failed to send test notification", error);
