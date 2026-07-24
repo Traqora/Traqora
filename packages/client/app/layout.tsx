@@ -11,6 +11,7 @@ import { ConnectionIndicator } from "@/components/connection-indicator";
 // NEW: WalletProvider to initialise StellarWalletsKit on app mount
 import { WalletProvider } from "@/components/wallet-provider";
 import { OfflineProvider } from "@/components/offline-provider";
+import { SkipNav } from "@/components/skip-nav";
 
 const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
@@ -44,6 +45,8 @@ export default function RootLayout({
       className={`${playfairDisplay.variable} ${sourceSansPro.variable} antialiased`}
     >
       <body className="font-sans">
+        {/* Skip navigation link — first focusable element for keyboard users (WCAG 2.4.1) */}
+        <SkipNav />
         {/* Nesting providers ensures both Wallet and Socket functionality are available app-wide */}
         <OfflineProvider>
           <WalletProvider>

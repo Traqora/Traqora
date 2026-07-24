@@ -17,12 +17,18 @@ export function HomeNav() {
   const { isConnected } = useWalletStore()
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border">
+    <nav
+      aria-label="Main navigation"
+      className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border"
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-20">
           {/* Logo */}
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary/80 rounded-xl flex items-center justify-center shadow-lg">
+            <div
+              className="w-10 h-10 bg-gradient-to-br from-primary to-primary/80 rounded-xl flex items-center justify-center shadow-lg"
+              aria-hidden="true"
+            >
               <Plane className="h-6 w-6 text-primary-foreground" />
             </div>
             <span className="font-serif font-black text-2xl text-foreground">Traqora</span>
