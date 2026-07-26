@@ -3,7 +3,7 @@
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Plane, Clock, Calendar, Users, Luggage, Shield, Info } from "lucide-react"
+import { Plane, Clock, Calendar, Users, Luggage, Shield, Leaf, Info } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatCurrency, type CurrencyCode } from "@/lib/currency"
 
@@ -38,6 +38,9 @@ interface BookingSummaryProps {
     coverageType: string
     premiumCents: number
   }
+  carbonOffset?: {
+    costCents: number
+  }
   className?: string
   displayCurrency?: CurrencyCode
   rates?: Record<string, number>
@@ -48,6 +51,7 @@ export function BookingSummary({
   passengerCount,
   selectedSeat,
   insurance,
+  carbonOffset,
   className,
   displayCurrency = "USD",
   rates,
@@ -62,8 +66,9 @@ export function BookingSummary({
   const seatPrice = convertPrice(selectedSeat?.price || 0)
   const seatFare = selectedSeat ? seatPrice : 0
   const insuranceFare = insurance ? convertPrice(insurance.premiumCents / 100) : 0
+  const offsetFare = carbonOffset ? convertPrice(carbonOffset.costCents / 100) : 0
   const taxes = baseFare * 0.08
-  const total = baseFare + seatFare + insuranceFare + taxes
+  const total = baseFare + seatFare + insuranceFare + offsetFare + taxes
 
   return (
     <Card className={cn("overflow-hidden border-none shadow-xl", className)} role="region" aria-label="Booking summary">
@@ -151,6 +156,15 @@ export function BookingSummary({
                   Travel Insurance ({insurance.coverageType})
                 </span>
                 <span className="font-medium">{formatCurrency(insuranceFare, displayCurrency)}</span>
+              </div>
+            )}
+            {carbonOffset && (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <Leaf className="h-4 w-4" />
+                  Carbon Offset
+                </span>
+                <span className="font-medium">{formatCurrency(offsetFare, displayCurrency)}</span>
               </div>
             )}
             <div className="flex justify-between items-center text-sm">

@@ -12,6 +12,7 @@ import {
   CheckCircle,
   Wallet,
   Shield,
+  Leaf,
   ArrowLeft,
   ArrowRight,
   CreditCard,
@@ -24,13 +25,23 @@ import {
 import { SeatSelector } from "@/components/booking/seat-selector"
 import { BookingSummary } from "@/components/booking/booking-summary"
 import { InsuranceSelector } from "@/components/booking/insurance-selector"
+import { CarbonFootprintDisplay } from "@/components/booking/carbon-footprint-display"
+import { CarbonOffsetSelector } from "@/components/booking/carbon-offset-selector"
+import { FareRulesSummary, FareRule } from "@/components/booking/fare-rules-summary"
 import { CurrencySelector } from "@/components/currency-selector"
 import { PassengerDetailsForm, PassengerData, validatePassengers } from "@/components/booking/passenger-details-form"
 import { useBooking } from "@/hooks/use-booking"
 import { useFlightSearch } from "@/hooks/use-flight-search"
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
 import { cn } from "@/lib/utils"
-import { InsuranceCoverageType, InsurancePolicy, purchaseInsurance } from "@/lib/api"
+import {
+  InsuranceCoverageType,
+  InsurancePolicy,
+  purchaseInsurance,
+  estimateFootprint,
+  purchaseOffset,
+  CarbonFootprint,
+} from "@/lib/api"
 import {
   type CurrencyCode,
   getCurrencyFromStorage,
@@ -63,7 +74,7 @@ const mockFlightDetails = {
   refundPolicy: "Free cancellation up to 24 hours before departure",
 }
 
-type BookingStep = "details" | "seats" | "insurance" | "wallet" | "confirm" | "success"
+type BookingStep = "details" | "seats" | "insurance" | "carbon" | "wallet" | "confirm" | "success"
 
 export default function BookFlightPage() {
   const params = useParams()
@@ -90,10 +101,31 @@ export default function BookFlightPage() {
   const [selectedCoverage, setSelectedCoverage] = useState<InsuranceCoverageType | null>(null)
   const [insurancePolicy, setInsurancePolicy] = useState<InsurancePolicy | null>(null)
   const [isPurchasingInsurance, setIsPurchasingInsurance] = useState(false)
+  const [isCarbonNeutral, setIsCarbonNeutral] = useState(false)
+  const [carbonFootprint, setCarbonFootprint] = useState<CarbonFootprint | null>(null)
+  const [isFootprintLoading, setIsFootprintLoading] = useState(false)
+  const [selectedOffsetProjectId, setSelectedOffsetProjectId] = useState<string | null>(null)
+  const [offsetCostCents, setOffsetCostCents] = useState(0)
+  const [offsetCertificate, setOffsetCertificate] = useState<any>(null)
+  const [isPurchasingOffset, setIsPurchasingOffset] = useState(false)
   const [passengers, setPassengers] = useState<PassengerData[]>([
     { firstName: "", lastName: "", email: "", phone: "" },
   ])
   const [passengerErrors, setPassengerErrors] = useState<ReturnType<typeof validatePassengers>>([])
+  const [fareRules, setFareRules] = useState<FareRule[]>([])
+
+  useEffect(() => {
+    const airlineCode = flight.airline.substring(0, 2).toUpperCase()
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+    fetch(`${apiBase}/api/flights/fare-rules?airline=${encodeURIComponent(airlineCode)}&class=${encodeURIComponent(flight.class)}`)
+      .then(res => res.json())
+      .then(body => {
+        if (body.success && body.data) {
+          setFareRules(body.data)
+        }
+      })
+      .catch(() => {})
+  }, [flight.airline, flight.class])
 
   useEffect(() => {
     const stored = getCurrencyFromStorage()
@@ -118,6 +150,15 @@ export default function BookFlightPage() {
       })
   }, [displayCurrency])
 
+  useEffect(() => {
+    if (!(flight as any).id) return
+    setIsFootprintLoading(true)
+    estimateFootprint((flight as any).id, (flight as any).class || "economy")
+      .then((data) => setCarbonFootprint(data))
+      .catch(() => {})
+      .finally(() => setIsFootprintLoading(false))
+  }, [(flight as any).id, (flight as any).class])
+
   const handleCurrencyChange = (currency: CurrencyCode) => {
     setDisplayCurrency(currency)
     setCurrencyToStorage(currency)
@@ -129,6 +170,7 @@ export default function BookFlightPage() {
     { id: "details", label: "Flight Details" },
     { id: "seats", label: "Seat Selection" },
     { id: "insurance", label: "Travel Insurance" },
+    { id: "carbon", label: "Carbon Offsets" },
     { id: "wallet", label: "Connect Wallet" },
     { id: "confirm", label: "Confirmation" },
     { id: "success", label: "Success" }
@@ -211,6 +253,26 @@ export default function BookFlightPage() {
         console.error("Insurance purchase failed", error)
       } finally {
         setIsPurchasingInsurance(false)
+      }
+    }
+
+    if (isCarbonNeutral && selectedOffsetProjectId && carbonFootprint) {
+      setIsPurchasingOffset(true)
+      try {
+        const walletState = useWalletStore.getState()
+        const userId = walletState.address || "anonymous"
+        const cert = await purchaseOffset({
+          userId,
+          flightId: (flight as any).id,
+          projectId: selectedOffsetProjectId,
+          amountCents: offsetCostCents,
+          bookingId: newBookingId,
+        })
+        setOffsetCertificate(cert)
+      } catch (error) {
+        console.error("Offset purchase failed", error)
+      } finally {
+        setIsPurchasingOffset(false)
       }
     }
 
@@ -359,6 +421,39 @@ export default function BookFlightPage() {
                     Back
                   </Button>
                   <Button size="lg" onClick={nextStep}>
+                    Continue
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Carbon Offsets */}
+            {currentStep === "carbon" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <CarbonFootprintDisplay
+                  totalCO2kg={carbonFootprint?.totalCO2kg ?? null}
+                  distanceKm={carbonFootprint?.distanceKm ?? null}
+                  cabinClassFactor={carbonFootprint?.cabinClassFactor ?? null}
+                  calculationMethod={carbonFootprint?.calculationMethod ?? null}
+                  isLoading={isFootprintLoading}
+                />
+                <CarbonOffsetSelector
+                  footprintKg={carbonFootprint?.totalCO2kg ?? null}
+                  flightId={(flight as any).id}
+                  isCarbonNeutral={isCarbonNeutral}
+                  onToggleCarbonNeutral={setIsCarbonNeutral}
+                  onOffsetSelected={(projectId, costCents) => {
+                    setSelectedOffsetProjectId(projectId)
+                    setOffsetCostCents(costCents)
+                  }}
+                />
+                <div className="flex justify-between">
+                  <Button variant="ghost" onClick={prevStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button size="lg" onClick={nextStep}>
                     Continue to Payment
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -366,7 +461,7 @@ export default function BookFlightPage() {
               </div>
             )}
 
-            {/* Step 4: Wallet Connection */}
+            {/* Step 5: Wallet Connection */}
             {currentStep === "wallet" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 text-center py-12 bg-muted/20 rounded-3xl border border-dashed border-border">
                 <div className="max-w-md mx-auto space-y-8">
@@ -437,10 +532,10 @@ export default function BookFlightPage() {
                   <Button
                     size="lg"
                     onClick={handleFinalConfirm}
-                    disabled={isPurchasingInsurance}
+                    disabled={isPurchasingInsurance || isPurchasingOffset}
                     className="px-12 shadow-lg bg-green-600 hover:bg-green-700 text-white"
                   >
-                    {isPurchasingInsurance ? "Processing..." : "Confirm & Pay"}
+                    {isPurchasingInsurance || isPurchasingOffset ? "Processing..." : "Confirm & Pay"}
                   </Button>
                 </div>
               </div>
@@ -533,6 +628,33 @@ export default function BookFlightPage() {
                   </div>
                 )}
 
+                {offsetCertificate && (
+                  <div className="bg-card rounded-2xl border border-green-200 p-6 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Leaf className="h-5 w-5 text-green-600" />
+                        <span className="font-bold">Carbon Offset</span>
+                      </div>
+                      <Badge variant="secondary" className="bg-green-100 text-green-800">
+                        Carbon Neutral
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      This flight has been offset through {offsetCertificate.projectName}.
+                      {offsetCertificate.co2Kg} kg CO₂ offset &middot; Certificate: {offsetCertificate.certificateRef}
+                    </p>
+                    <a
+                      href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/v1/carbon/certificate/${offsetCertificate.purchaseId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Button variant="outline" size="sm">
+                        <FileText className="mr-2 h-4 w-4" /> Download Certificate
+                      </Button>
+                    </a>
+                  </div>
+                )}
+
                 <Button className="w-full h-12" variant="secondary" onClick={() => router.push("/dashboard")}>
                   Go to Dashboard
                 </Button>
@@ -541,7 +663,7 @@ export default function BookFlightPage() {
           </div>
 
           {currentStep !== "success" && (
-            <div className="lg:col-span-1 sticky top-24">
+            <div className="lg:col-span-1 sticky top-24 space-y-6">
               <BookingSummary
                 flight={flight}
                 passengerCount={passengers.length}
@@ -556,12 +678,21 @@ export default function BookFlightPage() {
                       }
                     : undefined
                 }
+                carbonOffset={
+                  isCarbonNeutral && offsetCostCents > 0
+                    ? { costCents: offsetCostCents }
+                    : undefined
+                }
                 displayCurrency={displayCurrency}
                 rates={rates}
                 className="bg-card shadow-2xl"
               />
               
-              <div className="mt-6 p-4 bg-muted/30 rounded-xl border border-border/50 text-[10px] text-muted-foreground flex items-start gap-2">
+              {fareRules.length > 0 && (
+                <FareRulesSummary fareRules={fareRules} airlineName={flight.airline} />
+              )}
+
+              <div className="p-4 bg-muted/30 rounded-xl border border-border/50 text-[10px] text-muted-foreground flex items-start gap-2">
                 <Shield className="h-3 w-3 shrink-0 text-primary mt-0.5" />
                 <p>Traqora Smart Contract V2.1. Verified by OpenZeppelin. Audited 2024.</p>
               </div>

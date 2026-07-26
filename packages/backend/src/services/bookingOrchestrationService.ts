@@ -13,6 +13,8 @@ import { logger } from '../utils/logger';
 import { withRetries } from './retry';
 import { config } from '../config';
 import { BadRequestError } from '../utils/errors';
+import { FareRulesService, FareClass } from './fareRulesService';
+import type { ChangeFeeQuote, CancellationRefund, UpgradeQuote } from './fareRulesService';
 
 export interface StructuredName {
     title?: string;
@@ -527,6 +529,89 @@ export class BookingOrchestrationService {
         });
 
         return request;
+    }
+
+    async getBookingFareRules(bookingId: string) {
+      const fareService = new FareRulesService();
+      const booking = await this.bookingRepo.findOne({ where: { id: bookingId }, relations: ['flight'] });
+      if (!booking) {
+        throw new BadRequestError('Booking not found');
+      }
+      return fareService.getApplicableFareRules(booking.flight);
+    }
+
+    async calculateBookingChangeFee(bookingId: string, newDate: string): Promise<ChangeFeeQuote> {
+      const booking = await this.bookingRepo.findOne({ where: { id: bookingId }, relations: ['flight'] });
+      if (!booking) {
+        throw new BadRequestError('Booking not found');
+      }
+      const fareService = new FareRulesService();
+      const parsedDate = new Date(newDate);
+      if (isNaN(parsedDate.getTime())) {
+        throw new BadRequestError('Invalid date format');
+      }
+      return fareService.calculateChangeFee(booking, parsedDate);
+    }
+
+    async calculateBookingCancellationRefund(bookingId: string): Promise<CancellationRefund> {
+      const booking = await this.bookingRepo.findOne({ where: { id: bookingId }, relations: ['flight'] });
+      if (!booking) {
+        throw new BadRequestError('Booking not found');
+      }
+      const fareService = new FareRulesService();
+      return fareService.calculateCancellationRefund(booking);
+    }
+
+    async processCancellation(bookingId: string): Promise<{ success: boolean; refund: CancellationRefund; message: string }> {
+      const booking = await this.bookingRepo.findOne({ where: { id: bookingId }, relations: ['flight'] });
+      if (!booking) {
+        throw new BadRequestError('Booking not found');
+      }
+
+      if (booking.status === 'refunded') {
+        throw new BadRequestError('Booking has already been refunded');
+      }
+
+      const fareService = new FareRulesService();
+      const refund = fareService.calculateCancellationRefund(booking);
+
+      if (!refund.eligible) {
+        return { success: false, refund, message: 'Booking is not eligible for cancellation refund' };
+      }
+
+      booking.status = 'refunded';
+      await this.bookingRepo.save(booking);
+
+      logger.info('Booking cancelled and refunded', { bookingId, refundCents: refund.netRefundCents });
+
+      return { success: true, refund, message: `Booking cancelled. Refund of $${(refund.netRefundCents / 100).toFixed(2)} processed` };
+    }
+
+    async calculateUpgradePrice(bookingId: string, targetClass: FareClass): Promise<UpgradeQuote> {
+      const booking = await this.bookingRepo.findOne({ where: { id: bookingId }, relations: ['flight'] });
+      if (!booking) {
+        throw new BadRequestError('Booking not found');
+      }
+      const fareService = new FareRulesService();
+      return fareService.calculateUpgradePrice(booking, targetClass);
+    }
+
+    async processUpgrade(bookingId: string, targetClass: FareClass): Promise<{ success: boolean; upgrade: UpgradeQuote; message: string }> {
+      const booking = await this.bookingRepo.findOne({ where: { id: bookingId }, relations: ['flight'] });
+      if (!booking) {
+        throw new BadRequestError('Booking not found');
+      }
+
+      const fareService = new FareRulesService();
+      const upgrade = fareService.calculateUpgradePrice(booking, targetClass);
+
+      if (!isBookingEditable(booking.status)) {
+        throw new BadRequestError('Booking is not in an editable state for upgrade');
+      }
+
+      logger.info('Booking upgrade processed', { bookingId, fromClass: upgrade.fromClass, toClass: upgrade.toClass, fee: upgrade.totalDueCents });
+
+      return { success: true, upgrade, message: `Upgrade from ${upgrade.fromClass} to ${upgrade.toClass} quoted at $${(upgrade.totalDueCents / 100).toFixed(2)}` };
     }
 
     calculateNameChangeFee(_bookingId: string, isMinorCorrection: boolean): { feeCents: number; currency: string; breakdown: { label: string; amount: number }[] } {

@@ -5,6 +5,7 @@ import { Flight } from "../../db/entities/Flight";
 import { z } from "zod";
 import { FlightSearchService } from "../../services/flightSearchService";
 import { CurrencyService } from "../../services/currencyService";
+import { FareRulesService, FareClass } from "../../services/fareRulesService";
 import { BadRequestError } from "../../utils/errors";
 
 const searchQuerySchema = z
@@ -236,6 +237,25 @@ export const createFlightRoutes = (
     }
     const rates = await currencyService.getRates(base);
     res.json({ success: true, data: { base, rates, timestamp: new Date() } });
+  }));
+
+  router.get("/fare-rules", asyncHandler(async (req, res) => {
+    const schema = z.object({
+      airline: z.string().min(2).max(3),
+      class: z.enum(["economy", "premium_economy", "business", "first"]).optional(),
+    });
+    const parsed = schema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const fareService = new FareRulesService();
+    const mockFlight = new Flight();
+    mockFlight.airlineCode = parsed.data.airline.toUpperCase();
+    mockFlight.rawData = { fareClass: parsed.data.class || 'economy' };
+
+    const rules = fareService.getApplicableFareRules(mockFlight, parsed.data.class as FareClass);
+    res.json({ success: true, data: rules });
   }));
 
   return router;
