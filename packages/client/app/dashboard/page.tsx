@@ -264,37 +264,39 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2">
-              <Plane className="h-8 w-8 text-primary" />
-              <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
-            </div>
-            <div className="hidden md:flex items-center space-x-8">
-              <a href="/" className="text-muted-foreground hover:text-foreground transition-colors">
-                Home
-              </a>
-              <a href="/search" className="text-muted-foreground hover:text-foreground transition-colors">
-                Search Flights
-              </a>
-              <Link href="/governance" className="text-muted-foreground hover:text-foreground transition-colors">
-                Governance
-              </Link>
-              {/* NEW: replaced static badge with real wallet connect/disconnect button */}
-              <NavWalletButton />
+      {/* Navigation — landmark: banner */}
+      <header role="banner">
+        <nav aria-label="Main navigation" className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-2">
+                <Plane className="h-8 w-8 text-primary" aria-hidden="true" />
+                <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+              </div>
+              <div className="hidden md:flex items-center space-x-8">
+                <a href="/" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Home
+                </a>
+                <a href="/search" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Search Flights
+                </a>
+                <Link href="/governance" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Governance
+                </Link>
+                <NavWalletButton />
+              </div>
             </div>
           </div>
-        </div>
-      </nav>
+        </nav>
+      </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="font-serif font-bold text-3xl text-foreground mb-2">My Dashboard</h1>
-          <p className="text-muted-foreground">Manage your bookings, track refunds, and view your travel history</p>
-        </div>
+      {/* Primary content — landmark: main */}
+      <main id="main-content" tabIndex={-1} className="outline-none">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="mb-8">
+            <h1 className="font-serif font-bold text-3xl text-foreground mb-2">My Dashboard</h1>
+            <p className="text-muted-foreground">Manage your bookings, track refunds, and view your travel history</p>
+          </div>
 
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -658,6 +660,7 @@ export default function DashboardPage() {
           </TabsContent>
         </Tabs>
       </div>
+      </main>
     </div>
   )
 }

@@ -77,7 +77,7 @@ function LoyaltyPageSkeleton() {
           </div>
           <div className="h-64 bg-muted rounded" />
         </div>
-      </div>
+      </main>
     </div>
   );
 }
@@ -98,43 +98,44 @@ export default function LoyaltyPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2">
-              <Trophy className="h-8 w-8 text-primary" />
-              <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
-            </div>
-            <div className="hidden md:flex items-center space-x-8">
-              <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors">
-                Home
-              </Link>
-              <Link href="/search" className="text-muted-foreground hover:text-foreground transition-colors">
-                Search Flights
-              </Link>
-              <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors">
-                Dashboard
-              </Link>
-              <Badge variant="secondary" className="px-3 py-1">
-                <Star className="h-4 w-4 mr-2 text-primary" />
-                Loyalty
-              </Badge>
-              <NavWalletButton />
+      <header role="banner">
+        <nav aria-label="Main navigation" className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-2">
+                <Trophy className="h-8 w-8 text-primary" aria-hidden="true" />
+                <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+              </div>
+              <div className="hidden md:flex items-center space-x-8">
+                <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Home
+                </Link>
+                <Link href="/search" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Search Flights
+                </Link>
+                <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Dashboard
+                </Link>
+                <Badge variant="secondary" className="px-3 py-1">
+                  <Star className="h-4 w-4 mr-2 text-primary" aria-hidden="true" />
+                  Loyalty
+                </Badge>
+                <NavWalletButton />
+              </div>
             </div>
           </div>
-        </div>
-      </nav>
+        </nav>
+      </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Back Link */}
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Dashboard
-        </Link>
+      <main id="main-content" tabIndex={-1} className="outline-none">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-6"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back to Dashboard
+          </Link>
 
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">

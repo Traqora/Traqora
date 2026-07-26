@@ -4,6 +4,8 @@ import { asyncHandler } from '../../utils/errorHandler';
 import { RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
 import { logger } from '../../utils/logger';
+import { requireAdmin } from '../../middleware/adminAuth';
+import { BadRequestError, NotFoundError, ForbiddenError } from '../../utils/errors';
 
 const router = Router();
 const refundService = RefundService.getInstance();
@@ -37,7 +39,30 @@ const submitOnchainSchema = z.object({
   signedXdr: z.string().min(1),
 });
 
-import { BadRequestError, NotFoundError, ForbiddenError } from '../../utils/errors';
+// Automated eligibility schema
+const autoEligibleSchema = z.object({
+  bookingId: z.string().uuid(),
+});
+
+// Batch refund schema
+const batchRefundSchema = z.object({
+  bookingIds: z.array(z.string().uuid()).min(1).max(100),
+});
+
+// Dispute schema
+const disputeSchema = z.object({
+  reason: z.string().min(1),
+  details: z.string().optional(),
+  filedBy: z.string().optional(),
+});
+
+// Dispute resolution schema
+const disputeResolutionSchema = z.object({
+  resolution: z.enum(['approved', 'rejected', 'partial']),
+  resolvedBy: z.string().min(1),
+  notes: z.string().min(1),
+  customRefundPercentage: z.number().min(0).max(100).optional(),
+});
 
 /**
  * POST /api/v1/refunds/request
@@ -395,6 +420,136 @@ router.get('/admin/delayed-ready', asyncHandler(async (req: Request, res: Respon
     data: refunds,
     count: refunds.length,
   });
+}));
+
+/**
+ * POST /api/v1/refunds/auto-eligible
+ * Check automated refund eligibility for a booking
+ */
+router.post('/auto-eligible', asyncHandler(async (req: Request, res: Response) => {
+  const parsed = autoEligibleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw new BadRequestError('Validation error', parsed.error.flatten());
+  }
+
+  try {
+    const eligibility = await refundService.checkAutomatedEligibility(parsed.data.bookingId);
+
+    return res.json({
+      success: true,
+      data: eligibility,
+    });
+  } catch (error: any) {
+    logger.error('Failed to check automated eligibility', error);
+    throw new BadRequestError(error.message || 'Failed to check eligibility');
+  }
+}));
+
+/**
+ * POST /api/v1/refunds/batch
+ * Batch refund processing (admin only)
+ */
+router.post('/batch', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+  const parsed = batchRefundSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw new BadRequestError('Validation error', parsed.error.flatten());
+  }
+
+  try {
+    const result = await refundService.processBatchRefunds(parsed.data.bookingIds);
+
+    return res.status(202).json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    logger.error('Failed to process batch refunds', error);
+    throw new BadRequestError(error.message || 'Failed to process batch refunds');
+  }
+}));
+
+/**
+ * POST /api/v1/refunds/:id/dispute
+ * Submit a dispute for a refund
+ */
+router.post('/:id/dispute', asyncHandler(async (req: Request, res: Response) => {
+  const parsed = disputeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw new BadRequestError('Validation error', parsed.error.flatten());
+  }
+
+  try {
+    await auditService.logAction({
+      refundId: req.params.id,
+      action: 'dispute_submitted',
+      actor: parsed.data.filedBy,
+      metadata: {
+        reason: parsed.data.reason,
+        details: parsed.data.details,
+      },
+    });
+
+    logger.info(`Dispute submitted for refund ${req.params.id}`);
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        refundId: req.params.id,
+        status: 'dispute_filed',
+      },
+    });
+  } catch (error: any) {
+    logger.error('Failed to submit dispute', error);
+    throw new BadRequestError(error.message || 'Failed to submit dispute');
+  }
+}));
+
+/**
+ * POST /api/v1/refunds/:id/resolve-dispute
+ * Resolve a dispute (admin only)
+ */
+router.post('/:id/resolve-dispute', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+  const parsed = disputeResolutionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw new BadRequestError('Validation error', parsed.error.flatten());
+  }
+
+  try {
+    const refund = await refundService.handleDisputeResolution(req.params.id, {
+      resolution: parsed.data.resolution,
+      resolvedBy: parsed.data.resolvedBy,
+      notes: parsed.data.notes,
+      customRefundPercentage: parsed.data.customRefundPercentage,
+    });
+
+    logger.info(`Dispute for refund ${req.params.id} resolved as ${parsed.data.resolution} by ${parsed.data.resolvedBy}`);
+
+    return res.json({
+      success: true,
+      data: refund,
+    });
+  } catch (error: any) {
+    logger.error('Failed to resolve dispute', error);
+    throw new BadRequestError(error.message || 'Failed to resolve dispute');
+  }
+}));
+
+/**
+ * GET /api/v1/refunds/stats
+ * Get refund analytics and statistics
+ */
+router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const stats = await refundService.getRefundStats();
+
+    return res.json({
+      success: true,
+      data: stats,
+    });
+  } catch (error: any) {
+    logger.error('Failed to get refund stats', error);
+    throw new BadRequestError(error.message || 'Failed to get refund stats');
+  }
 }));
 
 export const refundRoutes = router;
