@@ -11,7 +11,7 @@ export interface NotificationPayload {
 export const notificationQueue = new Queue<NotificationPayload>(
   "notifications",
   {
-    redis: config.redisUrl || "redis://localhost:6379",
+    redis: config.redisUrl,
     defaultJobOptions: {
       attempts: 3,
       backoff: {

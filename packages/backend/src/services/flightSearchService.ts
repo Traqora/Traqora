@@ -83,7 +83,7 @@ export class FlightSearchService {
     cacheTtlSeconds = 300,
     provider?: OffchainFlightDataProvider,
     registryService?: FlightRegistryService,
-    xlmUsdRate = Number.parseFloat(process.env.XLM_USD_RATE || '0.12')
+    xlmUsdRate = config.xlmUsdRate
   ) {
     this.provider = provider || new RepositoryOffchainFlightDataProvider(repository);
     this.registryService = registryService || createFlightRegistryService();

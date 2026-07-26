@@ -10,7 +10,7 @@ import {
   hashObject,
 } from "../../services/idempotency";
 import { BookingOrchestrationService } from "../../services/bookingOrchestrationService";
-import { stripe, stripeWebhookSecret } from "../../services/stripe";
+import { getStripe, stripeWebhookSecret } from "../../services/stripe";
 import {
   submitSignedSorobanXdr,
   getTransactionStatus,
@@ -173,7 +173,7 @@ router.post(
 
     let event;
     try {
-      event = stripe.webhooks.constructEvent(
+      event = getStripe().webhooks.constructEvent(
         req.body as Buffer,
         sig,
         stripeWebhookSecret,

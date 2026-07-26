@@ -6,6 +6,7 @@ import { Flight } from '../db/entities/Flight';
 import { Passenger } from '../db/entities/Passenger';
 import { NotificationService } from './NotificationService';
 import { logger } from '../utils/logger';
+import { config } from '../config';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface CreateGroupBookingRequest {
@@ -278,7 +279,7 @@ export class GroupBookingService {
    * Send invitation email to a member
    */
   private async sendInvitationEmail(member: GroupMember, group: GroupBooking): Promise<void> {
-    const inviteLink = `${process.env.FRONTEND_URL}/book/group/invite/${member.inviteToken}`;
+    const inviteLink = `${config.frontendUrl}/book/group/invite/${member.inviteToken}`;
 
     const subject = `You're invited to join a group booking: ${group.groupName}`;
 
@@ -520,7 +521,7 @@ export class GroupBookingService {
       const body = `
         <h2>Group Booking Confirmed</h2>
         <p>Your group booking for <strong>${group.groupName}</strong> has been confirmed.</p>
-        <p>You can view your booking details at: ${process.env.FRONTEND_URL}/bookings</p>
+        <p>You can view your booking details at: ${config.frontendUrl}/bookings</p>
         <p>Shared Itinerary: ${group.sharedItinerary || 'Not available yet'}</p>
       `;
 

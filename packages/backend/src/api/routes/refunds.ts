@@ -4,6 +4,7 @@ import { asyncHandler } from '../../utils/errorHandler';
 import { RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
 import { logger } from '../../utils/logger';
+import { config } from '../../config';
 
 const router = Router();
 const refundService = RefundService.getInstance();
@@ -162,7 +163,7 @@ router.get('/:id/status', asyncHandler(async (req: Request, res: Response) => {
 router.get('/admin/review-queue', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -182,7 +183,7 @@ router.get('/admin/review-queue', asyncHandler(async (req: Request, res: Respons
 router.get('/admin/all', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -212,7 +213,7 @@ router.get('/admin/all', asyncHandler(async (req: Request, res: Response) => {
 router.post('/:id/review', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -249,7 +250,7 @@ router.post('/:id/review', asyncHandler(async (req: Request, res: Response) => {
 router.get('/:id/audit-trail', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -322,7 +323,7 @@ router.post('/:id/process-delayed', asyncHandler(async (req: Request, res: Respo
 router.post('/:id/emergency-override', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -364,7 +365,7 @@ router.post('/:id/emergency-override', asyncHandler(async (req: Request, res: Re
 router.get('/admin/delayed-pending', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -384,7 +385,7 @@ router.get('/admin/delayed-pending', asyncHandler(async (req: Request, res: Resp
 router.get('/admin/delayed-ready', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
