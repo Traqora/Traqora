@@ -186,30 +186,37 @@ export default function GroupBookingPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="text-sm font-medium mb-1 block">Group Name</label>
+            <label htmlFor="group-name" className="text-sm font-medium mb-1 block">Group Name</label>
             <Input
+              id="group-name"
               placeholder="e.g., Summer Vacation 2024"
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
+              aria-required="true"
+              aria-invalid={groupName.length === 0 && step === 'setup' ? undefined : undefined}
             />
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-1 block">Organizer Email</label>
+            <label htmlFor="organizer-email" className="text-sm font-medium mb-1 block">Organizer Email</label>
             <Input
+              id="organizer-email"
               type="email"
               placeholder="your-email@example.com"
               value={organizerEmail}
               onChange={(e) => setOrganizerEmail(e.target.value)}
+              aria-required="true"
             />
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-1 block">Select Flight</label>
+            <label htmlFor="flight-select" className="text-sm font-medium mb-1 block">Select Flight</label>
             <select
+              id="flight-select"
               className="w-full p-2 rounded-md border border-input bg-background"
               value={selectedFlightId}
               onChange={(e) => setSelectedFlightId(e.target.value)}
+              aria-required="true"
             >
               <option value="">Select a flight...</option>
               {flights.map((flight) => (
@@ -254,15 +261,19 @@ export default function GroupBookingPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
+            <label htmlFor="member-email" className="sr-only">Member email address</label>
             <Input
+              id="member-email"
               type="email"
               placeholder="friend@example.com"
               value={currentEmail}
               onChange={(e) => setCurrentEmail(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddMember()}
+              aria-describedby="member-email-hint"
             />
-            <Button onClick={handleAddMember} variant="outline">
-              <UserPlus className="h-4 w-4 mr-2" />
+            <span id="member-email-hint" className="sr-only">Press Enter or click Add to include this member</span>
+            <Button onClick={handleAddMember} variant="outline" aria-label={`Add member ${currentEmail || ''}`}>
+              <UserPlus className="h-4 w-4 mr-2" aria-hidden="true" />
               Add
             </Button>
           </div>
@@ -324,8 +335,10 @@ export default function GroupBookingPage() {
           <CardDescription>Choose how the cost will be divided among group members.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-4" role="radiogroup" aria-label="Split payment method">
             <button
+              role="radio"
+              aria-checked={splitMethod === 'equal'}
               className={cn(
                 'p-4 rounded-xl border-2 text-center transition-all',
                 splitMethod === 'equal'
@@ -334,11 +347,13 @@ export default function GroupBookingPage() {
               )}
               onClick={() => setSplitMethod('equal')}
             >
-              <div className="text-2xl mb-2">🔄</div>
+              <div className="text-2xl mb-2" aria-hidden="true">🔄</div>
               <div className="font-medium">Equal</div>
               <div className="text-xs text-muted-foreground">Split evenly among all members</div>
             </button>
             <button
+              role="radio"
+              aria-checked={splitMethod === 'custom'}
               className={cn(
                 'p-4 rounded-xl border-2 text-center transition-all',
                 splitMethod === 'custom'
@@ -347,11 +362,13 @@ export default function GroupBookingPage() {
               )}
               onClick={() => setSplitMethod('custom')}
             >
-              <div className="text-2xl mb-2">✏️</div>
+              <div className="text-2xl mb-2" aria-hidden="true">✏️</div>
               <div className="font-medium">Custom</div>
               <div className="text-xs text-muted-foreground">Set custom amounts per member</div>
             </button>
             <button
+              role="radio"
+              aria-checked={splitMethod === 'percentage'}
               className={cn(
                 'p-4 rounded-xl border-2 text-center transition-all',
                 splitMethod === 'percentage'
@@ -360,7 +377,7 @@ export default function GroupBookingPage() {
               )}
               onClick={() => setSplitMethod('percentage')}
             >
-              <div className="text-2xl mb-2">📊</div>
+              <div className="text-2xl mb-2" aria-hidden="true">📊</div>
               <div className="font-medium">Percentage</div>
               <div className="text-xs text-muted-foreground">Split by percentage shares</div>
             </button>
@@ -477,27 +494,29 @@ export default function GroupBookingPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2 cursor-pointer" onClick={() => router.push('/')}>
-              <Plane className="h-8 w-8 text-primary" />
-              <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+      <header role="banner">
+        <nav aria-label="Main navigation" className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-2 cursor-pointer" onClick={() => router.push('/')}>
+                <Plane className="h-8 w-8 text-primary" aria-hidden="true" />
+                <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+              </div>
+              <Link href="/flights/search">
+                <Button variant="ghost" size="sm">
+                  <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Back to Search
+                </Button>
+              </Link>
             </div>
-            <Link href="/flights/search">
-              <Button variant="ghost" size="sm">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Search
-              </Button>
-            </Link>
           </div>
-        </div>
-      </nav>
+        </nav>
+      </header>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h1 className="font-serif font-bold text-3xl text-foreground mb-2">Group Booking</h1>
-        <p className="text-muted-foreground mb-8">Plan and split travel costs with your group.</p>
+      <main id="main-content" tabIndex={-1} className="outline-none">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <h1 className="font-serif font-bold text-3xl text-foreground mb-2">Group Booking</h1>
+          <p className="text-muted-foreground mb-8">Plan and split travel costs with your group.</p>
 
         {/* Steps Progress */}
         <div className="mb-8">
@@ -546,6 +565,7 @@ export default function GroupBookingPage() {
         {step === 'split' && renderSplit()}
         {step === 'invite' && renderInvite()}
       </div>
+      </main>
     </div>
   );
 }

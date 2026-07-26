@@ -24,13 +24,19 @@ import {
 import { SeatSelector } from "@/components/booking/seat-selector"
 import { BookingSummary } from "@/components/booking/booking-summary"
 import { InsuranceSelector } from "@/components/booking/insurance-selector"
+import { CurrencySelector } from "@/components/currency-selector"
+import { PassengerDetailsForm, PassengerData, validatePassengers } from "@/components/booking/passenger-details-form"
 import { useBooking } from "@/hooks/use-booking"
 import { useFlightSearch } from "@/hooks/use-flight-search"
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
 import { cn } from "@/lib/utils"
 import { InsuranceCoverageType, InsurancePolicy, purchaseInsurance } from "@/lib/api"
+import {
+  type CurrencyCode,
+  getCurrencyFromStorage,
+  setCurrencyToStorage,
+} from "@/lib/currency"
 
-// Mock flight data - in real app this would come from API
 const mockFlightDetails = {
   id: "1",
   airline: "Delta Airlines",
@@ -63,6 +69,8 @@ export default function BookFlightPage() {
   const params = useParams()
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState<BookingStep>("details")
+  const [displayCurrency, setDisplayCurrency] = useState<CurrencyCode>("USD")
+  const [rates, setRates] = useState<Record<string, number> | undefined>(undefined)
   
   const { 
     isProcessing, 
@@ -82,8 +90,39 @@ export default function BookFlightPage() {
   const [selectedCoverage, setSelectedCoverage] = useState<InsuranceCoverageType | null>(null)
   const [insurancePolicy, setInsurancePolicy] = useState<InsurancePolicy | null>(null)
   const [isPurchasingInsurance, setIsPurchasingInsurance] = useState(false)
+  const [passengers, setPassengers] = useState<PassengerData[]>([
+    { firstName: "", lastName: "", email: "", phone: "" },
+  ])
+  const [passengerErrors, setPassengerErrors] = useState<ReturnType<typeof validatePassengers>>([])
 
-  // Use mock flight or find from list
+  useEffect(() => {
+    const stored = getCurrencyFromStorage()
+    setDisplayCurrency(stored)
+  }, [])
+
+  useEffect(() => {
+    if (displayCurrency === "USD") {
+      setRates(undefined)
+      return
+    }
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+    fetch(`${apiBase}/api/flights/currencies/rates?base=USD`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setRates(data.data.rates)
+        }
+      })
+      .catch(() => {
+        setRates(undefined)
+      })
+  }, [displayCurrency])
+
+  const handleCurrencyChange = (currency: CurrencyCode) => {
+    setDisplayCurrency(currency)
+    setCurrencyToStorage(currency)
+  }
+
   const flight = flights.find(f => f.id === params.id) || mockFlightDetails
 
   const steps: { id: BookingStep; label: string }[] = [
@@ -117,13 +156,41 @@ export default function BookFlightPage() {
   const handleWalletConnect = async () => {
     try {
       await handleConnect()
-      // If successful, the store will update and we can proceed
       if (useWalletStore.getState().isConnected) {
         setCurrentStep("confirm")
       }
     } catch (error) {
       console.error("Wallet connection failed", error)
     }
+  }
+
+  const handlePassengerChange = (index: number, data: PassengerData) => {
+    const updated = [...passengers]
+    updated[index] = data
+    setPassengers(updated)
+  }
+
+  const handleAddPassenger = () => {
+    setPassengers([...passengers, { firstName: "", lastName: "", email: "", phone: "" }])
+  }
+
+  const handleRemovePassenger = (index: number) => {
+    if (passengers.length <= 1) return
+    setPassengers(passengers.filter((_, i) => i !== index))
+  }
+
+  const validateStep = (step: BookingStep): boolean => {
+    if (step === "details") {
+      const errors = validatePassengers(passengers)
+      setPassengerErrors(errors)
+      return errors.every((e) => Object.keys(e).length === 0)
+    }
+    return true
+  }
+
+  const handleNextStep = () => {
+    if (!validateStep(currentStep)) return
+    nextStep()
   }
 
   const handleFinalConfirm = async () => {
@@ -148,43 +215,43 @@ export default function BookFlightPage() {
     }
 
     setCurrentStep("success")
-    // In real app, call signAndSubmitTransaction()
   }
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2 cursor-pointer" onClick={() => router.push("/")}>
-              <Plane className="h-8 w-8 text-primary" />
-              <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Badge variant={isWalletConnected ? "secondary" : "outline"} className="px-3 py-1">
-                {isWalletConnected ? (
-                  <><CheckCircle className="h-4 w-4 mr-2 text-green-500" /> {walletType} Connected</>
-                ) : (
-                  <><Wallet className="h-4 w-4 mr-2" /> Wallet Disconnected</>
-                )}
-              </Badge>
+      <header role="banner">
+        <nav aria-label="Main navigation" className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-2 cursor-pointer" onClick={() => router.push("/")} role="link" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") router.push("/") }} aria-label="Go to homepage">
+                <Plane className="h-8 w-8 text-primary" aria-hidden="true" />
+                <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+              </div>
+              <div className="flex items-center space-x-4">
+                <CurrencySelector value={displayCurrency} onValueChange={handleCurrencyChange} />
+                <Badge variant={isWalletConnected ? "secondary" : "outline"} className="px-3 py-1">
+                  {isWalletConnected ? (
+                    <><CheckCircle className="h-4 w-4 mr-2 text-green-500" aria-hidden="true" /> {walletType} Connected</>
+                  ) : (
+                    <><Wallet className="h-4 w-4 mr-2" aria-hidden="true" /> Wallet Disconnected</>
+                  )}
+                </Badge>
+              </div>
             </div>
           </div>
-        </div>
-      </nav>
+        </nav>
+      </header>
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Progress Stepper */}
         <div className="mb-12">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="font-serif font-bold text-3xl text-foreground">
-              {steps.find(s => s.id === currentStep)?.label}
-            </h1>
-            <Badge variant="outline" className="text-sm font-medium px-4 py-1">
-              Step {steps.findIndex(s => s.id === currentStep) + 1} of {steps.length}
-            </Badge>
-          </div>
+            <div className="flex justify-between items-center mb-6">
+              <h1 className="font-serif font-bold text-3xl text-foreground">
+                {steps.find(s => s.id === currentStep)?.label}
+              </h1>
+              <Badge variant="outline" className="text-sm font-medium px-4 py-1" aria-label={`Step ${steps.findIndex(s => s.id === currentStep) + 1} of ${steps.length}`}>
+                Step {steps.findIndex(s => s.id === currentStep) + 1} of {steps.length}
+              </Badge>
+            </div>
           
           <div className="relative">
             <Progress value={getStepProgress()} className="h-2" />
@@ -219,15 +286,35 @@ export default function BookFlightPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-8">
             
-            {/* Step 1: Flight Details (Review) */}
             {currentStep === "details" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <BookingSummary flight={flight} passengerCount={1} />
+                <BookingSummary flight={flight} passengerCount={passengers.length} displayCurrency={displayCurrency} rates={rates} />
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-lg">Passenger Details</h3>
+                    <Button variant="outline" size="sm" onClick={handleAddPassenger}>
+                      Add Passenger
+                    </Button>
+                  </div>
+                  {passengers.map((p, i) => (
+                    <PassengerDetailsForm
+                      key={i}
+                      passenger={p}
+                      index={i}
+                      onChange={handlePassengerChange}
+                      onRemove={handleRemovePassenger}
+                      showRemove={passengers.length > 1}
+                      errors={passengerErrors[i]}
+                      airline={flight.airline}
+                    />
+                  ))}
+                </div>
+
                 <div className="flex justify-end">
-                  <Button size="lg" onClick={nextStep} className="group px-8">
+                  <Button size="lg" onClick={handleNextStep} className="group px-8">
                     Select Seats
                     <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </Button>
@@ -235,13 +322,14 @@ export default function BookFlightPage() {
               </div>
             )}
 
-            {/* Step 2: Seat Selection */}
             {currentStep === "seats" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <SeatSelector 
                   cabinClass={flight.class} 
                   onSeatSelect={(seat) => selectSeat(seat.id, seat.price)}
                   selectedSeatId={selectedSeat?.id}
+                  displayCurrency={displayCurrency}
+                  rates={rates}
                 />
                 <div className="flex justify-between">
                   <Button variant="ghost" onClick={prevStep}>
@@ -308,7 +396,6 @@ export default function BookFlightPage() {
               </div>
             )}
 
-            {/* Step 4: Final Confirmation */}
             {currentStep === "confirm" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <Alert className="bg-primary/5 border-primary/20">
@@ -359,7 +446,6 @@ export default function BookFlightPage() {
               </div>
             )}
 
-            {/* Step 5: Success */}
             {currentStep === "success" && (
               <div className="space-y-8 animate-in zoom-in duration-500">
                 <div className="text-center space-y-4">
@@ -454,12 +540,11 @@ export default function BookFlightPage() {
             )}
           </div>
 
-          {/* Sidebar Summary (Only visible during booking process) */}
           {currentStep !== "success" && (
             <div className="lg:col-span-1 sticky top-24">
               <BookingSummary
                 flight={flight}
-                passengerCount={1}
+                passengerCount={passengers.length}
                 selectedSeat={selectedSeat || undefined}
                 insurance={
                   selectedCoverage
@@ -471,6 +556,8 @@ export default function BookFlightPage() {
                       }
                     : undefined
                 }
+                displayCurrency={displayCurrency}
+                rates={rates}
                 className="bg-card shadow-2xl"
               />
               

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Plane, Clock, Calendar, Users, Luggage, Shield, Info } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatCurrency, type CurrencyCode } from "@/lib/currency"
 
 interface Flight {
   id: string
@@ -38,17 +39,34 @@ interface BookingSummaryProps {
     premiumCents: number
   }
   className?: string
+  displayCurrency?: CurrencyCode
+  rates?: Record<string, number>
 }
 
-export function BookingSummary({ flight, passengerCount, selectedSeat, insurance, className }: BookingSummaryProps) {
-  const baseFare = parseFloat(flight.price) * passengerCount
-  const seatFare = selectedSeat?.price || 0
-  const insuranceFare = insurance ? insurance.premiumCents / 100 : 0
+export function BookingSummary({
+  flight,
+  passengerCount,
+  selectedSeat,
+  insurance,
+  className,
+  displayCurrency = "USD",
+  rates,
+}: BookingSummaryProps) {
+  const convertPrice = (priceInUsd: number): number => {
+    if (displayCurrency === "USD" || !rates) return priceInUsd
+    return priceInUsd * (rates[displayCurrency] || 1)
+  }
+
+  const basePrice = convertPrice(parseFloat(flight.price))
+  const baseFare = basePrice * passengerCount
+  const seatPrice = convertPrice(selectedSeat?.price || 0)
+  const seatFare = selectedSeat ? seatPrice : 0
+  const insuranceFare = insurance ? convertPrice(insurance.premiumCents / 100) : 0
   const taxes = baseFare * 0.08
   const total = baseFare + seatFare + insuranceFare + taxes
 
   return (
-    <Card className={cn("overflow-hidden border-none shadow-xl", className)}>
+    <Card className={cn("overflow-hidden border-none shadow-xl", className)} role="region" aria-label="Booking summary">
       <CardHeader className="bg-primary text-primary-foreground p-6">
         <div className="flex justify-between items-start">
           <div>
@@ -62,7 +80,6 @@ export function BookingSummary({ flight, passengerCount, selectedSeat, insurance
       </CardHeader>
       
       <CardContent className="p-6 space-y-6">
-        {/* Flight Main Info */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center p-2">
@@ -80,7 +97,6 @@ export function BookingSummary({ flight, passengerCount, selectedSeat, insurance
 
         <Separator />
 
-        {/* Route Details */}
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-1">
             <p className="text-2xl font-bold">{flight.departure}</p>
@@ -109,16 +125,15 @@ export function BookingSummary({ flight, passengerCount, selectedSeat, insurance
 
         <Separator />
 
-        {/* Breakdown */}
         <div className="space-y-3">
-          <h4 className="font-bold text-sm uppercase tracking-widest text-muted-foreground">Price Breakdown</h4>
+          <h2 className="font-bold text-sm uppercase tracking-widest text-muted-foreground">Price Breakdown</h2>
           <div className="space-y-2">
             <div className="flex justify-between items-center text-sm">
               <span className="text-muted-foreground flex items-center gap-2">
                 <Users className="h-4 w-4" />
-                Base Fare ({passengerCount} × ${flight.price})
+                Base Fare ({passengerCount} × {formatCurrency(basePrice, displayCurrency)})
               </span>
-              <span className="font-medium">${baseFare.toFixed(2)}</span>
+              <span className="font-medium">{formatCurrency(baseFare, displayCurrency)}</span>
             </div>
             {selectedSeat && (
               <div className="flex justify-between items-center text-sm">
@@ -126,7 +141,7 @@ export function BookingSummary({ flight, passengerCount, selectedSeat, insurance
                   <Armchair className="h-4 w-4" />
                   Seat Selection ({selectedSeat.id})
                 </span>
-                <span className="font-medium">${seatFare.toFixed(2)}</span>
+                <span className="font-medium">{formatCurrency(seatFare, displayCurrency)}</span>
               </div>
             )}
             {insurance && (
@@ -135,7 +150,7 @@ export function BookingSummary({ flight, passengerCount, selectedSeat, insurance
                   <Shield className="h-4 w-4" />
                   Travel Insurance ({insurance.coverageType})
                 </span>
-                <span className="font-medium">${insuranceFare.toFixed(2)}</span>
+                <span className="font-medium">{formatCurrency(insuranceFare, displayCurrency)}</span>
               </div>
             )}
             <div className="flex justify-between items-center text-sm">
@@ -143,7 +158,7 @@ export function BookingSummary({ flight, passengerCount, selectedSeat, insurance
                 <Shield className="h-4 w-4" />
                 Taxes & Mandatory Fees
               </span>
-              <span className="font-medium">${taxes.toFixed(2)}</span>
+              <span className="font-medium">{formatCurrency(taxes, displayCurrency)}</span>
             </div>
           </div>
         </div>
@@ -153,14 +168,14 @@ export function BookingSummary({ flight, passengerCount, selectedSeat, insurance
         <div className="flex justify-between items-center">
           <span className="text-lg font-medium">Total Amount</span>
           <div className="text-right">
-            <span className="text-2xl font-bold text-primary">${total.toFixed(2)}</span>
+            <span className="text-2xl font-bold text-primary">{formatCurrency(total, displayCurrency)}</span>
             <p className="text-xs text-muted-foreground">≈ {(total * 10).toFixed(2)} XLM</p>
           </div>
         </div>
         
         <div className="flex items-start gap-2 p-3 bg-white/50 rounded-lg border border-border/50 text-[10px] text-muted-foreground">
           <Info className="h-3 w-3 shrink-0 text-primary mt-0.5" />
-          <p>This transaction will be secured by a smart contract. No middleman fees apply. Refund policy: {flight.refundPolicy || "Standard carrier rules apply"}.</p>
+          <p>This transaction will be secured by a smart contract. No middleman fees apply. Refund policy: Standard carrier rules apply.</p>
         </div>
       </CardFooter>
     </Card>
