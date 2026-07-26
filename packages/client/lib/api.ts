@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
 export interface FlightSearchParams {
   from: string
@@ -154,6 +154,70 @@ export interface CheckInWindow {
   opensAt: string
   closesAt: string
   isOpen: boolean
+}
+
+export type CarbonCabinClass = 'economy' | 'premium_economy' | 'business' | 'first'
+export type OffsetProjectType = 'reforestation' | 'renewable' | 'community'
+
+export interface CarbonFootprint {
+  flightId: string
+  totalCO2kg: number
+  cabinClassFactor: number
+  distanceKm: number
+  calculationMethod: string
+}
+
+export interface OffsetProject {
+  id: string
+  name: string
+  type: OffsetProjectType
+  pricePerTonCents: number
+  description: string
+  certifications: string[]
+  status: string
+  totalOffsetTons: number
+}
+
+export interface OffsetCost {
+  costCents: number
+  tonsToOffset: number
+  projectId: string
+  projectName: string
+  pricePerTonCents: number
+}
+
+export interface OffsetCertificate {
+  id: string
+  purchaseId: string
+  certificateRef: string
+  co2Kg: number
+  tonsOffset: number
+  projectName: string
+  projectType: OffsetProjectType
+  purchasedAt: string
+  userId: string
+}
+
+export interface SustainabilityStats {
+  totalCO2OffsetKg: number
+  totalOffsetCents: number
+  totalPurchases: number
+  projectsSupported: number
+  treesEquivalent: number
+  carsOffRoadEquivalent: number
+  recentPurchases: Array<{
+    id: string
+    userId: string
+    flightId: string
+    projectId: string
+    amountCents: number
+    co2Kg: number
+    tonsOffset: number
+    status: string
+    bookingId?: string
+    certificateRef?: string
+    createdAt: string
+  }>
 }
 
 export interface PerformanceSnapshot {
@@ -447,6 +511,47 @@ export async function getInsuranceClaims(policyId: string): Promise<InsuranceCla
   return apiGet<InsuranceClaim[]>(`/api/v1/insurance/policy/${policyId}/claims`)
 }
 
+export async function getOffsetProjects(): Promise<OffsetProject[]> {
+  return apiGet<OffsetProject[]>('/api/v1/carbon/projects')
+}
+
+export async function estimateFootprint(
+  flightId: string,
+  cabinClass: CarbonCabinClass = 'economy',
+): Promise<CarbonFootprint> {
+  return apiPost<CarbonFootprint>('/api/v1/carbon/estimate', { flightId, cabinClass })
+}
+
+export async function calculateOffsetCost(
+  footprintKg: number,
+  projectId: string,
+): Promise<OffsetCost> {
+  return apiPost<OffsetCost>('/api/v1/carbon/offset-cost', { footprintKg, projectId })
+}
+
+export async function purchaseOffset(params: {
+  userId: string
+  flightId: string
+  projectId: string
+  amountCents: number
+  bookingId?: string
+}): Promise<OffsetCertificate> {
+  return apiPost<OffsetCertificate>('/api/v1/carbon/purchase', params)
+}
+
+export async function getOffsetCertificate(purchaseId: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/carbon/certificate/${purchaseId}`)
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+  }
+  return response.blob()
+}
+
+export async function getCarbonStats(userId: string): Promise<SustainabilityStats> {
+  return apiGet<SustainabilityStats>(`/api/v1/carbon/stats?userId=${userId}`)
+}
+
 export const apiClient = {
   searchFlights: async (params: FlightSearchParams) => {
     try {
@@ -571,6 +676,57 @@ export const apiClient = {
   getPerformanceSnapshot: async () => {
     try {
       const data = await getPerformanceSnapshot()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getOffsetProjects: async (): Promise<ApiResult<OffsetProject[]>> => {
+    try {
+      const data = await getOffsetProjects()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  estimateFootprint: async (flightId: string, cabinClass?: CarbonCabinClass): Promise<ApiResult<CarbonFootprint>> => {
+    try {
+      const data = await estimateFootprint(flightId, cabinClass)
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  calculateOffsetCost: async (footprintKg: number, projectId: string): Promise<ApiResult<OffsetCost>> => {
+    try {
+      const data = await calculateOffsetCost(footprintKg, projectId)
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  purchaseOffset: async (params: {
+    userId: string
+    flightId: string
+    projectId: string
+    amountCents: number
+    bookingId?: string
+  }): Promise<ApiResult<OffsetCertificate>> => {
+    try {
+      const data = await purchaseOffset(params)
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getCarbonStats: async (userId: string): Promise<ApiResult<SustainabilityStats>> => {
+    try {
+      const data = await getCarbonStats(userId)
       return { success: true, data }
     } catch (error: any) {
       return { success: false, error: { message: error.message } }

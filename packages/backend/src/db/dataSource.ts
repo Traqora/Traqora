@@ -21,6 +21,7 @@ import { ContractEventLog } from "./entities/ContractEventLog";
 import { InsurancePolicy } from "./entities/InsurancePolicy";
 import { InsuranceClaim } from "./entities/InsuranceClaim";
 import { CheckIn } from "./entities/CheckIn";
+import { BiometricCredential } from "./entities/BiometricCredential";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -51,6 +52,7 @@ export const AppDataSource = new DataSource(
         InsurancePolicy,
         InsuranceClaim,
         CheckIn,
+        BiometricCredential,
       ],
       logging: false,
     }
@@ -79,6 +81,7 @@ export const AppDataSource = new DataSource(
         InsurancePolicy,
         InsuranceClaim,
         CheckIn,
+        BiometricCredential,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:

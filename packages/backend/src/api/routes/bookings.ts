@@ -449,4 +449,93 @@ router.get(
   }),
 );
 
+router.get(
+  "/:id/fare-rules",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const rules = await orchestrationService.getBookingFareRules(req.params.id);
+    return res.json({ success: true, data: rules });
+  }),
+);
+
+const changeFeeQuerySchema = z.object({
+  newDate: z.string().min(1, "newDate query parameter is required"),
+});
+
+router.get(
+  "/:id/change-fee",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = changeFeeQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+    const orchestrationService = new BookingOrchestrationService();
+    const quote = await orchestrationService.calculateBookingChangeFee(
+      req.params.id,
+      parsed.data.newDate,
+    );
+    return res.json({ success: true, data: quote });
+  }),
+);
+
+router.get(
+  "/:id/cancellation-refund",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const refund = await orchestrationService.calculateBookingCancellationRefund(req.params.id);
+    return res.json({ success: true, data: refund });
+  }),
+);
+
+router.post(
+  "/:id/cancel",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.processCancellation(req.params.id);
+    return res.json({ success: true, data: result });
+  }),
+);
+
+const upgradeQuerySchema = z.object({
+  targetClass: z.enum(["economy", "premium_economy", "business", "first"]),
+});
+
+router.get(
+  "/:id/upgrade-price",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = upgradeQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+    const orchestrationService = new BookingOrchestrationService();
+    const quote = await orchestrationService.calculateUpgradePrice(
+      req.params.id,
+      parsed.data.targetClass,
+    );
+    return res.json({ success: true, data: quote });
+  }),
+);
+
+router.post(
+  "/:id/upgrade",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = upgradeQuerySchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.processUpgrade(
+      req.params.id,
+      parsed.data.targetClass,
+    );
+    return res.json({ success: true, data: result });
+  }),
+);
+
 export const bookingRoutes = router;
