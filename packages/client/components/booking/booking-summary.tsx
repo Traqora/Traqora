@@ -34,6 +34,10 @@ interface BookingSummaryProps {
     id: string
     price: number
   }
+  insurance?: {
+    coverageType: string
+    premiumCents: number
+  }
   className?: string
   displayCurrency?: CurrencyCode
   rates?: Record<string, number>
@@ -43,6 +47,7 @@ export function BookingSummary({
   flight,
   passengerCount,
   selectedSeat,
+  insurance,
   className,
   displayCurrency = "USD",
   rates,
@@ -56,8 +61,9 @@ export function BookingSummary({
   const baseFare = basePrice * passengerCount
   const seatPrice = convertPrice(selectedSeat?.price || 0)
   const seatFare = selectedSeat ? seatPrice : 0
+  const insuranceFare = insurance ? convertPrice(insurance.premiumCents / 100) : 0
   const taxes = baseFare * 0.08
-  const total = baseFare + seatFare + taxes
+  const total = baseFare + seatFare + insuranceFare + taxes
 
   return (
     <Card className={cn("overflow-hidden border-none shadow-xl", className)} role="region" aria-label="Booking summary">
@@ -136,6 +142,15 @@ export function BookingSummary({
                   Seat Selection ({selectedSeat.id})
                 </span>
                 <span className="font-medium">{formatCurrency(seatFare, displayCurrency)}</span>
+              </div>
+            )}
+            {insurance && (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  Travel Insurance ({insurance.coverageType})
+                </span>
+                <span className="font-medium">{formatCurrency(insuranceFare, displayCurrency)}</span>
               </div>
             )}
             <div className="flex justify-between items-center text-sm">

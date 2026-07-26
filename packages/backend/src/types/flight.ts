@@ -42,7 +42,7 @@ export interface FlightSearchCriteria {
   priceMin?: number;
   priceMax?: number;
   airlines?: string[];
-  stops?: number;
+  stops?: number[];
   durationMax?: number;
   sortBy: FlightSortBy;
   sortOrder?: SortOrder;
