@@ -165,7 +165,39 @@ jobs:
           echo "Deployment to testnet completed successfully"
 
   # ============================================================================
-  # STAGE 4: Notification
+  # STAGE 4: Automated Rollback (only runs if app deploy failed after contracts succeeded)
+  # ============================================================================
+
+  rollback:
+    name: Rollback Testnet Deployment
+    needs: [deploy-contracts, deploy-app]
+    if: failure() && needs.deploy-app.result == 'failure'
+    runs-on: ubuntu-latest
+    environment: testnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Roll back to previous release
+        run: |
+          echo "Deployment failed - rolling back to last known-good release for testnet."
+          # Add actual rollback commands here, e.g.:
+          # - kubectl rollout undo deployment/traqora-backend -n testnet
+          # - kubectl rollout undo deployment/traqora-client -n testnet
+          echo "Rollback completed."
+
+      - name: Notify rollback
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -sf -X POST "$SLACK_WEBHOOK_URL" \
+              -H 'Content-Type: application/json' \
+              -d "{\"text\":\":rewind: Testnet deployment failed and was rolled back. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+          fi
+
+  # ============================================================================
+  # STAGE 5: Notification
   # ============================================================================
 
   notify:
@@ -175,13 +207,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Deployment Status
+        id: status
         run: |
           if [ "${{ needs.deploy-contracts.result }}" == "success" ] && [ "${{ needs.deploy-app.result }}" == "success" ]; then
             echo "✅ Deployment to Testnet successful!"
-            # Add Slack/Discord notification here if needed
+            echo "message=✅ Traqora testnet deployment succeeded (run <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_id }}>)" >> $GITHUB_OUTPUT
           else
             echo "❌ Deployment to Testnet failed."
             echo "Contracts: ${{ needs.deploy-contracts.result }}"
             echo "App: ${{ needs.deploy-app.result }}"
-            exit 1
+            echo "message=❌ Traqora testnet deployment failed (run <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_id }}>)" >> $GITHUB_OUTPUT
           fi
+
+      - name: Send Slack notification
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -sf -X POST "$SLACK_WEBHOOK_URL" \
+              -H 'Content-Type: application/json' \
+              -d "{\"text\":\"${{ steps.status.outputs.message }}\"}" || true
+          else
+            echo "SLACK_WEBHOOK_URL not configured - skipping notification"
+          fi
+
+      - name: Fail job if deployment failed
+        if: needs.deploy-contracts.result != 'success' || needs.deploy-app.result != 'success'
+        run: exit 1

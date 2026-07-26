@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-interface CachedBooking {
+export interface CachedBooking {
   id: string;
   flightNumber: string;
   departureTime: string;
@@ -16,7 +16,7 @@ interface CachedBooking {
   status: "pending" | "confirmed" | "cancelled";
 }
 
-interface CachedItinerary {
+export interface CachedItinerary {
   bookingId: string;
   booking: CachedBooking;
   cachedAt: number;
