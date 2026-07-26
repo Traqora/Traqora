@@ -8,7 +8,6 @@ import "./globals.css";
 import { SocketProvider } from "@/components/socket/SocketProvider";
 import { Toaster } from "@/components/ui/toaster";
 import { ConnectionIndicator } from "@/components/connection-indicator";
-// NEW: WalletProvider to initialise StellarWalletsKit on app mount
 import { WalletProvider } from "@/components/wallet-provider";
 import { OfflineProvider } from "@/components/offline-provider";
 import { SkipNav } from "@/components/skip-nav";
@@ -34,6 +33,18 @@ export const metadata: Metadata = {
   generator: "v0.app",
 };
 
+function A11yAnnouncer() {
+  return (
+    <div aria-live="polite" aria-atomic="true" className="sr-only" id="a11y-polite-announce" />
+  )
+}
+
+function A11yAssertiveAnnouncer() {
+  return (
+    <div aria-live="assertive" aria-atomic="true" className="sr-only" id="a11y-assertive-announce" />
+  )
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -45,18 +56,20 @@ export default function RootLayout({
       className={`${playfairDisplay.variable} ${sourceSansPro.variable} antialiased`}
     >
       <body className="font-sans">
-        {/* Skip navigation link — first focusable element for keyboard users (WCAG 2.4.1) */}
         <SkipNav />
-        {/* Nesting providers ensures both Wallet and Socket functionality are available app-wide */}
-        <OfflineProvider>
-          <WalletProvider>
-            <SocketProvider>
-              <ConnectionIndicator />
-              <Toaster />
-              {children}
-            </SocketProvider>
-          </WalletProvider>
-        </OfflineProvider>
+        <A11yAnnouncer />
+        <A11yAssertiveAnnouncer />
+          <OfflineProvider>
+            <WalletProvider>
+              <SocketProvider>
+                <ConnectionIndicator />
+                <Toaster />
+                <main id="main-content" tabIndex={-1} className="outline-none">
+                  {children}
+                </main>
+              </SocketProvider>
+            </WalletProvider>
+          </OfflineProvider>
       </body>
     </html>
   );

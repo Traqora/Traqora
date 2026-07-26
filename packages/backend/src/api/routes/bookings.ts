@@ -4,6 +4,7 @@ import { requireAuth } from "../../middleware/authMiddleware";
 import { asyncHandler } from "../../utils/errorHandler";
 import { AppDataSource } from "../../db/dataSource";
 import { Booking } from "../../db/entities/Booking";
+import { Passenger } from "../../db/entities/Passenger";
 import { IdempotencyKey } from "../../db/entities/IdempotencyKey";
 import {
   getOrCreateIdempotencyKey,
@@ -25,8 +26,50 @@ const passengerSchema = z.object({
   email: z.string().email(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
+  middleName: z.string().optional(),
+  title: z.string().optional(),
+  suffix: z.string().optional(),
+  dateOfBirth: z.string().optional(),
+  nationality: z.string().optional(),
   phone: z.string().min(4).optional(),
   sorobanAddress: z.string().min(1),
+});
+
+const passengerUpdateSchema = z.object({
+  email: z.string().email().optional(),
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().min(1).optional(),
+  middleName: z.string().optional(),
+  title: z.string().optional(),
+  suffix: z.string().optional(),
+  dateOfBirth: z.string().optional(),
+  nationality: z.string().optional(),
+  phone: z.string().min(4).optional(),
+  sorobanAddress: z.string().min(1).optional(),
+});
+
+const nameCorrectionSchema = z.object({
+  correctedName: z.object({
+    title: z.string().optional(),
+    firstName: z.string().min(1),
+    middleName: z.string().optional(),
+    lastName: z.string().min(1),
+    suffix: z.string().optional(),
+  }),
+  reason: z.string().min(10),
+});
+
+const documentVerificationSchema = z.object({
+  documentType: z.enum(['passport', 'national_id', 'drivers_license', 'visa', 'residence_permit', 'other']),
+  documentNumber: z.string().min(1),
+});
+
+const correctionApprovalSchema = z.object({
+  reviewedBy: z.string().min(1),
+});
+
+const correctionRejectionSchema = z.object({
+  reason: z.string().min(5),
 });
 
 const createBookingSchema = z.object({
@@ -264,6 +307,145 @@ router.get(
         transactionStatus: txStatus,
       },
     });
+  }),
+);
+
+router.patch(
+  "/:id/passengers/:passengerId",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = passengerUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const passengerRepo = AppDataSource.getRepository(Passenger);
+    const passenger = await passengerRepo.findOne({ where: { id: req.params.passengerId } });
+    if (!passenger) {
+      throw new NotFoundError("Passenger not found");
+    }
+
+    Object.assign(passenger, parsed.data);
+    await passengerRepo.save(passenger);
+
+    return res.json({ success: true, data: passenger });
+  }),
+);
+
+router.post(
+  "/:id/passengers/:passengerId/correct-name",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = nameCorrectionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
+    if (!booking) {
+      throw new NotFoundError("Booking not found");
+    }
+
+    const passengerRepo = AppDataSource.getRepository(Passenger);
+    const passenger = await passengerRepo.findOne({ where: { id: req.params.passengerId } });
+    if (!passenger) {
+      throw new NotFoundError("Passenger not found");
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.requestNameCorrection(
+      req.params.id,
+      req.params.passengerId,
+      parsed.data.correctedName,
+      parsed.data.reason,
+    );
+
+    return res.status(201).json({ success: true, data: result });
+  }),
+);
+
+router.post(
+  "/:id/passengers/:passengerId/correct-name/:correctionId/approve",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = correctionApprovalSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.approveNameCorrection(
+      req.params.correctionId,
+      parsed.data.reviewedBy,
+    );
+
+    return res.json({ success: true, data: result });
+  }),
+);
+
+router.post(
+  "/:id/passengers/:passengerId/correct-name/:correctionId/reject",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = correctionRejectionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.rejectNameCorrection(
+      req.params.correctionId,
+      parsed.data.reason,
+    );
+
+    return res.json({ success: true, data: result });
+  }),
+);
+
+router.post(
+  "/:id/passengers/:passengerId/verify-document",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = documentVerificationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.verifyAgainstDocument(
+      req.params.passengerId,
+      parsed.data.documentType,
+      parsed.data.documentNumber,
+    );
+
+    return res.json({ success: true, data: result });
+  }),
+);
+
+router.get(
+  "/:id/passengers/:passengerId/name-history",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const history = orchestrationService.getPassengerNameHistory(
+      req.params.id,
+      req.params.passengerId,
+    );
+
+    return res.json({ success: true, data: history });
+  }),
+);
+
+router.get(
+  "/:id/passengers/:passengerId/name-change-fee",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const isMinor = req.query.minor === "true";
+    const orchestrationService = new BookingOrchestrationService();
+    const fee = orchestrationService.calculateNameChangeFee(req.params.id, isMinor);
+
+    return res.json({ success: true, data: fee });
   }),
 );
 

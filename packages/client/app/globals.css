@@ -267,24 +267,87 @@
   }
 }
 
-/* Enhanced focus states */
+/* Enhanced focus states - WCAG 2.4.7 Focus Visible */
 @layer base {
   button:focus-visible,
   a:focus-visible,
   input:focus-visible,
   select:focus-visible,
-  textarea:focus-visible {
-    @apply outline-2 outline-offset-2 outline-primary;
+  textarea:focus-visible,
+  [tabindex]:focus-visible,
+  [data-slot="button"]:focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
   }
 }
 
-/* Mobile touch targets */
+/* Reduced motion - WCAG 2.3.3 Animation from Interactions */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* High contrast mode support - WCAG 1.4.6 Contrast Enhanced */
+@media (prefers-contrast: more) {
+  :root {
+    --border: #6b7280;
+    --ring: #4b5563;
+    --muted-foreground: #4b5563;
+  }
+  .dark {
+    --border: #9ca3af;
+    --ring: #d1d5db;
+    --muted-foreground: #9ca3af;
+  }
+}
+
+/* Mobile touch targets - WCAG 2.5.8 Target Size (Minimum) */
 @media (max-width: 768px) {
   button,
   a[role="button"],
   input[type="button"],
-  input[type="submit"] {
+  input[type="submit"],
+  [data-slot="button"] {
     min-height: 44px;
     min-width: 44px;
   }
+}
+
+/* Screen reader only utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Skip to main content link */
+.skip-to-content {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  z-index: 9999;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 600;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  text-decoration: none;
+}
+
+.skip-to-content:focus {
+  top: 1rem;
 }
