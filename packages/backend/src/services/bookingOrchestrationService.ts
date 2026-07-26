@@ -2,20 +2,164 @@ import { AppDataSource } from '../db/dataSource';
 import { Booking } from '../db/entities/Booking';
 import { Flight } from '../db/entities/Flight';
 import { Passenger } from '../db/entities/Passenger';
+import { TravelDocument, DocumentType } from '../db/entities/TravelDocument';
 
-import { 
+import {
     getTransactionStatus,
     signAndSubmitCreateBooking
 } from './soroban';
-import { config } from '../config';
+
 import { logger } from '../utils/logger';
 import { withRetries } from './retry';
+import { config } from '../config';
+import { BadRequestError } from '../utils/errors';
+
+export interface StructuredName {
+    title?: string;
+    firstName: string;
+    middleName?: string;
+    lastName: string;
+    suffix?: string;
+}
+
+export interface NameCorrectionRequest {
+    id: string;
+    bookingId: string;
+    passengerId: string;
+    originalName: StructuredName;
+    correctedName: StructuredName;
+    reason: string;
+    status: 'pending' | 'approved' | 'rejected';
+    reviewedBy?: string;
+    reviewedAt?: Date;
+    rejectionReason?: string;
+    createdAt: Date;
+}
+
+export type AirlineFormatKey = keyof typeof AIRLINE_NAME_FORMATS;
+
+export const AIRLINE_NAME_FORMATS: Record<string, {
+    label: string;
+    format: string;
+    maxLength: number;
+    allowedChars: RegExp;
+    nameRegex: RegExp;
+    middleNameSupport: boolean;
+    titleSupport: boolean;
+    suffixSupport: boolean;
+}> = {
+    DELTA: {
+        label: 'Delta Air Lines',
+        format: 'LAST/FIRST MIDDLE',
+        maxLength: 30,
+        allowedChars: /^[A-Za-z\s\.\-\'\/]+$/,
+        nameRegex: /^[A-Za-z][A-Za-z\s\.\-\']{0,29}$/,
+        middleNameSupport: true,
+        titleSupport: false,
+        suffixSupport: true,
+    },
+    UNITED: {
+        label: 'United Airlines',
+        format: 'LAST/FIRST MIDDLE',
+        maxLength: 28,
+        allowedChars: /^[A-Za-z\s\.\-\'\/]+$/,
+        nameRegex: /^[A-Za-z][A-Za-z\s\.\-\']{0,27}$/,
+        middleNameSupport: true,
+        titleSupport: false,
+        suffixSupport: true,
+    },
+    AMERICAN: {
+        label: 'American Airlines',
+        format: 'LAST/FIRST MIDDLE',
+        maxLength: 30,
+        allowedChars: /^[A-Za-z\s\.\-\'\/]+$/,
+        nameRegex: /^[A-Za-z][A-Za-z\s\.\-\']{0,29}$/,
+        middleNameSupport: true,
+        titleSupport: true,
+        suffixSupport: true,
+    },
+    SOUTHWEST: {
+        label: 'Southwest Airlines',
+        format: 'FIRST LAST',
+        maxLength: 40,
+        allowedChars: /^[A-Za-z\s\.\-\']+$/,
+        nameRegex: /^[A-Za-z][A-Za-z\s\.\-\']{0,39}$/,
+        middleNameSupport: false,
+        titleSupport: false,
+        suffixSupport: false,
+    },
+    JETBLUE: {
+        label: 'JetBlue Airways',
+        format: 'FIRST MIDDLE LAST',
+        maxLength: 40,
+        allowedChars: /^[A-Za-z\s\.\-\']+$/,
+        nameRegex: /^[A-Za-z][A-Za-z\s\.\-\']{0,39}$/,
+        middleNameSupport: true,
+        titleSupport: false,
+        suffixSupport: true,
+    },
+    EMIRATES: {
+        label: 'Emirates',
+        format: 'MR/MRS FIRST MIDDLE LAST',
+        maxLength: 50,
+        allowedChars: /^[A-Za-z\s\.\-\']+$/,
+        nameRegex: /^[A-Za-z][A-Za-z\s\.\-\']{0,49}$/,
+        middleNameSupport: true,
+        titleSupport: true,
+        suffixSupport: false,
+    },
+    BRITISH_AIRWAYS: {
+        label: 'British Airways',
+        format: 'TITLE FIRST MIDDLE LAST SUFFIX',
+        maxLength: 50,
+        allowedChars: /^[A-Za-z\s\.\-\'\/]+$/,
+        nameRegex: /^[A-Za-z][A-Za-z\s\.\-\']{0,49}$/,
+        middleNameSupport: true,
+        titleSupport: true,
+        suffixSupport: true,
+    },
+    LUFTHANSA: {
+        label: 'Lufthansa',
+        format: 'LAST/FIRST',
+        maxLength: 30,
+        allowedChars: /^[A-Za-z\s\.\-\'\/]+$/,
+        nameRegex: /^[A-Za-z][A-Za-z\s\.\-\']{0,29}$/,
+        middleNameSupport: true,
+        titleSupport: true,
+        suffixSupport: false,
+    },
+    RYANAIR: {
+        label: 'Ryanair',
+        format: 'FIRST LAST',
+        maxLength: 35,
+        allowedChars: /^[A-Za-z\s\.\-\']+$/,
+        nameRegex: /^[A-Za-z][A-Za-z\s\.\-\']{0,34}$/,
+        middleNameSupport: false,
+        titleSupport: false,
+        suffixSupport: false,
+    },
+    EASYJET: {
+        label: 'easyJet',
+        format: 'FIRST LAST',
+        maxLength: 30,
+        allowedChars: /^[A-Za-z\s\.\-\']+$/,
+        nameRegex: /^[A-Za-z][A-Za-z\s\.\-\']{0,29}$/,
+        middleNameSupport: false,
+        titleSupport: false,
+        suffixSupport: false,
+    },
+};
+
+const VALID_TITLES = ['Mr', 'Mrs', 'Ms', 'Miss', 'Dr', 'Prof', 'Sir', 'Lady', 'Lord', 'Capt', 'Col', 'Maj'];
+const VALID_SUFFIXES = ['Jr', 'Sr', 'II', 'III', 'IV', 'V', 'PhD', 'MD', 'Esq', 'CPA', 'DDS', 'RN'];
+
+const correctionRequests: Map<string, NameCorrectionRequest> = new Map();
+const nameChangeHistory: Map<string, any[]> = new Map();
 
 export class BookingOrchestrationService {
     private bookingRepo = AppDataSource.getRepository(Booking);
     private flightRepo = AppDataSource.getRepository(Flight);
     private passengerRepo = AppDataSource.getRepository(Passenger);
-
 
     async createBooking(params: {
         flightId: string;
@@ -28,12 +172,10 @@ export class BookingOrchestrationService {
         };
         idempotencyKey: string;
     }): Promise<Booking> {
-        // 1. Find flight
         const flight = await this.flightRepo.findOne({ where: { id: params.flightId } });
         if (!flight) throw new Error('Flight not found');
         if (flight.seatsAvailable <= 0) throw new Error('Flight sold out');
 
-        // 2. Reserve seat (optimistic update)
         const updated = await this.flightRepo
             .createQueryBuilder()
             .update(Flight)
@@ -44,11 +186,9 @@ export class BookingOrchestrationService {
 
         if (!updated.affected) throw new Error('Flight sold out');
 
-        // 3. Create passenger
         const passenger = this.passengerRepo.create(params.passenger);
         await this.passengerRepo.save(passenger);
 
-        // 4. Build, Sign, and Submit Soroban transaction
         try {
             const result = await signAndSubmitCreateBooking({
                 passenger: passenger.sorobanAddress,
@@ -61,7 +201,6 @@ export class BookingOrchestrationService {
                 token: config.contracts.token,
             });
 
-            // 5. Create booking record in DB
             const booking = this.bookingRepo.create({
                 idempotencyKey: params.idempotencyKey,
                 flight,
@@ -73,7 +212,6 @@ export class BookingOrchestrationService {
 
             const savedBooking = await this.bookingRepo.save(booking);
 
-            // 6. Wait for transaction finality (poll status)
             this.pollTransactionStatus(savedBooking.id, result.txHash).catch(err => {
                 logger.error('Error polling transaction status', { bookingId: savedBooking.id, error: err.message });
             });
@@ -81,10 +219,9 @@ export class BookingOrchestrationService {
             return savedBooking;
         } catch (error: any) {
             logger.error('Booking orchestration failed during submission', { error: error.message });
-            
-            // Revert seat reservation
+
             await this.flightRepo.increment({ id: flight.id }, 'seatsAvailable', 1);
-            
+
             throw error;
         }
     }
@@ -93,16 +230,13 @@ export class BookingOrchestrationService {
         try {
             await withRetries(async () => {
                 const status = await getTransactionStatus(txHash);
-                
+
                 const booking = await this.bookingRepo.findOne({ where: { id: bookingId }, relations: ['flight'] });
                 if (!booking) return;
 
                 if (status.status === 'success') {
                     booking.status = 'confirmed';
-                    // Extract booking_id from result if available
                     if (status.result) {
-                        // In Soroban, return values are ScVal. getTransactionStatus should return the parsed value.
-                        // Assuming status.result is already parsed or is the ScVal.
                         booking.sorobanBookingId = status.result.toString();
                     }
                     await this.bookingRepo.save(booking);
@@ -111,20 +245,18 @@ export class BookingOrchestrationService {
                     booking.status = 'failed';
                     booking.lastError = status.error || 'Transaction failed';
                     await this.bookingRepo.save(booking);
-                    
-                    // Revert seat reservation
+
                     await this.flightRepo.increment({ id: booking.flight.id }, 'seatsAvailable', 1);
                     logger.error('Booking failed on-chain', { bookingId, txHash, error: status.error });
                 } else if (status.status === 'pending') {
-                    throw new Error('Transaction still pending'); // Retry
+                    throw new Error('Transaction still pending');
                 } else if (status.status === 'not_found') {
-                    // Could be a re-org or just slow indexing
-                    throw new Error('Transaction not found yet'); // Retry
+                    throw new Error('Transaction not found yet');
                 }
-            }, { 
-                maxAttempts: 20, 
-                delayMs: 5000, 
-                backoff: true 
+            }, {
+                maxAttempts: 20,
+                delayMs: 5000,
+                backoff: true
             });
         } catch (error: any) {
             logger.error('Max retries reached for booking status polling', { bookingId, txHash, error: error.message });
@@ -136,4 +268,363 @@ export class BookingOrchestrationService {
             }
         }
     }
+
+    validatePassengerName(name: StructuredName, airline?: AirlineFormatKey): { valid: boolean; errors: string[]; warnings: string[] } {
+        const errors: string[] = [];
+        const warnings: string[] = [];
+
+        if (!name.firstName || name.firstName.trim().length === 0) {
+            errors.push('First name is required');
+        }
+        if (!name.lastName || name.lastName.trim().length === 0) {
+            errors.push('Last name is required');
+        }
+
+        if (name.title && !VALID_TITLES.includes(name.title)) {
+            warnings.push(`Unrecognized title "${name.title}". Valid titles: ${VALID_TITLES.join(', ')}`);
+        }
+        if (name.suffix && !VALID_SUFFIXES.includes(name.suffix)) {
+            warnings.push(`Unrecognized suffix "${name.suffix}". Valid suffixes: ${VALID_SUFFIXES.join(', ')}`);
+        }
+
+        const fullName = [name.firstName, name.middleName, name.lastName].filter(Boolean).join(' ');
+        if (fullName.length > 100) {
+            errors.push('Full name exceeds maximum length of 100 characters');
+        }
+
+        const allowedGlobal = /^[A-Za-z\s\.\-\']+$/;
+        if (!allowedGlobal.test(fullName)) {
+            errors.push('Name contains invalid characters. Only letters, spaces, dots, hyphens, and apostrophes are allowed');
+        }
+
+        if (airline && AIRLINE_NAME_FORMATS[airline]) {
+            const airlineRules = AIRLINE_NAME_FORMATS[airline];
+            const formatted = this.formatNameForAirline(name, airline);
+
+            if (!airlineRules.nameRegex.test(name.firstName)) {
+                errors.push(`First name does not meet ${airlineRules.label} requirements`);
+            }
+            if (!airlineRules.nameRegex.test(name.lastName)) {
+                errors.push(`Last name does not meet ${airlineRules.label} requirements`);
+            }
+            if (name.middleName && !airlineRules.middleNameSupport) {
+                warnings.push(`${airlineRules.label} does not support middle names. Middle name will be omitted`);
+            }
+            if (name.title && !airlineRules.titleSupport) {
+                warnings.push(`${airlineRules.label} does not support titles. Title "${name.title}" will be omitted`);
+            }
+            if (name.suffix && !airlineRules.suffixSupport) {
+                warnings.push(`${airlineRules.label} does not support suffixes. Suffix "${name.suffix}" will be omitted`);
+            }
+
+            if (formatted.length > airlineRules.maxLength) {
+                errors.push(`Formatted name "${formatted}" (${formatted.length} chars) exceeds ${airlineRules.label} maximum of ${airlineRules.maxLength} characters`);
+            }
+
+            if (!airlineRules.allowedChars.test(formatted.replace(/\//g, ''))) {
+                errors.push(`Name contains characters not allowed by ${airlineRules.label}`);
+            }
+        }
+
+        return {
+            valid: errors.length === 0,
+            errors,
+            warnings,
+        };
+    }
+
+    formatNameForAirline(name: StructuredName, airline: AirlineFormatKey): string {
+        const rules = AIRLINE_NAME_FORMATS[airline];
+        if (!rules) {
+            return `${name.lastName}/${name.firstName}${name.middleName ? ' ' + name.middleName : ''}`;
+        }
+
+        const firstName = name.firstName.toUpperCase();
+        const lastName = name.lastName.toUpperCase();
+        const middleName = name.middleName?.toUpperCase();
+        const title = name.title?.toUpperCase();
+        const suffix = name.suffix?.toUpperCase();
+
+        switch (airline) {
+            case 'DELTA':
+            case 'UNITED':
+            case 'AMERICAN':
+                return `${lastName}/${firstName}${middleName ? ' ' + middleName : ''}`;
+            case 'SOUTHWEST':
+            case 'RYANAIR':
+            case 'EASYJET':
+                return `${firstName} ${lastName}`;
+            case 'JETBLUE':
+                return `${firstName}${middleName ? ' ' + middleName : ''} ${lastName}`;
+            case 'EMIRATES':
+                return `${title ? title + ' ' : ''}${firstName}${middleName ? ' ' + middleName : ''} ${lastName}`;
+            case 'BRITISH_AIRWAYS':
+                return `${title ? title + ' ' : ''}${firstName}${middleName ? ' ' + middleName : ''} ${lastName}${suffix ? ' ' + suffix : ''}`;
+            case 'LUFTHANSA':
+                return `${lastName}/${firstName}`;
+            default:
+                return `${lastName}/${firstName}${middleName ? ' ' + middleName : ''}`;
+        }
+    }
+
+    async requestNameCorrection(
+        bookingId: string,
+        passengerId: string,
+        correctedName: StructuredName,
+        reason: string
+    ): Promise<NameCorrectionRequest> {
+        const booking = await this.bookingRepo.findOne({ where: { id: bookingId }, relations: ['passenger'] });
+        if (!booking) {
+            throw new BadRequestError('Booking not found');
+        }
+
+        const passenger = await this.passengerRepo.findOne({ where: { id: passengerId } });
+        if (!passenger) {
+            throw new BadRequestError('Passenger not found');
+        }
+
+        if (!isBookingEditable(booking.status)) {
+            throw new BadRequestError('Booking is not in an editable state for name correction');
+        }
+
+        const originalName: StructuredName = {
+            title: passenger.title || undefined,
+            firstName: passenger.firstName,
+            middleName: passenger.middleName || undefined,
+            lastName: passenger.lastName,
+            suffix: passenger.suffix || undefined,
+        };
+
+        const validation = this.validatePassengerName(correctedName);
+        if (!validation.valid) {
+            throw new BadRequestError('Invalid corrected name', validation.errors);
+        }
+
+        if (reason.trim().length < 10) {
+            throw new BadRequestError('Reason must be at least 10 characters');
+        }
+
+        const validReasons = [
+            'typo_in_first_name',
+            'typo_in_last_name',
+            'missing_middle_name',
+            'incorrect_spelling',
+            'name_format_change',
+            'marriage_name_change',
+            'legal_name_change',
+            'passport_name_mismatch',
+            'title_correction',
+            'suffix_correction',
+            'other',
+        ];
+
+        if (!validReasons.includes(reason)) {
+            throw new BadRequestError(`Invalid reason. Valid reasons: ${validReasons.join(', ')}`);
+        }
+
+        const correctionId = `CORR-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+        const request: NameCorrectionRequest = {
+            id: correctionId,
+            bookingId,
+            passengerId,
+            originalName,
+            correctedName,
+            reason,
+            status: 'pending',
+            createdAt: new Date(),
+        };
+
+        correctionRequests.set(correctionId, request);
+
+        this.recordNameHistory(bookingId, passengerId, {
+            action: 'correction_requested',
+            originalName,
+            correctedName,
+            reason,
+            timestamp: new Date(),
+            requestId: correctionId,
+        });
+
+        logger.info('Name correction requested', {
+            bookingId,
+            passengerId,
+            correctionId,
+            reason,
+        });
+
+        return request;
+    }
+
+    async approveNameCorrection(correctionId: string, reviewedBy: string): Promise<NameCorrectionRequest> {
+        const request = correctionRequests.get(correctionId);
+        if (!request) {
+            throw new BadRequestError('Correction request not found');
+        }
+
+        if (request.status !== 'pending') {
+            throw new BadRequestError(`Correction request is already ${request.status}`);
+        }
+
+        request.status = 'approved';
+        request.reviewedBy = reviewedBy;
+        request.reviewedAt = new Date();
+
+        const passenger = await this.passengerRepo.findOne({ where: { id: request.passengerId } });
+        if (passenger) {
+            passenger.firstName = request.correctedName.firstName;
+            passenger.lastName = request.correctedName.lastName;
+            passenger.middleName = request.correctedName.middleName || null;
+            passenger.title = request.correctedName.title || null;
+            passenger.suffix = request.correctedName.suffix || null;
+            await this.passengerRepo.save(passenger);
+        }
+
+        this.recordNameHistory(request.bookingId, request.passengerId, {
+            action: 'correction_approved',
+            correctionId,
+            reviewedBy,
+            timestamp: new Date(),
+        });
+
+        logger.info('Name correction approved', {
+            correctionId,
+            bookingId: request.bookingId,
+            reviewedBy,
+        });
+
+        return request;
+    }
+
+    async rejectNameCorrection(correctionId: string, reason: string): Promise<NameCorrectionRequest> {
+        const request = correctionRequests.get(correctionId);
+        if (!request) {
+            throw new BadRequestError('Correction request not found');
+        }
+
+        if (request.status !== 'pending') {
+            throw new BadRequestError(`Correction request is already ${request.status}`);
+        }
+
+        if (!reason || reason.trim().length < 5) {
+            throw new BadRequestError('Rejection reason must be at least 5 characters');
+        }
+
+        request.status = 'rejected';
+        request.rejectionReason = reason;
+
+        this.recordNameHistory(request.bookingId, request.passengerId, {
+            action: 'correction_rejected',
+            correctionId,
+            reason,
+            timestamp: new Date(),
+        });
+
+        logger.info('Name correction rejected', {
+            correctionId,
+            bookingId: request.bookingId,
+            reason,
+        });
+
+        return request;
+    }
+
+    calculateNameChangeFee(_bookingId: string, isMinorCorrection: boolean): { feeCents: number; currency: string; breakdown: { label: string; amount: number }[] } {
+        const breakdown: { label: string; amount: number }[] = [];
+
+        if (isMinorCorrection) {
+            breakdown.push({ label: 'Name correction fee (minor)', amount: 0 });
+            return {
+                feeCents: 0,
+                currency: 'USD',
+                breakdown,
+            };
+        }
+
+        breakdown.push({ label: 'Name change processing fee', amount: 5000 });
+        breakdown.push({ label: 'Reissue ticket fee', amount: 2500 });
+        breakdown.push({ label: 'Airline penalty (estimated)', amount: 7500 });
+
+        const total = breakdown.reduce((sum, item) => sum + item.amount, 0);
+
+        return {
+            feeCents: total,
+            currency: 'USD',
+            breakdown,
+        };
+    }
+
+    async verifyAgainstDocument(
+        passengerId: string,
+        documentType: DocumentType,
+        documentNumber: string
+    ): Promise<{ verified: boolean; matchScore: number; details: string }> {
+        const passenger = await this.passengerRepo.findOne({ where: { id: passengerId } });
+        if (!passenger) {
+            throw new BadRequestError('Passenger not found');
+        }
+
+        const docRepo = AppDataSource.getRepository(TravelDocument);
+        const documents = await docRepo.find({ where: { documentType } });
+
+        const matchingDoc = documents.find(doc => {
+            try {
+                return doc.documentNumber.replace(/\s/g, '').toUpperCase() === documentNumber.replace(/\s/g, '').toUpperCase();
+            } catch {
+                return false;
+            }
+        });
+
+        if (!matchingDoc) {
+            return {
+                verified: false,
+                matchScore: 0,
+                details: 'No matching travel document found',
+            };
+        }
+
+        const passengerName = `${passenger.firstName} ${passenger.lastName}`.toUpperCase();
+        const docName = matchingDoc.fullName.toUpperCase();
+
+        const passengerParts = passengerName.split(/\s+/);
+        const docParts = docName.split(/\s+/);
+
+        let matchedParts = 0;
+        const totalParts = Math.max(passengerParts.length, docParts.length);
+
+        for (const pp of passengerParts) {
+            if (docParts.some(dp => dp === pp || dp.startsWith(pp) || pp.startsWith(dp))) {
+                matchedParts++;
+            }
+        }
+
+        const matchScore = totalParts > 0 ? Math.round((matchedParts / totalParts) * 100) : 0;
+        const verified = matchScore >= 80;
+
+        return {
+            verified,
+            matchScore,
+            details: verified
+                ? `Name matches travel document (${matchScore}% confidence)`
+                : `Name mismatch: passenger name "${passengerName}" vs document name "${docName}" (${matchScore}% match)`,
+        };
+    }
+
+    getPassengerNameHistory(bookingId: string, passengerId: string): any[] {
+        const key = `${bookingId}:${passengerId}`;
+        return nameChangeHistory.get(key) || [];
+    }
+
+    private recordNameHistory(bookingId: string, passengerId: string, entry: any) {
+        const key = `${bookingId}:${passengerId}`;
+        if (!nameChangeHistory.has(key)) {
+            nameChangeHistory.set(key, []);
+        }
+        nameChangeHistory.get(key)!.push(entry);
+    }
+}
+
+function isBookingEditable(status: string): boolean {
+    const editableStatuses = ['created', 'awaiting_payment', 'paid', 'onchain_pending', 'onchain_submitted', 'confirmed'];
+    return editableStatuses.includes(status);
 }
