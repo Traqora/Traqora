@@ -26,6 +26,7 @@ import contractEventRoutes from './api/routes/contract-events';
 import { documentRoutes } from './api/routes/documents';
 import ancillaryRoutes from './api/routes/ancillary';
 import recommendationRoutes from './api/routes/recommendations';
+import journeyRoutes from './api/routes/journeys';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
@@ -205,6 +206,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/services', serviceRoutes);
   app.use('/api/v1/ancillaries', ancillaryRoutes);
   app.use('/api/v1/recommendations', recommendationRoutes);
+  app.use('/api/v1/journeys', journeyRoutes);
   app.use('/api/v1/contract-events', contractEventRoutes);
 
   app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {
