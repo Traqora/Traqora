@@ -29,6 +29,9 @@ import { NavWalletButton } from "@/components/nav-wallet-button"
 import { useWalletStore, useWallet } from "@/lib/stellar-wallet-connect"
 // NEW: real transaction/booking history replacing mocked bookings
 import { useTransactionHistory } from "@/hooks/use-transaction-history"
+// NEW: offline access to cached bookings when the network is unavailable
+import { useOffline } from "@/components/offline-provider"
+import { OfflineItineraryView } from "@/components/offline-itinerary-view"
 
 // Mock user data
 const mockUser = {
@@ -232,6 +235,7 @@ function DashboardWalletCard() {
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("bookings")
   const { transactions, isLoading: transactionsLoading, error: transactionsError } = useTransactionHistory()
+  const { isOnline } = useOffline()
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -364,7 +368,9 @@ export default function DashboardPage() {
               </Button>
             </div>
 
-            {transactionsLoading ? (
+            {!isOnline ? (
+              <OfflineItineraryView />
+            ) : transactionsLoading ? (
               <p className="text-sm text-muted-foreground">Loading your bookings...</p>
             ) : transactionsError ? (
               <Alert>
