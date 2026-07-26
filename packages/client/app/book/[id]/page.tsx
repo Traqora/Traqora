@@ -22,6 +22,7 @@ import {
 
 import { SeatSelector } from "@/components/booking/seat-selector"
 import { BookingSummary } from "@/components/booking/booking-summary"
+import { AncillarySelector } from "@/components/booking/ancillary-selector"
 import { useBooking } from "@/hooks/use-booking"
 import { useFlightSearch } from "@/hooks/use-flight-search"
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
@@ -83,6 +84,7 @@ export default function BookFlightPage() {
   const steps: { id: BookingStep; label: string }[] = [
     { id: "details", label: "Flight Details" },
     { id: "seats", label: "Seat Selection" },
+    { id: "ancillaries", label: "Ancillaries" },
     { id: "wallet", label: "Connect Wallet" },
     { id: "confirm", label: "Confirmation" },
     { id: "success", label: "Success" }
@@ -223,6 +225,23 @@ export default function BookFlightPage() {
                     Back
                   </Button>
                   <Button size="lg" onClick={nextStep} disabled={!selectedSeat}>
+                    Continue to Ancillaries
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Ancillary Services */}
+            {currentStep === "ancillaries" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <AncillarySelector bookingId={booking || flight.id} />
+                <div className="flex justify-between">
+                  <Button variant="ghost" onClick={prevStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button size="lg" onClick={nextStep}>
                     Continue to Payment
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -230,7 +249,7 @@ export default function BookFlightPage() {
               </div>
             )}
 
-            {/* Step 3: Wallet Connection */}
+            {/* Step 4: Wallet Connection */}
             {currentStep === "wallet" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 text-center py-12 bg-muted/20 rounded-3xl border border-dashed border-border">
                 <div className="max-w-md mx-auto space-y-8">
