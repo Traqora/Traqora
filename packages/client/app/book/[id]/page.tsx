@@ -7,25 +7,28 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
-import { 
-  Plane, 
-  CheckCircle, 
-  Wallet, 
-  Shield, 
-  ArrowLeft, 
-  ArrowRight, 
+import {
+  Plane,
+  CheckCircle,
+  Wallet,
+  Shield,
+  ArrowLeft,
+  ArrowRight,
   CreditCard,
   QrCode,
   Download,
-  ExternalLink
+  ExternalLink,
+  FileText
 } from "lucide-react"
 
 import { SeatSelector } from "@/components/booking/seat-selector"
 import { BookingSummary } from "@/components/booking/booking-summary"
+import { InsuranceSelector } from "@/components/booking/insurance-selector"
 import { useBooking } from "@/hooks/use-booking"
 import { useFlightSearch } from "@/hooks/use-flight-search"
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
 import { cn } from "@/lib/utils"
+import { InsuranceCoverageType, InsurancePolicy, purchaseInsurance } from "@/lib/api"
 
 // Mock flight data - in real app this would come from API
 const mockFlightDetails = {
@@ -54,7 +57,7 @@ const mockFlightDetails = {
   refundPolicy: "Free cancellation up to 24 hours before departure",
 }
 
-type BookingStep = "details" | "seats" | "wallet" | "confirm" | "success"
+type BookingStep = "details" | "seats" | "insurance" | "wallet" | "confirm" | "success"
 
 export default function BookFlightPage() {
   const params = useParams()
@@ -76,13 +79,17 @@ export default function BookFlightPage() {
   const { handleConnect } = useWallet()
 
   const [bookingId, setBookingId] = useState("")
-  
+  const [selectedCoverage, setSelectedCoverage] = useState<InsuranceCoverageType | null>(null)
+  const [insurancePolicy, setInsurancePolicy] = useState<InsurancePolicy | null>(null)
+  const [isPurchasingInsurance, setIsPurchasingInsurance] = useState(false)
+
   // Use mock flight or find from list
   const flight = flights.find(f => f.id === params.id) || mockFlightDetails
 
   const steps: { id: BookingStep; label: string }[] = [
     { id: "details", label: "Flight Details" },
     { id: "seats", label: "Seat Selection" },
+    { id: "insurance", label: "Travel Insurance" },
     { id: "wallet", label: "Connect Wallet" },
     { id: "confirm", label: "Confirmation" },
     { id: "success", label: "Success" }
@@ -120,7 +127,26 @@ export default function BookFlightPage() {
   }
 
   const handleFinalConfirm = async () => {
-    setBookingId("TRAQ-" + Math.random().toString(36).substring(2, 9).toUpperCase())
+    const newBookingId = "TRAQ-" + Math.random().toString(36).substring(2, 9).toUpperCase()
+    setBookingId(newBookingId)
+
+    if (selectedCoverage) {
+      setIsPurchasingInsurance(true)
+      try {
+        const policy = await purchaseInsurance({
+          bookingId: newBookingId,
+          tripCostCents: Math.round(parseFloat(flight.price) * 100),
+          destination: flight.to,
+          coverageType: selectedCoverage,
+        })
+        setInsurancePolicy(policy)
+      } catch (error) {
+        console.error("Insurance purchase failed", error)
+      } finally {
+        setIsPurchasingInsurance(false)
+      }
+    }
+
     setCurrentStep("success")
     // In real app, call signAndSubmitTransaction()
   }
@@ -223,6 +249,28 @@ export default function BookFlightPage() {
                     Back
                   </Button>
                   <Button size="lg" onClick={nextStep} disabled={!selectedSeat}>
+                    Continue
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Travel Insurance */}
+            {currentStep === "insurance" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <InsuranceSelector
+                  tripCostCents={Math.round(parseFloat(flight.price) * 100)}
+                  destination={flight.to}
+                  selectedCoverage={selectedCoverage}
+                  onSelectCoverage={setSelectedCoverage}
+                />
+                <div className="flex justify-between">
+                  <Button variant="ghost" onClick={prevStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button size="lg" onClick={nextStep}>
                     Continue to Payment
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -230,7 +278,7 @@ export default function BookFlightPage() {
               </div>
             )}
 
-            {/* Step 3: Wallet Connection */}
+            {/* Step 4: Wallet Connection */}
             {currentStep === "wallet" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 text-center py-12 bg-muted/20 rounded-3xl border border-dashed border-border">
                 <div className="max-w-md mx-auto space-y-8">
@@ -299,8 +347,13 @@ export default function BookFlightPage() {
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Back
                   </Button>
-                  <Button size="lg" onClick={handleFinalConfirm} className="px-12 shadow-lg bg-green-600 hover:bg-green-700 text-white">
-                    Confirm & Pay
+                  <Button
+                    size="lg"
+                    onClick={handleFinalConfirm}
+                    disabled={isPurchasingInsurance}
+                    className="px-12 shadow-lg bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {isPurchasingInsurance ? "Processing..." : "Confirm & Pay"}
                   </Button>
                 </div>
               </div>
@@ -358,6 +411,42 @@ export default function BookFlightPage() {
                   </div>
                 </div>
 
+                {insurancePolicy && (
+                  <div className="bg-card rounded-2xl border border-border p-6 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Shield className="h-5 w-5 text-primary" />
+                        <span className="font-bold">Travel Insurance</span>
+                      </div>
+                      <Badge variant="secondary" className="bg-green-100 text-green-800">
+                        Insured &middot; {insurancePolicy.coverageType}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Policy {insurancePolicy.providerPolicyRef} is active. Premium is fully refundable until{" "}
+                      {new Date(insurancePolicy.refundEligibleUntil).toLocaleString()}.
+                    </p>
+                    <div className="flex gap-3">
+                      <a
+                        href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/v1/insurance/policy/${insurancePolicy.id}/pdf`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <Button variant="outline" size="sm">
+                          <FileText className="mr-2 h-4 w-4" /> Download Policy PDF
+                        </Button>
+                      </a>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => router.push(`/insurance/claims?policyId=${insurancePolicy.id}`)}
+                      >
+                        File a Claim
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 <Button className="w-full h-12" variant="secondary" onClick={() => router.push("/dashboard")}>
                   Go to Dashboard
                 </Button>
@@ -368,10 +457,20 @@ export default function BookFlightPage() {
           {/* Sidebar Summary (Only visible during booking process) */}
           {currentStep !== "success" && (
             <div className="lg:col-span-1 sticky top-24">
-              <BookingSummary 
-                flight={flight} 
-                passengerCount={1} 
+              <BookingSummary
+                flight={flight}
+                passengerCount={1}
                 selectedSeat={selectedSeat || undefined}
+                insurance={
+                  selectedCoverage
+                    ? {
+                        coverageType: selectedCoverage,
+                        premiumCents:
+                          insurancePolicy?.premiumCents ??
+                          Math.round(parseFloat(flight.price) * 100 * 0.05),
+                      }
+                    : undefined
+                }
                 className="bg-card shadow-2xl"
               />
               

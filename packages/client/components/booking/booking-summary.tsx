@@ -33,14 +33,19 @@ interface BookingSummaryProps {
     id: string
     price: number
   }
+  insurance?: {
+    coverageType: string
+    premiumCents: number
+  }
   className?: string
 }
 
-export function BookingSummary({ flight, passengerCount, selectedSeat, className }: BookingSummaryProps) {
+export function BookingSummary({ flight, passengerCount, selectedSeat, insurance, className }: BookingSummaryProps) {
   const baseFare = parseFloat(flight.price) * passengerCount
   const seatFare = selectedSeat?.price || 0
+  const insuranceFare = insurance ? insurance.premiumCents / 100 : 0
   const taxes = baseFare * 0.08
-  const total = baseFare + seatFare + taxes
+  const total = baseFare + seatFare + insuranceFare + taxes
 
   return (
     <Card className={cn("overflow-hidden border-none shadow-xl", className)}>
@@ -122,6 +127,15 @@ export function BookingSummary({ flight, passengerCount, selectedSeat, className
                   Seat Selection ({selectedSeat.id})
                 </span>
                 <span className="font-medium">${seatFare.toFixed(2)}</span>
+              </div>
+            )}
+            {insurance && (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  Travel Insurance ({insurance.coverageType})
+                </span>
+                <span className="font-medium">${insuranceFare.toFixed(2)}</span>
               </div>
             )}
             <div className="flex justify-between items-center text-sm">

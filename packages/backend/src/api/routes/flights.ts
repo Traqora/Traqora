@@ -24,7 +24,17 @@ const searchQuerySchema = z
           ? value.split(",").map((airline: string) => airline.trim())
           : undefined,
       ),
-    stops: z.coerce.number().int().min(0).max(2).optional(),
+    stops: z
+      .string()
+      .optional()
+      .transform((value: string | undefined) =>
+        value
+          ? value
+              .split(",")
+              .map((s) => parseInt(s.trim(), 10))
+              .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 2)
+          : undefined,
+      ),
     duration_max: z.coerce.number().int().min(30).max(2000).optional(),
     sort: z
       .enum(["price", "duration", "departure_time", "rating"])
@@ -97,6 +107,27 @@ export const createFlightRoutes = (
   }));
 
   router.get(
+    "/price-trend",
+    asyncHandler(async (req: Request, res: Response) => {
+      const parsed = z
+        .object({
+          from: z.string().min(3).max(3),
+          to: z.string().min(3).max(3),
+          days: z.coerce.number().int().min(2).max(60).default(14),
+        })
+        .safeParse(req.query);
+
+      if (!parsed.success) {
+        throw new BadRequestError("Invalid price trend query parameters", parsed.error.flatten());
+      }
+
+      const { from, to, days } = parsed.data;
+      const trend = buildMockPriceTrend(from.toUpperCase(), to.toUpperCase(), days);
+      res.json({ success: true, data: trend });
+    }),
+  );
+
+  router.get(
     "/",
     asyncHandler(async (_req: Request, res: Response) => {
       const repo = AppDataSource.getRepository(Flight);
@@ -117,3 +148,50 @@ export const createFlightRoutes = (
 
   return router;
 };
+
+interface PriceTrendPoint {
+  date: string;
+  price: number;
+}
+
+interface PriceTrend {
+  from: string;
+  to: string;
+  points: PriceTrendPoint[];
+  currentPrice: number;
+  changePercent: number;
+}
+
+/**
+ * Deterministic pseudo-random price history for a route, since no historical
+ * price-data pipeline exists yet. Seeded from the route pair so repeated
+ * requests for the same route are stable.
+ */
+function buildMockPriceTrend(from: string, to: string, days: number): PriceTrend {
+  const seed = `${from}-${to}`.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const basePrice = 150 + (seed % 350);
+
+  let rngState = seed;
+  const next = () => {
+    rngState = (rngState * 1103515245 + 12345) & 0x7fffffff;
+    return rngState / 0x7fffffff;
+  };
+
+  const points: PriceTrendPoint[] = [];
+  let price = basePrice;
+  const today = new Date();
+
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const drift = (next() - 0.5) * 30;
+    price = Math.max(60, Math.round(price + drift));
+    points.push({ date: date.toISOString().split("T")[0], price });
+  }
+
+  const currentPrice = points[points.length - 1].price;
+  const firstPrice = points[0].price;
+  const changePercent = Math.round(((currentPrice - firstPrice) / firstPrice) * 1000) / 10;
+
+  return { from, to, points, currentPrice, changePercent };
+}

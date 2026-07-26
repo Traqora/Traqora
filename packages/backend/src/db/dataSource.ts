@@ -18,6 +18,8 @@ import { DashboardShare } from "./entities/DashboardShare";
 import { DashboardComment } from "./entities/DashboardComment";
 import { AnalyticsAuditLog } from "./entities/AnalyticsAuditLog";
 import { ContractEventLog } from "./entities/ContractEventLog";
+import { InsurancePolicy } from "./entities/InsurancePolicy";
+import { InsuranceClaim } from "./entities/InsuranceClaim";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -45,6 +47,8 @@ export const AppDataSource = new DataSource(
         DashboardComment,
         AnalyticsAuditLog,
         ContractEventLog,
+        InsurancePolicy,
+        InsuranceClaim,
       ],
       logging: false,
     }
@@ -70,6 +74,8 @@ export const AppDataSource = new DataSource(
         DashboardComment,
         AnalyticsAuditLog,
         ContractEventLog,
+        InsurancePolicy,
+        InsuranceClaim,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:

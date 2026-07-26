@@ -9,12 +9,69 @@ export interface FlightSearchParams {
   price_min?: number
   price_max?: number
   airlines?: string[]
-  stops?: number
+  stops?: number[]
   duration_max?: number
   sort?: "price" | "duration" | "departure_time" | "rating"
   sort_order?: "asc" | "desc"
   cursor?: string
   page_size?: number
+}
+
+export type SearchFlightsRequest = FlightSearchParams
+
+export type InsuranceCoverageType = "basic" | "standard" | "premium"
+
+export interface InsuranceCoverageDetails {
+  medicalCents: number
+  baggageCents: number
+  tripCancellationCents: number
+}
+
+export interface InsurancePremiumQuote {
+  coverageType: InsuranceCoverageType
+  premiumCents: number
+  coverageDetails: InsuranceCoverageDetails
+}
+
+export interface InsurancePolicy {
+  id: string
+  bookingId: string
+  destination: string
+  tripCostCents: number
+  coverageType: InsuranceCoverageType
+  premiumCents: number
+  currency: string
+  status: "active" | "refunded" | "cancelled" | "expired"
+  provider: string
+  providerPolicyRef: string
+  coverageDetailsJson: string
+  purchasedAt: string
+  refundEligibleUntil: string
+}
+
+export interface InsuranceClaim {
+  id: string
+  policyId: string
+  eventType: "medical" | "baggage" | "trip_cancellation" | "other"
+  description: string
+  amountRequestedCents: number
+  amountApprovedCents?: number | null
+  status: "submitted" | "under_review" | "approved" | "rejected" | "paid"
+  contactEmail?: string | null
+  submittedAt: string
+}
+
+export interface PriceTrendPoint {
+  date: string
+  price: number
+}
+
+export interface PriceTrend {
+  from: string
+  to: string
+  points: PriceTrendPoint[]
+  currentPrice: number
+  changePercent: number
 }
 
 export interface Flight {
@@ -219,7 +276,7 @@ export async function searchFlights(params: FlightSearchParams): Promise<FlightS
   if (params.price_min !== undefined) searchParams.append('price_min', params.price_min.toString())
   if (params.price_max !== undefined) searchParams.append('price_max', params.price_max.toString())
   if (params.airlines && params.airlines.length > 0) searchParams.append('airlines', params.airlines.join(','))
-  if (params.stops !== undefined) searchParams.append('stops', params.stops.toString())
+  if (params.stops && params.stops.length > 0) searchParams.append('stops', params.stops.join(','))
   if (params.duration_max !== undefined) searchParams.append('duration_max', params.duration_max.toString())
   if (params.sort) searchParams.append('sort', params.sort)
   if (params.sort_order) searchParams.append('sort_order', params.sort_order)
@@ -248,6 +305,80 @@ export async function getPerformanceSnapshot(): Promise<PerformanceSnapshot> {
     throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
   }
   return response.json()
+}
+
+async function apiGet<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`)
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+  }
+  const body = await response.json()
+  return body.data as T
+}
+
+async function apiPost<T>(path: string, payload: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+  }
+  const body = await response.json()
+  return body.data as T
+}
+
+export async function getPriceTrend(from: string, to: string, days = 14): Promise<PriceTrend> {
+  return apiGet<PriceTrend>(`/api/flights/price-trend?from=${from}&to=${to}&days=${days}`)
+}
+
+export async function getInsuranceQuotes(
+  tripCostCents: number,
+  destination: string,
+): Promise<InsurancePremiumQuote[]> {
+  return apiGet<InsurancePremiumQuote[]>(
+    `/api/v1/insurance/quotes?tripCostCents=${tripCostCents}&destination=${destination}`,
+  )
+}
+
+export async function purchaseInsurance(params: {
+  bookingId: string
+  tripCostCents: number
+  destination: string
+  coverageType: InsuranceCoverageType
+}): Promise<InsurancePolicy> {
+  return apiPost<InsurancePolicy>('/api/v1/insurance/purchase', params)
+}
+
+export async function getInsurancePolicyByBooking(bookingId: string): Promise<InsurancePolicy | null> {
+  return apiGet<InsurancePolicy | null>(`/api/v1/insurance/booking/${bookingId}`)
+}
+
+export async function getInsurancePolicy(policyId: string): Promise<InsurancePolicy> {
+  return apiGet<InsurancePolicy>(`/api/v1/insurance/policy/${policyId}`)
+}
+
+export async function requestInsuranceRefund(policyId: string): Promise<InsurancePolicy> {
+  return apiPost<InsurancePolicy>(`/api/v1/insurance/policy/${policyId}/refund`, {})
+}
+
+export async function submitInsuranceClaim(
+  policyId: string,
+  params: {
+    eventType: InsuranceClaim['eventType']
+    description: string
+    amountRequestedCents: number
+    contactEmail?: string
+  },
+): Promise<InsuranceClaim> {
+  return apiPost<InsuranceClaim>(`/api/v1/insurance/policy/${policyId}/claims`, params)
+}
+
+export async function getInsuranceClaims(policyId: string): Promise<InsuranceClaim[]> {
+  return apiGet<InsuranceClaim[]>(`/api/v1/insurance/policy/${policyId}/claims`)
 }
 
 export const apiClient = {

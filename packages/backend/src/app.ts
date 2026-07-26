@@ -8,6 +8,7 @@ import { securityMiddleware } from './middleware/securityMiddleware';
 import { createFlightRoutes } from './api/routes/flights';
 import { bookingRoutes } from './api/routes/bookings';
 import { refundRoutes } from './api/routes/refunds';
+import { insuranceRoutes } from './api/routes/insurance';
 import { groupBookingRoutes } from './api/routes/group-bookings';
 import { securityRoutes } from './api/routes/security';
 import { adminAuthRoutes } from './api/routes/admin/auth';
@@ -184,6 +185,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/v1/bookings', requireAuth, bookingRoutes);
   app.use('/api/v1/refunds', requireAuth, refundRoutes);
+  app.use('/api/v1/insurance', insuranceRoutes);
   app.use('/api/v1/group-bookings', requireAuth, groupBookingRoutes); // <-- Added group booking routes
   app.use('/api/v1/security', securityRoutes);
   app.use('/api/v1/documents', requireAuth, documentRoutes);
