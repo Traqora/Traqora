@@ -3,10 +3,12 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   addPendingSync,
+  cacheBooking,
   clearPendingSyncs,
   getPendingSyncs,
   useOfflineStatus,
 } from "@/lib/offline-storage";
+import { apiClient, CreateBookingRequest } from "@/lib/api";
 
 interface SyncOptions {
   onSuccess?: () => void;
@@ -103,25 +105,31 @@ export function useAddOfflineSync() {
   }, []);
 }
 
-// Placeholder sync functions - implement based on your API
 async function syncBooking(data: unknown): Promise<void> {
-  // Implementation depends on your API
-  console.log("Syncing booking:", data);
-  // Example:
-  // const response = await fetch('/api/bookings/sync', {
-  //   method: 'POST',
-  //   body: JSON.stringify(data),
-  // });
-  // if (!response.ok) throw new Error('Failed to sync booking');
+  const request = data as CreateBookingRequest & { idempotencyKey?: string };
+  const response = await apiClient.createBooking(request, request.idempotencyKey);
+  if (!response.success) {
+    throw new Error(response.error?.message || "Failed to sync booking");
+  }
 }
 
 async function syncItinerary(data: unknown): Promise<void> {
-  // Implementation depends on your API
-  console.log("Syncing itinerary:", data);
-  // Example:
-  // const response = await fetch('/api/itineraries/sync', {
-  //   method: 'POST',
-  //   body: JSON.stringify(data),
-  // });
-  // if (!response.ok) throw new Error('Failed to sync itinerary');
+  const { bookingId } = data as { bookingId: string };
+  const response = await apiClient.getTransactionStatus(bookingId);
+  if (!response.success) {
+    throw new Error(response.error?.message || "Failed to sync itinerary");
+  }
+  cacheBooking({
+    id: bookingId,
+    flightNumber: "",
+    departureTime: "",
+    arrivalTime: "",
+    airline: "",
+    from: "",
+    to: "",
+    passengers: 0,
+    totalPrice: 0,
+    bookingDate: new Date().toISOString(),
+    status: response.data.bookingStatus === "confirmed" ? "confirmed" : "pending",
+  });
 }

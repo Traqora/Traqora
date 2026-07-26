@@ -138,7 +138,7 @@ jobs:
         run: npm install --legacy-peer-deps
 
       - name: Run Tests
-        run: npm test --workspace=packages/client || true
+        run: npm test --workspace=packages/client
 
   test-contracts:
     name: Unit Tests - Contracts

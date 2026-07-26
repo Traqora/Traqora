@@ -10,6 +10,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { ConnectionIndicator } from "@/components/connection-indicator";
 import { WalletProvider } from "@/components/wallet-provider";
 import { OfflineProvider } from "@/components/offline-provider";
+import { OfflineIndicator } from "@/components/offline-indicator";
 import { SkipNav } from "@/components/skip-nav";
 
 const playfairDisplay = Playfair_Display({
@@ -31,6 +32,16 @@ export const metadata: Metadata = {
   description:
     "Book flights directly with airlines using blockchain technology. No intermediaries, transparent pricing, automated refunds.",
   generator: "v0.app",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Traqora",
+  },
+};
+
+export const viewport = {
+  themeColor: "#0f172a",
 };
 
 function A11yAnnouncer() {
@@ -59,17 +70,19 @@ export default function RootLayout({
         <SkipNav />
         <A11yAnnouncer />
         <A11yAssertiveAnnouncer />
-          <OfflineProvider>
-            <WalletProvider>
-              <SocketProvider>
-                <ConnectionIndicator />
-                <Toaster />
-                <main id="main-content" tabIndex={-1} className="outline-none">
-                  {children}
-                </main>
-              </SocketProvider>
-            </WalletProvider>
-          </OfflineProvider>
+        {/* Nesting providers ensures both Wallet and Socket functionality are available app-wide */}
+        <OfflineProvider>
+          <WalletProvider>
+            <SocketProvider>
+              <ConnectionIndicator />
+              <OfflineIndicator />
+              <Toaster />
+              <main id="main-content" tabIndex={-1} className="outline-none">
+                {children}
+              </main>
+            </SocketProvider>
+          </WalletProvider>
+        </OfflineProvider>
       </body>
     </html>
   );

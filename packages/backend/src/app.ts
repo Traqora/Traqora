@@ -24,6 +24,8 @@ import { authRoutes } from './api/routes/auth';
 import disputeRoutes from './api/routes/disputes';
 import serviceRoutes from './api/routes/services';
 import contractEventRoutes from './api/routes/contract-events';
+import transactionRoutes from './api/routes/transactions';
+import checkinRoutes from './api/routes/checkin';
 import { documentRoutes } from './api/routes/documents';
 import { createCurrencyRoutes } from './api/routes/currencies';
 // @ts-ignore
@@ -205,6 +207,8 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/disputes', disputeRoutes);
   app.use('/api/v1/services', serviceRoutes);
   app.use('/api/v1/contract-events', contractEventRoutes);
+  app.use('/api/v1/transactions', transactionRoutes);
+  app.use('/api/v1/checkin', requireAuth, checkinRoutes);
   app.use('/api/v1/currencies', createCurrencyRoutes());
 
   app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {

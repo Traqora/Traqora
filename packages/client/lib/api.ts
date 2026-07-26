@@ -117,8 +117,43 @@ export interface Booking {
 }
 
 export interface TransactionStatus {
-  status: 'pending' | 'success' | 'failed'
-  hash?: string
+  status: 'pending' | 'success' | 'failed' | 'not_found'
+  txHash?: string
+  result?: any
+  error?: string
+}
+
+export interface TransactionRecord {
+  bookingId: string
+  bookingStatus: string
+  txHash: string | null
+  explorerUrl: string | null
+  contractSubmitAttempts: number
+  lastError: string | null
+  updatedAt: string
+}
+
+export interface BookingTransactionStatusResponse {
+  bookingStatus: string
+  transactionStatus: TransactionStatus | null
+}
+
+export type CheckInStatus = 'pending' | 'checked_in' | 'cancelled'
+
+export interface CheckInRecord {
+  id: string
+  status: CheckInStatus
+  seatNumber: string | null
+  boardingPassCode: string
+  checkedInAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CheckInWindow {
+  opensAt: string
+  closesAt: string
+  isOpen: boolean
 }
 
 export interface PerformanceSnapshot {
@@ -196,6 +231,37 @@ export interface PerformanceSnapshot {
     durationMs: number
     timestamp: string
   }>
+}
+
+export type ApiResult<T> = { success: true; data: T } | { success: false; error: { message: string } }
+
+function getAuthHeader(): Record<string, string> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem('traqora-auth')
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    const token = parsed?.state?.accessToken
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  } catch {
+    return {}
+  }
+}
+
+async function authedFetch(path: string, options?: RequestInit) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeader(),
+      ...(options?.headers || {}),
+    },
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new ApiError(body?.error?.message || body?.error || `HTTP ${response.status}`, response.status, body?.error?.code)
+  }
+  return body
 }
 
 export class ApiError extends Error {
@@ -392,44 +458,113 @@ export const apiClient = {
   },
   
   createBooking: async (request: CreateBookingRequest, idempotencyKey?: string) => {
-    return {
-      success: true,
-      data: {
-        data: {
-          id: "BOOK-" + Math.random().toString(36).substring(2, 9).toUpperCase(),
+    try {
+      const body = await authedFetch('/api/v1/bookings', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey || generateIdempotencyKey() },
+        body: JSON.stringify({
           flightId: request.flightId,
-          status: 'pending',
-          price: "450",
-          currency: "USDC"
-        },
-        soroban: {
-          unsignedXdr: "AAAA...",
-          networkPassphrase: "Test SDF Network ; September 2015"
-        }
-      }
+          passenger: (request as any).passenger,
+        }),
+      })
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
     }
   },
-  
+
   submitSignedTransaction: async (bookingId: string, signedXdr: string) => {
-    return {
-      success: true,
-      data: {
-        id: bookingId,
-        flightId: "1",
-        status: 'confirmed',
-        price: "450",
-        currency: "USDC"
-      }
+    try {
+      const body = await authedFetch(`/api/v1/bookings/${bookingId}/submit-onchain`, {
+        method: 'POST',
+        body: JSON.stringify({ signedXdr }),
+      })
+      return { success: true, data: body.data, soroban: body.soroban }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
     }
   },
-  
-  getTransactionStatus: async (bookingId: string) => {
-    return {
-      success: true,
-      data: {
-        status: 'success',
-        hash: "HASH" + Math.random().toString(36).substring(2, 9).toUpperCase()
-      }
+
+  getTransactionStatus: async (bookingId: string): Promise<ApiResult<BookingTransactionStatusResponse>> => {
+    try {
+      const body = await authedFetch(`/api/v1/bookings/${bookingId}/transaction-status`)
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  listTransactions: async (limit = 20): Promise<ApiResult<TransactionRecord[]>> => {
+    try {
+      const body = await authedFetch(`/api/v1/transactions?limit=${limit}`)
+      return { success: true, data: body.data as TransactionRecord[] }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  retryTransaction: async (bookingId: string, signedXdr: string): Promise<ApiResult<TransactionRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/transactions/${bookingId}/retry`, {
+        method: 'POST',
+        body: JSON.stringify({ signedXdr }),
+      })
+      return { success: true, data: body.data as TransactionRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getCheckInWindow: async (bookingId: string): Promise<ApiResult<CheckInWindow>> => {
+    try {
+      const body = await authedFetch(`/api/v1/checkin/${bookingId}/window`)
+      return { success: true, data: body.data as CheckInWindow }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  checkIn: async (bookingId: string, seatNumber?: string): Promise<ApiResult<CheckInRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/checkin/${bookingId}`, {
+        method: 'POST',
+        body: JSON.stringify(seatNumber ? { seatNumber } : {}),
+      })
+      return { success: true, data: body.data as CheckInRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getCheckIn: async (bookingId: string): Promise<ApiResult<CheckInRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/checkin/${bookingId}`)
+      return { success: true, data: body.data as CheckInRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  reselectSeat: async (bookingId: string, seatNumber: string): Promise<ApiResult<CheckInRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/checkin/${bookingId}/seat`, {
+        method: 'PATCH',
+        body: JSON.stringify({ seatNumber }),
+      })
+      return { success: true, data: body.data as CheckInRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getBoardingPassPdfUrl: (bookingId: string) => `${API_BASE_URL}/api/v1/checkin/${bookingId}/boarding-pass.pdf`,
+
+  getWalletPass: async (bookingId: string): Promise<ApiResult<Record<string, unknown>>> => {
+    try {
+      const body = await authedFetch(`/api/v1/checkin/${bookingId}/wallet-pass`)
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
     }
   },
 
