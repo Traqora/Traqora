@@ -27,6 +27,8 @@ import {
 import { NavWalletButton } from "@/components/nav-wallet-button"
 // NEW: import useWalletStore and useWallet for the real wallet info in the Wallet tab
 import { useWalletStore, useWallet } from "@/lib/stellar-wallet-connect"
+// NEW: real transaction/booking history replacing mocked bookings
+import { useTransactionHistory } from "@/hooks/use-transaction-history"
 
 // Mock user data
 const mockUser = {
@@ -113,6 +115,9 @@ const getStatusColor = (status: string) => {
       return "bg-primary text-primary-foreground"
     case "refunded":
       return "bg-muted text-muted-foreground"
+    case "failed":
+    case "refund_rejected":
+      return "bg-destructive text-destructive-foreground"
     default:
       return "bg-muted text-muted-foreground"
   }
@@ -126,6 +131,9 @@ const getStatusIcon = (status: string) => {
       return <Plane className="h-4 w-4" />
     case "refunded":
       return <RefreshCw className="h-4 w-4" />
+    case "failed":
+    case "refund_rejected":
+      return <AlertCircle className="h-4 w-4" />
     default:
       return <AlertCircle className="h-4 w-4" />
   }
@@ -223,6 +231,7 @@ function DashboardWalletCard() {
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("bookings")
+  const { transactions, isLoading: transactionsLoading, error: transactionsError } = useTransactionHistory()
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -355,116 +364,95 @@ export default function DashboardPage() {
               </Button>
             </div>
 
-            <div className="space-y-4">
-              {mockBookings.map((booking) => (
-                <Card key={booking.id} className="hover:shadow-lg transition-shadow">
-                  <CardContent className="p-6">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                      {/* Flight Info */}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-4 mb-4">
-                          <img
-                            src={booking.logo || "/placeholder.svg"}
-                            alt={`${booking.airline} logo`}
-                            className="w-10 h-10 rounded-lg"
-                          />
-                          <div>
-                            <h3 className="font-semibold text-foreground">{booking.airline}</h3>
-                            <p className="text-sm text-muted-foreground">{booking.flightNumber}</p>
-                          </div>
-                          <Badge className={getStatusColor(booking.status)}>
-                            {getStatusIcon(booking.status)}
-                            <span className="ml-1 capitalize">{booking.status}</span>
-                          </Badge>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div className="flex items-center gap-3">
-                            <MapPin className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">
-                                {booking.from} → {booking.to}
-                              </p>
-                              <p className="text-sm text-muted-foreground">
-                                {booking.fromCity} to {booking.toCity}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            <Calendar className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">{booking.date}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {booking.departure} - {booking.arrival}
-                              </p>
-                            </div>
+            {transactionsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading your bookings...</p>
+            ) : transactionsError ? (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{transactionsError}</AlertDescription>
+              </Alert>
+            ) : transactions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No bookings with on-chain transactions yet.</p>
+            ) : (
+              <div className="space-y-4">
+                {transactions.map((tx) => (
+                  <Card key={tx.bookingId} className="hover:shadow-lg transition-shadow">
+                    <CardContent className="p-6">
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-4 mb-4">
+                            <Badge className={getStatusColor(tx.bookingStatus)}>
+                              {getStatusIcon(tx.bookingStatus)}
+                              <span className="ml-1 capitalize">{tx.bookingStatus.replace(/_/g, " ")}</span>
+                            </Badge>
                           </div>
 
                           <div className="flex items-center gap-3">
                             <Coins className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">
-                                {booking.price} {booking.currency}
-                              </p>
-                              <p className="text-sm text-muted-foreground">+{booking.trqEarned} TRQ earned</p>
-                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              Last updated {new Date(tx.updatedAt).toLocaleString()}
+                            </p>
                           </div>
+                          {tx.lastError && (
+                            <p className="text-sm text-destructive mt-2">{tx.lastError}</p>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col gap-2 lg:min-w-50">
+                          {tx.bookingStatus === "confirmed" && (
+                            <Link href={`/checkin/${tx.bookingId}`}>
+                              <Button variant="outline" size="sm" className="justify-start bg-transparent w-full">
+                                <QrCode className="h-4 w-4 mr-2" />
+                                Check In / View Ticket
+                              </Button>
+                            </Link>
+                          )}
+                          {tx.explorerUrl && (
+                            <a href={tx.explorerUrl} target="_blank" rel="noreferrer">
+                              <Button variant="outline" size="sm" className="justify-start bg-transparent w-full">
+                                <ExternalLink className="h-4 w-4 mr-2" />
+                                View on Stellar Expert
+                              </Button>
+                            </a>
+                          )}
                         </div>
                       </div>
 
-                      {/* Actions */}
-                      <div className="flex flex-col gap-2 lg:min-w-50">
-                        <Button variant="outline" size="sm" className="justify-start bg-transparent">
-                          <QrCode className="h-4 w-4 mr-2" />
-                          View Ticket
-                        </Button>
-                        <Button variant="outline" size="sm" className="justify-start bg-transparent">
-                          <ExternalLink className="h-4 w-4 mr-2" />
-                          View on Stellar Expert
-                        </Button>
-                        {booking.refundEligible && (
-                          <Button variant="outline" size="sm" className="justify-start text-secondary bg-transparent">
-                            <RefreshCw className="h-4 w-4 mr-2" />
-                            Request Refund
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Transaction Details */}
-                    <div className="mt-4 pt-4 border-t border-border">
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">Booking ID:</span>
-                          <span className="font-mono">{booking.id}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                            onClick={() => copyToClipboard(booking.id)}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">Transaction:</span>
-                          <span className="font-mono">{formatTransactionHash(booking.transactionHash)}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                            onClick={() => copyToClipboard(booking.transactionHash)}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
+                      <div className="mt-4 pt-4 border-t border-border">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">Booking ID:</span>
+                            <span className="font-mono">{tx.bookingId}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => copyToClipboard(tx.bookingId)}
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          {tx.txHash && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-muted-foreground">Transaction:</span>
+                              <span className="font-mono">{formatTransactionHash(tx.txHash)}</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                onClick={() => copyToClipboard(tx.txHash!)}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           {/* Refunds Tab */}
