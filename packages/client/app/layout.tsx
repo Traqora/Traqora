@@ -11,6 +11,7 @@ import { ConnectionIndicator } from "@/components/connection-indicator";
 // NEW: WalletProvider to initialise StellarWalletsKit on app mount
 import { WalletProvider } from "@/components/wallet-provider";
 import { OfflineProvider } from "@/components/offline-provider";
+import { OfflineBanner } from "@/components/offline-banner";
 import { SkipNav } from "@/components/skip-nav";
 
 const playfairDisplay = Playfair_Display({
@@ -32,6 +33,16 @@ export const metadata: Metadata = {
   description:
     "Book flights directly with airlines using blockchain technology. No intermediaries, transparent pricing, automated refunds.",
   generator: "v0.app",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Traqora",
+  },
+};
+
+export const viewport = {
+  themeColor: "#0f172a",
 };
 
 export default function RootLayout({
@@ -52,6 +63,7 @@ export default function RootLayout({
           <WalletProvider>
             <SocketProvider>
               <ConnectionIndicator />
+              <OfflineBanner />
               <Toaster />
               {children}
             </SocketProvider>

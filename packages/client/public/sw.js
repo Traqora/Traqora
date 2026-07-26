@@ -1,9 +1,16 @@
-const CACHE_NAME = "traqora-v1";
-const RUNTIME_CACHE = "traqora-runtime-v1";
-const API_CACHE = "traqora-api-v1";
+const CACHE_NAME = "traqora-v2";
+const RUNTIME_CACHE = "traqora-runtime-v2";
+const API_CACHE = "traqora-api-v2";
 
 // Resources to cache on install
-const STATIC_ASSETS = ["/", "/placeholder-logo.svg", "/placeholder.svg"];
+const STATIC_ASSETS = [
+  "/",
+  "/dashboard",
+  "/search",
+  "/manifest.json",
+  "/placeholder-logo.svg",
+  "/placeholder.svg",
+];
 
 // Install event - cache static assets
 self.addEventListener("install", (event) => {
