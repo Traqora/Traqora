@@ -1,4 +1,6 @@
 import { logger } from '../utils/logger';
+import { AppDataSource, initDataSource } from '../db/dataSource';
+import { SecurityAuditLog, SecurityAction, ActorType } from '../db/entities/SecurityAuditLog';
 
 export interface AppErrorOptions {
   statusCode?: number;
@@ -311,3 +313,103 @@ export const executeCompensatedWorkflow = async (
     });
   }
 };
+
+/**
+ * Log security-related events to SecurityAuditLog
+ */
+export async function logSecurityEvent(params: {
+  action: SecurityAction;
+  actorType: ActorType;
+  userId?: string | null;
+  userEmail?: string | null;
+  adminId?: string | null;
+  adminEmail?: string | null;
+  resource?: string | null;
+  resourceId?: string | null;
+  details?: string | null;
+  metadata?: any;
+  ipAddress: string;
+  userAgent?: string | null;
+  sessionId?: string | null;
+  countryCode?: string | null;
+}): Promise<void> {
+  try {
+    await initDataSource();
+    const repo = AppDataSource.getRepository(SecurityAuditLog);
+
+    // Get previous log hash for chain integrity
+    const previousLog = await repo.findOne({
+      where: {},
+      order: { createdAt: 'DESC' }
+    });
+
+    const previousHash = previousLog?.logHash || null;
+
+    const log = repo.create({
+      userId: params.userId || null,
+      userEmail: params.userEmail || null,
+      adminId: params.adminId || null,
+      adminEmail: params.adminEmail || null,
+      actorType: params.actorType,
+      action: params.action,
+      resource: params.resource || null,
+      resourceId: params.resourceId || null,
+      details: params.details || null,
+      metadata: params.metadata || null,
+      ipAddress: params.ipAddress,
+      userAgent: params.userAgent || null,
+      sessionId: params.sessionId || null,
+      countryCode: params.countryCode || null,
+      previousLogHash: previousHash,
+      logHash: '',
+    });
+
+    log.logHash = log.generateLogHash(previousHash);
+    await repo.save(log);
+
+    logger.info('Security audit log recorded', {
+      action: params.action,
+      actorType: params.actorType,
+      logId: log.id
+    });
+  } catch (err) {
+    logger.error('Failed to write security audit log', {
+      action: params.action,
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
+}
+
+/**
+ * Log application errors for security monitoring
+ */
+export async function logSecurityError(
+  error: unknown,
+  context: Record<string, unknown> = {}
+): Promise<void> {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorCode = error instanceof AppError ? error.code : 'UNKNOWN_ERROR';
+
+  // Determine if this is a security-relevant error
+  const isSecurityRelevant = [
+    'AUTH_FAILED',
+    'UNAUTHORIZED',
+    'FORBIDDEN',
+    'RATE_LIMIT_EXCEEDED',
+    'INVALID_TOKEN',
+    'CREDENTIALS_INVALID',
+  ].includes(errorCode);
+
+  if (isSecurityRelevant) {
+    await logSecurityEvent({
+      action: 'suspicious_activity_detected',
+      actorType: 'system',
+      details: `Security error: ${errorMessage}`,
+      metadata: {
+        errorCode,
+        ...context
+      },
+      ipAddress: context.ipAddress as string || 'system',
+    });
+  }
+}
