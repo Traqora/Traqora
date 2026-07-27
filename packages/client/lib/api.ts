@@ -101,6 +101,38 @@ export interface FlightSearchResponse {
   }
 }
 
+export interface SearchMemoryQuery {
+  from: string
+  to: string
+  date: string
+  passengers: number
+  class: "economy" | "premium_economy" | "business" | "first"
+}
+
+export interface SearchHistoryEntry {
+  id: string
+  userId: string
+  fromAirport: string
+  toAirport: string
+  departureDate: string
+  passengers: number
+  cabinClass: SearchMemoryQuery["class"]
+  createdAt: string
+}
+
+export interface SavedSearch {
+  id: string
+  userId: string
+  name: string | null
+  fromAirport: string
+  toAirport: string
+  departureDate: string
+  passengers: number
+  cabinClass: SearchMemoryQuery["class"]
+  createdAt: string
+  updatedAt: string
+}
+
 export interface CreateBookingRequest {
   flightId: string
   passengerCount: number
@@ -465,6 +497,51 @@ export async function getPriceTrend(from: string, to: string, days = 14): Promis
   return apiGet<PriceTrend>(`/api/flights/price-trend?from=${from}&to=${to}&days=${days}`)
 }
 
+export async function getSearchHistory(): Promise<SearchHistoryEntry[]> {
+  const body = await authedFetch('/api/v1/flights/search/history')
+  return body.data as SearchHistoryEntry[]
+}
+
+export async function createSearchHistoryEntry(payload: SearchMemoryQuery): Promise<SearchHistoryEntry> {
+  const body = await authedFetch('/api/v1/flights/search/history', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return body.data as SearchHistoryEntry
+}
+
+export async function deleteSearchHistoryEntry(id: string): Promise<void> {
+  await authedFetch(`/api/v1/flights/search/history/${id}`, { method: 'DELETE' })
+}
+
+export async function getSavedSearches(): Promise<SavedSearch[]> {
+  const body = await authedFetch('/api/v1/flights/saved-searches')
+  return body.data as SavedSearch[]
+}
+
+export async function createSavedSearch(payload: SearchMemoryQuery & { name?: string }): Promise<SavedSearch> {
+  const body = await authedFetch('/api/v1/flights/saved-searches', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return body.data as SavedSearch
+}
+
+export async function updateSavedSearch(
+  id: string,
+  payload: SearchMemoryQuery & { name?: string },
+): Promise<SavedSearch> {
+  const body = await authedFetch(`/api/v1/flights/saved-searches/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+  return body.data as SavedSearch
+}
+
+export async function deleteSavedSearch(id: string): Promise<void> {
+  await authedFetch(`/api/v1/flights/saved-searches/${id}`, { method: 'DELETE' })
+}
+
 export async function getInsuranceQuotes(
   tripCostCents: number,
   destination: string,
@@ -728,6 +805,72 @@ export const apiClient = {
     try {
       const data = await getCarbonStats(userId)
       return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getSearchHistory: async (): Promise<ApiResult<SearchHistoryEntry[]>> => {
+    try {
+      const data = await getSearchHistory()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  addSearchHistory: async (payload: SearchMemoryQuery): Promise<ApiResult<SearchHistoryEntry>> => {
+    try {
+      const data = await createSearchHistoryEntry(payload)
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  deleteSearchHistory: async (id: string): Promise<ApiResult<null>> => {
+    try {
+      await deleteSearchHistoryEntry(id)
+      return { success: true, data: null }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getSavedSearches: async (): Promise<ApiResult<SavedSearch[]>> => {
+    try {
+      const data = await getSavedSearches()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  createSavedSearch: async (payload: SearchMemoryQuery & { name?: string }): Promise<ApiResult<SavedSearch>> => {
+    try {
+      const data = await createSavedSearch(payload)
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  updateSavedSearch: async (
+    id: string,
+    payload: SearchMemoryQuery & { name?: string },
+  ): Promise<ApiResult<SavedSearch>> => {
+    try {
+      const data = await updateSavedSearch(id, payload)
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  deleteSavedSearch: async (id: string): Promise<ApiResult<null>> => {
+    try {
+      await deleteSavedSearch(id)
+      return { success: true, data: null }
     } catch (error: any) {
       return { success: false, error: { message: error.message } }
     }
