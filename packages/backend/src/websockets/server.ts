@@ -5,6 +5,7 @@ import http from 'http';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import jwt from 'jsonwebtoken';
+import { chatBotService, ChatMessage } from '../services/chatBotService';
 
 // Interface for typed events
 interface ServerToClientEvents {
@@ -13,6 +14,7 @@ interface ServerToClientEvents {
   booking_status: (data: { bookingId: string; status: string; timestamp: Date }) => void;
   flight_status: (data: FlightStatusPayload) => void;
   contract_event: (data: ContractEventPayload) => void;
+  'chat:reply': (data: { message: ChatMessage; escalated: boolean }) => void;
 }
 
 export type FlightStatus = 'SCHEDULED' | 'DELAYED' | 'GATE_CHANGED' | 'BOARDING' | 'CANCELLED' | 'LANDED';
@@ -30,6 +32,7 @@ interface ClientToServerEvents {
   unsubscribe: (flightId: string) => void;
   subscribe_address: (walletAddress: string) => void;
   unsubscribe_address: (walletAddress: string) => void;
+  'chat:message': (text: string) => void;
 }
 
 export interface ContractEventPayload {
@@ -46,6 +49,8 @@ export class WebSocketServer {
   private pubClient: any;
   private subClient: any;
   private redisEnabled: boolean = false; // Track Redis status
+  /** Chat message history per socket connection (issue #379). Cleared on disconnect. */
+  private chatHistory = new Map<string, ChatMessage[]>();
 
   constructor(httpServer: http.Server) {
     this.io = new Server(httpServer, {
@@ -168,8 +173,13 @@ export class WebSocketServer {
         socket.leave(`address:${walletAddress}`);
       });
 
+      socket.on('chat:message', (text: string) => {
+        this.handleChatMessage(socket, text);
+      });
+
       socket.on('disconnect', () => {
         logger.info(`🔴 Client disconnected: ${socket.id}`);
+        this.chatHistory.delete(socket.id);
       });
 
       // Handle errors
@@ -245,6 +255,47 @@ export class WebSocketServer {
   // Method to check Redis status
   public isRedisEnabled(): boolean {
     return this.redisEnabled;
+  }
+
+  /**
+   * Handles an inbound chat message (issue #379): appends it to the
+   * socket's history, gets a bot response (or an escalation signal), and
+   * replies over the same socket. Escalation just flags the message —
+   * routing to a human queue is a follow-on integration, not built here.
+   */
+  private handleChatMessage(socket: Socket<ClientToServerEvents, ServerToClientEvents>, text: string): void {
+    const trimmed = typeof text === 'string' ? text : '';
+    const history = this.chatHistory.get(socket.id) ?? [];
+
+    const userMessage: ChatMessage = {
+      id: `${socket.id}-${history.length}`,
+      from: 'user',
+      text: trimmed,
+      createdAt: new Date(),
+    };
+    history.push(userMessage);
+
+    const { reply, escalate } = chatBotService.respond(trimmed);
+    const botMessage: ChatMessage = {
+      id: `${socket.id}-${history.length}`,
+      from: escalate ? 'agent' : 'bot',
+      text: reply,
+      createdAt: new Date(),
+    };
+    history.push(botMessage);
+
+    this.chatHistory.set(socket.id, history);
+
+    if (escalate) {
+      logger.info(`Chat escalated to human agent for socket ${socket.id}`);
+    }
+
+    socket.emit('chat:reply', { message: botMessage, escalated: escalate });
+  }
+
+  /** Test/introspection hook: read a socket's chat history. */
+  public getChatHistory(socketId: string): ChatMessage[] {
+    return this.chatHistory.get(socketId) ?? [];
   }
 }
 

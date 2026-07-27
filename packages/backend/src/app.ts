@@ -32,6 +32,7 @@ import { reviewRoutes } from './api/routes/reviews';
 import { userRoutes } from './api/routes/users';
 import { carbonRoutes } from './api/routes/carbon';
 import { createCurrencyRoutes } from './api/routes/currencies';
+import { referralRoutes } from './api/routes/referrals';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
@@ -196,6 +197,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/group-bookings', requireAuth, groupBookingRoutes); // <-- Added group booking routes
   app.use('/api/v1/security', securityRoutes);
   app.use('/api/v1/documents', requireAuth, documentRoutes);
+  app.use('/api/v1/referrals', referralRoutes);
   app.use('/api/v1/users', userRoutes);
 
   // Admin routes
