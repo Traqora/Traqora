@@ -7,6 +7,14 @@ import { FlightSearchService } from "../../services/flightSearchService";
 import { CurrencyService } from "../../services/currencyService";
 import { FareRulesService, FareClass } from "../../services/fareRulesService";
 import { BadRequestError } from "../../utils/errors";
+import { requireAuth } from "../../middleware/authMiddleware";
+import { SearchHistoryEntry } from "../../db/entities/SearchHistoryEntry";
+import { SavedSearch } from "../../db/entities/SavedSearch";
+import {
+  FlexibleSearchService,
+  MAX_SEGMENTS,
+  createFlexibleSearchService,
+} from "../../services/multi-city-search";
 
 const searchQuerySchema = z
   .object({
@@ -65,12 +73,53 @@ const convertSchema = z.object({
   to: z.string().length(3),
 });
 
+const segmentSchema = z.object({
+  origin: z.string().length(3),
+  destination: z.string().length(3),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  passengers: z.coerce.number().int().min(1).max(9),
+  travelClass: z
+    .enum(["economy", "premium_economy", "business", "first"])
+    .optional(),
+});
+
+const multiCitySchema = z.object({
+  segments: z.array(segmentSchema).min(2).max(MAX_SEGMENTS),
+  passengers: z.coerce.number().int().min(1).max(9),
+  sortBy: z.enum(["total_price", "total_duration"]).optional(),
+  sortOrder: z.enum(["asc", "desc"]).optional(),
+});
+
+const searchMemoryPayloadSchema = z.object({
+  from: z.string().trim().length(3).transform((value) => value.toUpperCase()),
+  to: z.string().trim().length(3).transform((value) => value.toUpperCase()),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  passengers: z.coerce.number().int().min(1).max(9),
+  class: z.enum(["economy", "premium_economy", "business", "first"]).default("economy"),
+});
+
+const savedSearchSchema = searchMemoryPayloadSchema.extend({
+  name: z.string().trim().max(80).optional().or(z.literal("")),
+});
+
+const HISTORY_LIMIT = 10;
+const HISTORY_PRUNE_KEEP = 50;
+const SAVED_SEARCH_LIMIT = 25;
+
 export const createFlightRoutes = (
   flightSearchService: FlightSearchService,
   searchRateLimitMiddleware?: any,
+  flexibleSearchService: FlexibleSearchService = createFlexibleSearchService(flightSearchService),
 ) => {
   const router = Router();
   const currencyService = CurrencyService.getInstance();
+  const ensureAuthenticatedUser = (req: Request) => {
+    const walletAddress = req.user?.walletAddress;
+    if (!walletAddress) {
+      throw new BadRequestError("Authenticated user is required");
+    }
+    return walletAddress;
+  };
 
   if (searchRateLimitMiddleware) {
     router.use("/search", searchRateLimitMiddleware);
@@ -143,6 +192,208 @@ export const createFlightRoutes = (
       throw new BadRequestError(error.message || "Invalid request");
     }
   }));
+
+  router.post(
+    "/multi-city",
+    asyncHandler(async (req: Request, res: Response) => {
+      const parsed = multiCitySchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new BadRequestError("Invalid multi-city search parameters", parsed.error.flatten());
+      }
+
+      const { segments, passengers, sortBy, sortOrder } = parsed.data;
+
+      try {
+        const itinerary = await flexibleSearchService.searchMultiCity({
+          segments: segments.map((s) => ({
+            origin: s.origin.toUpperCase(),
+            destination: s.destination.toUpperCase(),
+            date: s.date,
+            passengers: s.passengers,
+            travelClass: s.travelClass,
+          })),
+          passengers,
+          sortBy,
+          sortOrder,
+        });
+
+        return res.status(200).json({ success: true, data: itinerary });
+      } catch (error: any) {
+        throw new BadRequestError(error.message || "Invalid multi-city request");
+      }
+    }),
+  );
+
+  router.get(
+    "/search/history",
+    requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const walletAddress = ensureAuthenticatedUser(req);
+      const historyRepo = AppDataSource.getRepository(SearchHistoryEntry);
+      const history = await historyRepo.find({
+        where: { userId: walletAddress },
+        order: { createdAt: "DESC" },
+        take: HISTORY_LIMIT,
+      });
+      res.json({ success: true, data: history });
+    }),
+  );
+
+  router.post(
+    "/search/history",
+    requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const walletAddress = ensureAuthenticatedUser(req);
+      const parsed = searchMemoryPayloadSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new BadRequestError("Validation error", parsed.error.flatten());
+      }
+
+      const historyRepo = AppDataSource.getRepository(SearchHistoryEntry);
+      const payload = parsed.data;
+      const existing = await historyRepo.findOne({
+        where: {
+          userId: walletAddress,
+          fromAirport: payload.from,
+          toAirport: payload.to,
+          departureDate: payload.date,
+          passengers: payload.passengers,
+          cabinClass: payload.class,
+        },
+      });
+
+      if (existing) {
+        await historyRepo.remove(existing);
+      }
+
+      const historyEntry = historyRepo.create({
+        userId: walletAddress,
+        fromAirport: payload.from,
+        toAirport: payload.to,
+        departureDate: payload.date,
+        passengers: payload.passengers,
+        cabinClass: payload.class,
+      });
+      const saved = await historyRepo.save(historyEntry);
+
+      const allIds = await historyRepo.find({
+        where: { userId: walletAddress },
+        select: { id: true },
+        order: { createdAt: "DESC" },
+      });
+      if (allIds.length > HISTORY_PRUNE_KEEP) {
+        const staleIds = allIds.slice(HISTORY_PRUNE_KEEP).map((entry) => entry.id);
+        if (staleIds.length > 0) {
+          await historyRepo.delete(staleIds);
+        }
+      }
+
+      res.status(201).json({ success: true, data: saved });
+    }),
+  );
+
+  router.delete(
+    "/search/history/:id",
+    requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const walletAddress = ensureAuthenticatedUser(req);
+      const historyRepo = AppDataSource.getRepository(SearchHistoryEntry);
+      const entry = await historyRepo.findOne({ where: { id: req.params.id, userId: walletAddress } });
+      if (!entry) {
+        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Search history entry not found" } });
+      }
+      await historyRepo.remove(entry);
+      return res.status(204).send();
+    }),
+  );
+
+  router.get(
+    "/saved-searches",
+    requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const walletAddress = ensureAuthenticatedUser(req);
+      const savedSearchRepo = AppDataSource.getRepository(SavedSearch);
+      const savedSearches = await savedSearchRepo.find({
+        where: { userId: walletAddress },
+        order: { updatedAt: "DESC" },
+      });
+      res.json({ success: true, data: savedSearches });
+    }),
+  );
+
+  router.post(
+    "/saved-searches",
+    requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const walletAddress = ensureAuthenticatedUser(req);
+      const parsed = savedSearchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new BadRequestError("Validation error", parsed.error.flatten());
+      }
+
+      const savedSearchRepo = AppDataSource.getRepository(SavedSearch);
+      const existingCount = await savedSearchRepo.count({ where: { userId: walletAddress } });
+      if (existingCount >= SAVED_SEARCH_LIMIT) {
+        throw new BadRequestError(`Saved search limit reached (${SAVED_SEARCH_LIMIT})`);
+      }
+
+      const payload = parsed.data;
+      const savedSearch = savedSearchRepo.create({
+        userId: walletAddress,
+        name: payload.name?.trim() || null,
+        fromAirport: payload.from,
+        toAirport: payload.to,
+        departureDate: payload.date,
+        passengers: payload.passengers,
+        cabinClass: payload.class,
+      });
+      const saved = await savedSearchRepo.save(savedSearch);
+      res.status(201).json({ success: true, data: saved });
+    }),
+  );
+
+  router.put(
+    "/saved-searches/:id",
+    requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const walletAddress = ensureAuthenticatedUser(req);
+      const parsed = savedSearchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new BadRequestError("Validation error", parsed.error.flatten());
+      }
+
+      const savedSearchRepo = AppDataSource.getRepository(SavedSearch);
+      const savedSearch = await savedSearchRepo.findOne({ where: { id: req.params.id, userId: walletAddress } });
+      if (!savedSearch) {
+        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Saved search not found" } });
+      }
+
+      const payload = parsed.data;
+      savedSearch.name = payload.name?.trim() || null;
+      savedSearch.fromAirport = payload.from;
+      savedSearch.toAirport = payload.to;
+      savedSearch.departureDate = payload.date;
+      savedSearch.passengers = payload.passengers;
+      savedSearch.cabinClass = payload.class;
+      const updated = await savedSearchRepo.save(savedSearch);
+      res.json({ success: true, data: updated });
+    }),
+  );
+
+  router.delete(
+    "/saved-searches/:id",
+    requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const walletAddress = ensureAuthenticatedUser(req);
+      const savedSearchRepo = AppDataSource.getRepository(SavedSearch);
+      const savedSearch = await savedSearchRepo.findOne({ where: { id: req.params.id, userId: walletAddress } });
+      if (!savedSearch) {
+        return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Saved search not found" } });
+      }
+      await savedSearchRepo.remove(savedSearch);
+      return res.status(204).send();
+    }),
+  );
 
   router.get(
     "/price-trend",

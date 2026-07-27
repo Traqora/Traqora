@@ -7,13 +7,24 @@ import { disputeService } from '../../services/dispute/disputeService';
 const router = Router();
 
 const createDisputeSchema = z.object({
-  bookingId: z.string().uuid(),
+  refundId: z.string().uuid(),
+  disputeType: z.enum(['refund_denied', 'refund_amount', 'processing_delay', 'service_quality', 'other']),
   description: z.string().min(20).max(2000),
+  desiredOutcome: z.string().min(10).max(500),
+  evidence: z
+    .array(
+      z.object({
+        description: z.string().min(3).max(500),
+        fileUrl: z.string().max(2048).optional(),
+      }),
+    )
+    .max(10)
+    .optional(),
 });
 
 const submitEvidenceSchema = z.object({
   description: z.string().min(5).max(1000),
-  fileUrl: z.string().url().optional(),
+  fileUrl: z.string().max(2048).optional(),
 });
 
 const resolveSchema = z.object({
@@ -21,10 +32,13 @@ const resolveSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
-/**
- * POST /api/disputes
- * Open a new dispute for a booking.
- */
+const appealSchema = z.object({
+  reason: z.string().min(20).max(2000),
+});
+
+const getErrorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : 'Unexpected dispute workflow error';
+
 router.post(
   '/',
   requireAuth,
@@ -32,28 +46,30 @@ router.post(
     const parsed = createDisputeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const walletAddress = (req as any).user?.walletAddress;
+    const walletAddress = req.user?.walletAddress;
     if (!walletAddress) return res.status(401).json({ error: 'Wallet address required' });
 
-    const dispute = await disputeService.createDispute({
-      bookingId: parsed.data.bookingId,
-      claimantAddress: walletAddress,
-      description: parsed.data.description,
-    });
-
-    return res.status(201).json(dispute);
+    try {
+      const dispute = await disputeService.createDispute({
+        refundId: parsed.data.refundId,
+        claimantAddress: walletAddress,
+        disputeType: parsed.data.disputeType,
+        description: parsed.data.description,
+        desiredOutcome: parsed.data.desiredOutcome,
+        evidence: parsed.data.evidence,
+      });
+      return res.status(201).json(dispute);
+    } catch (err: unknown) {
+      return res.status(400).json({ error: getErrorMessage(err) });
+    }
   }),
 );
 
-/**
- * GET /api/disputes
- * List disputes for the authenticated wallet.
- */
 router.get(
   '/',
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    const walletAddress = (req as any).user?.walletAddress;
+    const walletAddress = req.user?.walletAddress;
     if (!walletAddress) return res.status(401).json({ error: 'Wallet address required' });
 
     const items = await disputeService.listDisputesByAddress(walletAddress);
@@ -61,24 +77,26 @@ router.get(
   }),
 );
 
-/**
- * GET /api/disputes/:id
- * Get a single dispute by ID.
- */
 router.get(
   '/:id',
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
+    const walletAddress = req.user?.walletAddress;
+    if (!walletAddress) return res.status(401).json({ error: 'Wallet address required' });
+
     const dispute = await disputeService.getDispute(req.params.id);
     if (!dispute) return res.status(404).json({ error: 'Dispute not found' });
+
+    const authorized =
+      dispute.claimantAddress === walletAddress ||
+      dispute.respondentAddress === walletAddress ||
+      dispute.arbitratorAddress === walletAddress;
+
+    if (!authorized) return res.status(403).json({ error: 'Forbidden' });
     return res.json(dispute);
   }),
 );
 
-/**
- * POST /api/disputes/:id/evidence
- * Submit evidence to an open dispute.
- */
 router.post(
   '/:id/evidence',
   requireAuth,
@@ -86,7 +104,7 @@ router.post(
     const parsed = submitEvidenceSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const walletAddress = (req as any).user?.walletAddress;
+    const walletAddress = req.user?.walletAddress;
     if (!walletAddress) return res.status(401).json({ error: 'Wallet address required' });
 
     try {
@@ -97,16 +115,12 @@ router.post(
         fileUrl: parsed.data.fileUrl,
       });
       return res.json(dispute);
-    } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ error: getErrorMessage(err) });
     }
   }),
 );
 
-/**
- * POST /api/disputes/:id/resolve
- * Resolve a dispute (arbitrator only).
- */
 router.post(
   '/:id/resolve',
   requireAuth,
@@ -114,7 +128,7 @@ router.post(
     const parsed = resolveSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const walletAddress = (req as any).user?.walletAddress;
+    const walletAddress = req.user?.walletAddress;
     if (!walletAddress) return res.status(401).json({ error: 'Wallet address required' });
 
     try {
@@ -125,8 +139,31 @@ router.post(
         notes: parsed.data.notes,
       });
       return res.json(dispute);
-    } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ error: getErrorMessage(err) });
+    }
+  }),
+);
+
+router.post(
+  '/:id/appeal',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = appealSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const walletAddress = req.user?.walletAddress;
+    if (!walletAddress) return res.status(401).json({ error: 'Wallet address required' });
+
+    try {
+      const dispute = await disputeService.appealDispute({
+        disputeId: req.params.id,
+        appellantAddress: walletAddress,
+        reason: parsed.data.reason,
+      });
+      return res.json(dispute);
+    } catch (err: unknown) {
+      return res.status(400).json({ error: getErrorMessage(err) });
     }
   }),
 );

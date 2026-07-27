@@ -27,10 +27,11 @@ import contractEventRoutes from './api/routes/contract-events';
 import transactionRoutes from './api/routes/transactions';
 import checkinRoutes from './api/routes/checkin';
 import { documentRoutes } from './api/routes/documents';
-import { carbonRoutes } from './api/routes/carbon';
-import { createCurrencyRoutes } from './api/routes/currencies';
 import { alertRoutes } from './api/routes/alerts';
 import { reviewRoutes } from './api/routes/reviews';
+import { userRoutes } from './api/routes/users';
+import { carbonRoutes } from './api/routes/carbon';
+import { createCurrencyRoutes } from './api/routes/currencies';
 import { referralRoutes } from './api/routes/referrals';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
@@ -197,6 +198,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/security', securityRoutes);
   app.use('/api/v1/documents', requireAuth, documentRoutes);
   app.use('/api/v1/referrals', referralRoutes);
+  app.use('/api/v1/users', userRoutes);
 
   // Admin routes
   app.use('/api/v1/admin/auth', adminAuthRoutes);
