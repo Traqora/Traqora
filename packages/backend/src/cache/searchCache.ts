@@ -4,6 +4,8 @@ import { recordCacheOperation } from '../services/metrics';
 export interface SearchCache {
   get<T>(key: string): Promise<T | null>;
   set<T>(key: string, value: T, ttlSeconds: number): Promise<void>;
+  /** Deletes every key matching a prefix. Used for invalidation (issue #383). */
+  invalidate(keyPrefix: string): Promise<void>;
 }
 
 interface InMemoryEntry {
@@ -46,6 +48,14 @@ export class InMemorySearchCache implements SearchCache {
       expiresAt: Date.now() + ttlSeconds * 1000,
     });
     recordCacheOperation(this.cacheName, 'set', 'set', getDurationSeconds(start));
+  }
+
+  async invalidate(keyPrefix: string): Promise<void> {
+    const start = process.hrtime.bigint();
+    for (const key of this.store.keys()) {
+      if (key.startsWith(keyPrefix)) this.store.delete(key);
+    }
+    recordCacheOperation(this.cacheName, 'invalidate', 'set', getDurationSeconds(start));
   }
 }
 
@@ -131,6 +141,85 @@ export class RedisSearchCache implements SearchCache {
       await this.memoryFallback.set(key, value, ttlSeconds);
       recordCacheOperation(this.cacheName, 'set', 'error', getDurationSeconds(start));
     }
+  }
+
+  /**
+   * Deletes every key matching a prefix via SCAN + DEL (not KEYS — SCAN is
+   * non-blocking and safe on a cluster, where a single KEYS call only sees
+   * one shard's keyspace anyway).
+   */
+  async invalidate(keyPrefix: string): Promise<void> {
+    const start = process.hrtime.bigint();
+    const redis = await this.getRedisClient();
+
+    if (!redis) {
+      await this.memoryFallback.invalidate(keyPrefix);
+      recordCacheOperation(this.cacheName, 'invalidate', 'fallback', getDurationSeconds(start));
+      return;
+    }
+
+    try {
+      let cursor = '0';
+      const matched: string[] = [];
+      do {
+        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', `${keyPrefix}*`, 'COUNT', 100);
+        cursor = nextCursor;
+        matched.push(...keys);
+      } while (cursor !== '0');
+
+      if (matched.length > 0) {
+        await redis.del(...matched);
+      }
+      recordCacheOperation(this.cacheName, 'invalidate', 'set', getDurationSeconds(start));
+    } catch (_error) {
+      await this.memoryFallback.invalidate(keyPrefix);
+      recordCacheOperation(this.cacheName, 'invalidate', 'error', getDurationSeconds(start));
+    }
+  }
+
+  /** Exposes the underlying client so callers can share it with withDistributedLock. */
+  async getClient(): Promise<Redis | null> {
+    return this.getRedisClient();
+  }
+}
+
+/**
+ * Distributed lock (issue #383) using the standard Redis `SET NX PX`
+ * pattern with a random token, so only the holder can release it (a
+ * stale/duplicate release from a different caller is a no-op). Falls back
+ * to running the callback without locking when Redis is unavailable —
+ * consistent with this module's existing single-node-outage tolerance.
+ */
+export async function withDistributedLock<T>(
+  redis: Redis | null,
+  lockKey: string,
+  ttlSeconds: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!redis) {
+    return fn();
+  }
+
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const acquired = await redis.set(lockKey, token, 'PX', ttlSeconds * 1000, 'NX');
+
+  if (!acquired) {
+    throw new Error(`Could not acquire lock: ${lockKey}`);
+  }
+
+  try {
+    return await fn();
+  } finally {
+    // Only release if we still hold it (token still matches) — a Lua
+    // script keeps the check-and-delete atomic.
+    const releaseScript = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      else
+        return 0
+      end
+    `;
+    await redis.eval(releaseScript, 1, lockKey, token).catch(() => undefined);
   }
 }
 
