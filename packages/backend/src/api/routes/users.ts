@@ -5,8 +5,9 @@ import { AppDataSource } from '../../db/dataSource';
 import { User } from '../../db/entities/User';
 import { Passenger } from '../../db/entities/Passenger';
 import { UserPreference } from '../../db/entities/UserPreference';
+import { UserProfile } from '../../db/entities/UserProfile';
 import { BadRequestError, NotFoundError } from '../../utils/errors';
-import { passengerSchema, userPreferencesSchema } from '../schemas';
+import { passengerSchema, userPreferencesSchema, userProfileSchema } from '../schemas';
 
 const router = Router();
 
@@ -87,6 +88,58 @@ router.put(
 
     await preferenceRepo.save(preferences);
     return res.json({ success: true, data: preferences });
+  }),
+);
+
+router.get(
+  '/profile',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const walletAddress = ensureAuthenticatedUser(req);
+    const profileRepo = AppDataSource.getRepository(UserProfile);
+    const profile = await profileRepo.findOne({ where: { userId: walletAddress } });
+
+    return res.json({
+      success: true,
+      data: profile ?? {
+        userId: walletAddress,
+        displayName: null,
+        bio: null,
+        avatarUrl: null,
+        travelPreferences: null,
+      },
+    });
+  }),
+);
+
+router.patch(
+  '/profile',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const walletAddress = ensureAuthenticatedUser(req);
+    const parsed = userProfileSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const profileRepo = AppDataSource.getRepository(UserProfile);
+    let profile = await profileRepo.findOne({ where: { userId: walletAddress } });
+
+    if (!profile) {
+      profile = profileRepo.create({
+        userId: walletAddress,
+        displayName: null,
+        bio: null,
+        avatarUrl: null,
+        travelPreferences: null,
+        ...parsed.data,
+      });
+    } else {
+      Object.assign(profile, parsed.data);
+    }
+
+    await profileRepo.save(profile);
+    return res.json({ success: true, data: profile });
   }),
 );
 
