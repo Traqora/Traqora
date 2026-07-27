@@ -22,6 +22,8 @@ import { InsurancePolicy } from "./entities/InsurancePolicy";
 import { InsuranceClaim } from "./entities/InsuranceClaim";
 import { CheckIn } from "./entities/CheckIn";
 import { BiometricCredential } from "./entities/BiometricCredential";
+import { SearchHistoryEntry } from "./entities/SearchHistoryEntry";
+import { SavedSearch } from "./entities/SavedSearch";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -53,6 +55,8 @@ export const AppDataSource = new DataSource(
         InsuranceClaim,
         CheckIn,
         BiometricCredential,
+        SearchHistoryEntry,
+        SavedSearch,
       ],
       logging: false,
     }
@@ -82,6 +86,8 @@ export const AppDataSource = new DataSource(
         InsuranceClaim,
         CheckIn,
         BiometricCredential,
+        SearchHistoryEntry,
+        SavedSearch,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:
