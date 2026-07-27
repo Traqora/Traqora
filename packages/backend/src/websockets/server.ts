@@ -11,7 +11,18 @@ interface ServerToClientEvents {
   priceUpdate: (data: { flightId: string; price: number; timestamp: Date }) => void;
   alert: (data: { message: string; flightId: string }) => void;
   booking_status: (data: { bookingId: string; status: string; timestamp: Date }) => void;
+  flight_status: (data: FlightStatusPayload) => void;
   contract_event: (data: ContractEventPayload) => void;
+}
+
+export type FlightStatus = 'SCHEDULED' | 'DELAYED' | 'GATE_CHANGED' | 'BOARDING' | 'CANCELLED' | 'LANDED';
+
+export interface FlightStatusPayload {
+  flightId: string;
+  status: FlightStatus;
+  /** Present for DELAYED (new departure time) and GATE_CHANGED (new gate) updates. */
+  detail?: string;
+  timestamp: Date;
 }
 
 interface ClientToServerEvents {
@@ -190,6 +201,23 @@ export class WebSocketServer {
     this.io.to(room).emit('booking_status', {
       bookingId,
       status,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Broadcasts a flight status change (issue #381) — delays, gate changes,
+   * cancellations, boarding calls — to clients subscribed to that flight's
+   * room via the existing `subscribe`/`unsubscribe` events. Distinct from
+   * `priceUpdate`, which only covers pricing.
+   */
+  public broadcastFlightStatus(flightId: string, status: FlightStatus, detail?: string) {
+    const room = `flight:${flightId}`;
+    logger.info(`Broadcasting flight status to ${room}: ${status}`);
+    this.io.to(room).emit('flight_status', {
+      flightId,
+      status,
+      detail,
       timestamp: new Date(),
     });
   }

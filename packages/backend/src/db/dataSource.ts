@@ -22,7 +22,10 @@ import { InsurancePolicy } from "./entities/InsurancePolicy";
 import { InsuranceClaim } from "./entities/InsuranceClaim";
 import { CheckIn } from "./entities/CheckIn";
 import { BiometricCredential } from "./entities/BiometricCredential";
+import { SearchHistoryEntry } from "./entities/SearchHistoryEntry";
+import { SavedSearch } from "./entities/SavedSearch";
 import { UserProfile } from "./entities/UserProfile";
+import { AccountDeletionRequest } from "./entities/AccountDeletionRequest";
 import { Dispute } from "./entities/Dispute";
 import { DisputeEvidence } from "./entities/DisputeEvidence";
 
@@ -56,7 +59,10 @@ export const AppDataSource = new DataSource(
         InsuranceClaim,
         CheckIn,
         BiometricCredential,
+        SearchHistoryEntry,
+        SavedSearch,
         UserProfile,
+        AccountDeletionRequest,
         Dispute,
         DisputeEvidence,
       ],
@@ -88,7 +94,10 @@ export const AppDataSource = new DataSource(
         InsuranceClaim,
         CheckIn,
         BiometricCredential,
+        SearchHistoryEntry,
+        SavedSearch,
         UserProfile,
+        AccountDeletionRequest,
         Dispute,
         DisputeEvidence,
       ],
