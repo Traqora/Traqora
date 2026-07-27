@@ -23,10 +23,10 @@ export class ContractEventLog {
   @Column({ type: 'int' })
   ledger: number;
 
-  @Column({ name: 'wallet_address', nullable: true })
+  @Column({ type: 'varchar', name: 'wallet_address', nullable: true })
   walletAddress: string | null;
 
-  @Column({ type: 'jsonb', default: '{}' })
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'simple-json' : 'jsonb', default: '{}' })
   data: Record<string, unknown>;
 
   @CreateDateColumn({ name: 'indexed_at' })

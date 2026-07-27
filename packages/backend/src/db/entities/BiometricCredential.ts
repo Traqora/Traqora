@@ -25,10 +25,10 @@ export class BiometricCredential {
   @Column({ default: 0 })
   counter: number;
 
-  @Column({ default: "fingerprint" })
+  @Column({ type: "varchar", default: "fingerprint" })
   credentialType: "fingerprint" | "face";
 
-  @Column({ nullable: true })
+  @Column({ type: "varchar", nullable: true })
   deviceName: string | null;
 
   @Column({ type: "text", nullable: true })
@@ -43,6 +43,6 @@ export class BiometricCredential {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @Column({ type: "timestamp", nullable: true })
+  @Column({ type: process.env.NODE_ENV === "test" ? "datetime" : "timestamp", nullable: true })
   lastUsedAt: Date | null;
 }

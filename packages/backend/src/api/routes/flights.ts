@@ -10,6 +10,11 @@ import { BadRequestError } from "../../utils/errors";
 import { requireAuth } from "../../middleware/authMiddleware";
 import { SearchHistoryEntry } from "../../db/entities/SearchHistoryEntry";
 import { SavedSearch } from "../../db/entities/SavedSearch";
+import {
+  FlexibleSearchService,
+  MAX_SEGMENTS,
+  createFlexibleSearchService,
+} from "../../services/multi-city-search";
 
 const searchQuerySchema = z
   .object({
@@ -68,6 +73,23 @@ const convertSchema = z.object({
   to: z.string().length(3),
 });
 
+const segmentSchema = z.object({
+  origin: z.string().length(3),
+  destination: z.string().length(3),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  passengers: z.coerce.number().int().min(1).max(9),
+  travelClass: z
+    .enum(["economy", "premium_economy", "business", "first"])
+    .optional(),
+});
+
+const multiCitySchema = z.object({
+  segments: z.array(segmentSchema).min(2).max(MAX_SEGMENTS),
+  passengers: z.coerce.number().int().min(1).max(9),
+  sortBy: z.enum(["total_price", "total_duration"]).optional(),
+  sortOrder: z.enum(["asc", "desc"]).optional(),
+});
+
 const searchMemoryPayloadSchema = z.object({
   from: z.string().trim().length(3).transform((value) => value.toUpperCase()),
   to: z.string().trim().length(3).transform((value) => value.toUpperCase()),
@@ -87,6 +109,7 @@ const SAVED_SEARCH_LIMIT = 25;
 export const createFlightRoutes = (
   flightSearchService: FlightSearchService,
   searchRateLimitMiddleware?: any,
+  flexibleSearchService: FlexibleSearchService = createFlexibleSearchService(flightSearchService),
 ) => {
   const router = Router();
   const currencyService = CurrencyService.getInstance();
@@ -169,6 +192,37 @@ export const createFlightRoutes = (
       throw new BadRequestError(error.message || "Invalid request");
     }
   }));
+
+  router.post(
+    "/multi-city",
+    asyncHandler(async (req: Request, res: Response) => {
+      const parsed = multiCitySchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new BadRequestError("Invalid multi-city search parameters", parsed.error.flatten());
+      }
+
+      const { segments, passengers, sortBy, sortOrder } = parsed.data;
+
+      try {
+        const itinerary = await flexibleSearchService.searchMultiCity({
+          segments: segments.map((s) => ({
+            origin: s.origin.toUpperCase(),
+            destination: s.destination.toUpperCase(),
+            date: s.date,
+            passengers: s.passengers,
+            travelClass: s.travelClass,
+          })),
+          passengers,
+          sortBy,
+          sortOrder,
+        });
+
+        return res.status(200).json({ success: true, data: itinerary });
+      } catch (error: any) {
+        throw new BadRequestError(error.message || "Invalid multi-city request");
+      }
+    }),
+  );
 
   router.get(
     "/search/history",
