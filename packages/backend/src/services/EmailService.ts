@@ -33,6 +33,9 @@ class EmailService {
       case "analytics-export":
         template = templatesV1.analyticsExportTemplate(data);
         break;
+      case "referral-invite":
+        template = templatesV1.referralInviteTemplate(data);
+        break;
       default:
         throw new Error(`Email template not found for type: ${type}`);
     }
