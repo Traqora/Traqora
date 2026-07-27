@@ -19,6 +19,7 @@ import {
 import { withRetries } from "../../services/retry";
 import { getWebSocketServer } from "../../websockets/server";
 import { logger } from "../../utils/logger";
+import { baggageService, RESTRICTION_NOTES } from "../../services/baggageService";
 
 const router = Router();
 
@@ -535,6 +536,59 @@ router.post(
       parsed.data.targetClass,
     );
     return res.json({ success: true, data: result });
+  }),
+);
+
+const baggageQuerySchema = z.object({
+  class: z.enum(["economy", "premium_economy", "business", "first"]).optional(),
+  bags: z.coerce.number().int().min(0).max(10).optional(),
+  heaviestBagKg: z.coerce.number().min(0).max(100).optional(),
+});
+
+/**
+ * GET /bookings/:id/baggage-allowance (issue #387)
+ * Returns the checked/carry-on baggage allowance for a booking, based on
+ * its flight's airline and a cabin class (the booking record itself has
+ * no stored cabin class, so it defaults to economy — pass ?class= to
+ * preview the allowance for a different class, e.g. before upgrading).
+ * When bags/heaviestBagKg are supplied, also returns the excess fee.
+ */
+router.get(
+  "/:id/baggage-allowance",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = baggageQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new BadRequestError("Invalid query parameters", parsed.error.flatten());
+    }
+
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
+    if (!booking) {
+      throw new NotFoundError("Booking not found");
+    }
+
+    const cabinClass = parsed.data.class ?? "economy";
+    const airlineCode = booking.flight?.airlineCode ?? "";
+
+    if (parsed.data.bags !== undefined && parsed.data.heaviestBagKg !== undefined) {
+      const result = baggageService.calculateExcessFee(
+        airlineCode,
+        cabinClass,
+        parsed.data.bags,
+        parsed.data.heaviestBagKg,
+      );
+      return res.json({
+        success: true,
+        data: { ...result, cabinClass, restrictions: RESTRICTION_NOTES },
+      });
+    }
+
+    const allowance = baggageService.getAllowance(airlineCode, cabinClass);
+    return res.json({
+      success: true,
+      data: { allowance, cabinClass, restrictions: RESTRICTION_NOTES },
+    });
   }),
 );
 
