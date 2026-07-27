@@ -24,6 +24,7 @@ import { CheckIn } from "./entities/CheckIn";
 import { BiometricCredential } from "./entities/BiometricCredential";
 import { SearchHistoryEntry } from "./entities/SearchHistoryEntry";
 import { SavedSearch } from "./entities/SavedSearch";
+import { UserProfile } from "./entities/UserProfile";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -57,6 +58,7 @@ export const AppDataSource = new DataSource(
         BiometricCredential,
         SearchHistoryEntry,
         SavedSearch,
+        UserProfile,
       ],
       logging: false,
     }
@@ -88,6 +90,7 @@ export const AppDataSource = new DataSource(
         BiometricCredential,
         SearchHistoryEntry,
         SavedSearch,
+        UserProfile,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:
