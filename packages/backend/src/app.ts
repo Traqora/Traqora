@@ -29,6 +29,8 @@ import checkinRoutes from './api/routes/checkin';
 import { documentRoutes } from './api/routes/documents';
 import { carbonRoutes } from './api/routes/carbon';
 import { createCurrencyRoutes } from './api/routes/currencies';
+import { alertRoutes } from './api/routes/alerts';
+import { reviewRoutes } from './api/routes/reviews';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
@@ -61,6 +63,7 @@ import { NotFoundError } from './utils/errors';
 import { AppError } from './services/ErrorHandlingService';
 import { requestLogger } from './middleware/requestLogger';
 import { analyticsAuditLogger } from './middleware/audit-logger';
+import { auditLogger } from './middleware/audit';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
@@ -147,6 +150,7 @@ export const createApp = async (options: AppOptions = {}) => {
   }
 
   app.use(requestLogger);
+  app.use('/api', auditLogger);
   app.use(metricsMiddleware);
   app.use(morgan('combined', { stream: { write: (message: string) => logger.info(message.trim()) } }));
 
