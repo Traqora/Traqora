@@ -170,6 +170,43 @@ export interface BookingTransactionStatusResponse {
   transactionStatus: TransactionStatus | null
 }
 
+export type DisputeStatus = "open" | "evidence_submission" | "under_review" | "resolved" | "appealed" | "closed"
+
+export interface DisputeEvidence {
+  id: string
+  submittedBy: string
+  description: string
+  fileUrl: string | null
+  submittedAt: string
+}
+
+export interface DisputeTimelineEvent {
+  type: "dispute_opened" | "arbitrator_assigned" | "evidence_submitted" | "dispute_resolved" | "dispute_appealed"
+  at: string
+  actor: string
+  notes?: string
+}
+
+export interface DisputeRecord {
+  id: string
+  refundId: string
+  bookingId: string
+  claimantAddress: string
+  respondentAddress: string
+  arbitratorAddress: string | null
+  disputeType: string
+  description: string
+  desiredOutcome: string | null
+  status: DisputeStatus
+  outcome: "claimant_wins" | "respondent_wins" | "partial" | null
+  resolutionNotes: string | null
+  evidence: DisputeEvidence[]
+  timeline: DisputeTimelineEvent[]
+  createdAt: string
+  updatedAt: string
+  deadlineAt: string | null
+}
+
 export type CheckInStatus = 'pending' | 'checked_in' | 'cancelled'
 
 export interface CheckInRecord {
@@ -745,6 +782,60 @@ export const apiClient = {
     try {
       const body = await authedFetch(`/api/v1/checkin/${bookingId}/wallet-pass`)
       return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  createDispute: async (payload: {
+    refundId: string
+    disputeType: "refund_denied" | "refund_amount" | "processing_delay" | "service_quality" | "other"
+    description: string
+    desiredOutcome: string
+    evidence?: Array<{ description: string; fileUrl?: string }>
+  }): Promise<ApiResult<DisputeRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/disputes`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+      return { success: true, data: body as DisputeRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getDispute: async (disputeId: string): Promise<ApiResult<DisputeRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/disputes/${disputeId}`)
+      return { success: true, data: body as DisputeRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  submitDisputeEvidence: async (
+    disputeId: string,
+    payload: { description: string; fileUrl?: string },
+  ): Promise<ApiResult<DisputeRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/disputes/${disputeId}/evidence`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+      return { success: true, data: body as DisputeRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  appealDispute: async (disputeId: string, reason: string): Promise<ApiResult<DisputeRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/disputes/${disputeId}/appeal`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      })
+      return { success: true, data: body as DisputeRecord }
     } catch (error: any) {
       return { success: false, error: { message: error.message } }
     }
