@@ -41,7 +41,7 @@ export function useSocketEvents(options: UseSocketEventsOptions = {}) {
       onPriceUpdate?.(d);
     };
     const onBooking = (d: any) => {
-      console.debug('booking', d);
+      console.debug('booking_status', d);
       onBookingStatus?.(d);
     };
     const onContract = (d: any) => {
@@ -49,7 +49,7 @@ export function useSocketEvents(options: UseSocketEventsOptions = {}) {
       handleContractEvent(d);
     };
 
-    manager.on('price_update', onPrice);
+    manager.on('priceUpdate', onPrice);
     manager.on('booking_status', onBooking);
     manager.on('contract_event', onContract);
 
@@ -59,7 +59,7 @@ export function useSocketEvents(options: UseSocketEventsOptions = {}) {
     }
 
     return () => {
-      manager.off('price_update', onPrice);
+      manager.off('priceUpdate', onPrice);
       manager.off('booking_status', onBooking);
       manager.off('contract_event', onContract);
 

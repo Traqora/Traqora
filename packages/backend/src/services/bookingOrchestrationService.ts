@@ -15,6 +15,7 @@ import { config } from '../config';
 import { BadRequestError } from '../utils/errors';
 import { FareRulesService, FareClass } from './fareRulesService';
 import type { ChangeFeeQuote, CancellationRefund, UpgradeQuote } from './fareRulesService';
+import { getWebSocketServer } from '../websockets/server';
 
 export interface StructuredName {
     title?: string;
@@ -243,6 +244,14 @@ export class BookingOrchestrationService {
                     }
                     await this.bookingRepo.save(booking);
                     logger.info('Booking confirmed on-chain', { bookingId, txHash });
+                    
+                    // Broadcast booking status update via WebSocket
+                    try {
+                        const wsServer = getWebSocketServer();
+                        wsServer.broadcastBookingStatus(bookingId, 'confirmed');
+                    } catch (wsError) {
+                        logger.warn('Failed to broadcast booking status via WebSocket', { bookingId, error: wsError });
+                    }
                 } else if (status.status === 'failed') {
                     booking.status = 'failed';
                     booking.lastError = status.error || 'Transaction failed';
@@ -250,6 +259,14 @@ export class BookingOrchestrationService {
 
                     await this.flightRepo.increment({ id: booking.flight.id }, 'seatsAvailable', 1);
                     logger.error('Booking failed on-chain', { bookingId, txHash, error: status.error });
+                    
+                    // Broadcast booking status update via WebSocket
+                    try {
+                        const wsServer = getWebSocketServer();
+                        wsServer.broadcastBookingStatus(bookingId, 'failed');
+                    } catch (wsError) {
+                        logger.warn('Failed to broadcast booking status via WebSocket', { bookingId, error: wsError });
+                    }
                 } else if (status.status === 'pending') {
                     throw new Error('Transaction still pending');
                 } else if (status.status === 'not_found') {
@@ -267,6 +284,14 @@ export class BookingOrchestrationService {
                 booking.status = 'failed';
                 booking.lastError = 'Transaction status polling timed out';
                 await this.bookingRepo.save(booking);
+                
+                // Broadcast booking status update via WebSocket
+                try {
+                    const wsServer = getWebSocketServer();
+                    wsServer.broadcastBookingStatus(bookingId, 'failed');
+                } catch (wsError) {
+                    logger.warn('Failed to broadcast booking status via WebSocket', { bookingId, error: wsError });
+                }
             }
         }
     }
@@ -652,7 +677,7 @@ export class BookingOrchestrationService {
         const docRepo = AppDataSource.getRepository(TravelDocument);
         const documents = await docRepo.find({ where: { documentType } });
 
-        const matchingDoc = documents.find(doc => {
+        const matchingDoc = documents.find((doc: any) => {
             try {
                 return doc.documentNumber.replace(/\s/g, '').toUpperCase() === documentNumber.replace(/\s/g, '').toUpperCase();
             } catch {
@@ -678,7 +703,7 @@ export class BookingOrchestrationService {
         const totalParts = Math.max(passengerParts.length, docParts.length);
 
         for (const pp of passengerParts) {
-            if (docParts.some(dp => dp === pp || dp.startsWith(pp) || pp.startsWith(dp))) {
+            if (docParts.some((dp: any) => dp === pp || dp.startsWith(pp) || pp.startsWith(dp))) {
                 matchedParts++;
             }
         }
