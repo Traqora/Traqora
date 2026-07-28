@@ -60,6 +60,7 @@ const readConfigFromEnv = () => {
 
     databaseUrl: process.env.DATABASE_URL || 'sqlite::memory:',
     redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
+    redisClusterNodes: process.env.REDIS_CLUSTER_NODES || undefined,
     mongoUrl: process.env.MONGO_URI,
 
     jwtSecret: getSafeEnvString('JWT_SECRET', 32, 'your-secret-key-change-in-production-at-least-32-chars'),
@@ -80,6 +81,10 @@ const readConfigFromEnv = () => {
     otlpTraceUrl: process.env.OTLP_TRACE_URL || otlpEndpoint || 'http://localhost:4318/v1/traces',
     otlpTraceHeaders: process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS || process.env.OTEL_EXPORTER_OTLP_HEADERS,
     tracingSampleRate: parseNumber(process.env.OTEL_TRACES_SAMPLER_ARG || process.env.TRACING_SAMPLE_RATE, 1),
+
+    sentryDsn: process.env.SENTRY_DSN,
+    sentryTracesSampleRate: parseNumber(process.env.SENTRY_TRACES_SAMPLE_RATE, 0.1),
+    sentryProfilesSampleRate: parseNumber(process.env.SENTRY_PROFILES_SAMPLE_RATE, 0.1),
 
     rateLimitMax: parseInteger(process.env.RATE_LIMIT_MAX, 1000),
     rateLimitWindowSec: parseInteger(process.env.RATE_LIMIT_WINDOW_SEC, 60),
@@ -190,6 +195,7 @@ export const loadConfig = async (): Promise<Config> => {
 
     databaseUrl: await secretManager.getSecret('DATABASE_URL', 'sqlite::memory:'),
     redisUrl: await secretManager.getSecret('REDIS_URL', 'redis://localhost:6379'),
+    redisClusterNodes: (await secretManager.getSecret('REDIS_CLUSTER_NODES', '')) || undefined,
     mongoUrl: (await secretManager.getSecret('MONGO_URI', '')) || undefined,
 
     jwtSecret,
@@ -210,6 +216,10 @@ export const loadConfig = async (): Promise<Config> => {
     otlpTraceUrl: await secretManager.getSecret('OTLP_TRACE_URL', 'http://localhost:4318/v1/traces'),
     otlpTraceHeaders: await secretManager.getSecret('OTEL_EXPORTER_OTLP_TRACES_HEADERS', ''),
     tracingSampleRate: parseNumber(await secretManager.getSecret('TRACING_SAMPLE_RATE', '1'), 1),
+
+    sentryDsn: await secretManager.getSecret('SENTRY_DSN', ''),
+    sentryTracesSampleRate: parseNumber(await secretManager.getSecret('SENTRY_TRACES_SAMPLE_RATE', '0.1'), 0.1),
+    sentryProfilesSampleRate: parseNumber(await secretManager.getSecret('SENTRY_PROFILES_SAMPLE_RATE', '0.1'), 0.1),
 
     rateLimitMax: parseInteger(await secretManager.getSecret('RATE_LIMIT_MAX', '1000'), 1000),
     rateLimitWindowSec: parseInteger(await secretManager.getSecret('RATE_LIMIT_WINDOW_SEC', '60'), 60),

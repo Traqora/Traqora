@@ -26,14 +26,19 @@ import serviceRoutes from './api/routes/services';
 import contractEventRoutes from './api/routes/contract-events';
 import transactionRoutes from './api/routes/transactions';
 import checkinRoutes from './api/routes/checkin';
+import journeyRoutes from './api/routes/journeys';
 import { documentRoutes } from './api/routes/documents';
 import { alertRoutes } from './api/routes/alerts';
 import { reviewRoutes } from './api/routes/reviews';
 import { userRoutes } from './api/routes/users';
 import { carbonRoutes } from './api/routes/carbon';
+import { trackingRoutes } from './api/routes/tracking';
+import { feedbackRoutes } from './api/routes/feedback';
 import { createCurrencyRoutes } from './api/routes/currencies';
 import { referralRoutes } from './api/routes/referrals';
 import { recommendationRoutes } from './api/routes/recommendations';
+import { flightStatusRoutes } from './api/routes/flightStatus';
+import { analyticsRoutes } from './api/routes/analytics';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
@@ -187,6 +192,8 @@ export const createApp = async (options: AppOptions = {}) => {
 
   app.use('/api/v1/alerts', requireAuth, alertRoutes);
   app.use('/api/v1/reviews', reviewRoutes);
+  app.use('/api/v1/flight-status', flightStatusRoutes);
+  app.use('/api/v1/analytics', analyticsRoutes);
 
 
   app.use('/api/v1/auth', validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
@@ -218,7 +225,10 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/contract-events', contractEventRoutes);
   app.use('/api/v1/transactions', transactionRoutes);
   app.use('/api/v1/checkin', requireAuth, checkinRoutes);
+  app.use('/api/v1/journeys', journeyRoutes);
   app.use('/api/v1/carbon', carbonRoutes);
+  app.use('/api/v1/tracking', requireAuth, trackingRoutes);
+  app.use('/api/v1/feedback', feedbackRoutes);
   app.use('/api/v1/currencies', createCurrencyRoutes());
 
   app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {

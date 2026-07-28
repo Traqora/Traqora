@@ -29,6 +29,13 @@ import { AccountDeletionRequest } from "./entities/AccountDeletionRequest";
 import { Dispute } from "./entities/Dispute";
 import { DisputeEvidence } from "./entities/DisputeEvidence";
 import { RecommendationEvent } from "./entities/RecommendationEvent";
+import { Review } from "./entities/Review";
+import { Feedback } from "./entities/Feedback";
+import { FeedbackVote } from "./entities/FeedbackVote";
+import { CarbonOffset } from "./entities/CarbonOffset";
+import { OffsetProject } from "./entities/OffsetProject";
+import { TrackedFlight } from "./entities/TrackedFlight";
+import { PriceObservation } from "./entities/PriceObservation";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -67,6 +74,13 @@ export const AppDataSource = new DataSource(
         Dispute,
         DisputeEvidence,
         RecommendationEvent,
+        Review,
+        Feedback,
+        FeedbackVote,
+        CarbonOffset,
+        OffsetProject,
+        TrackedFlight,
+        PriceObservation,
       ],
       logging: false,
     }
@@ -103,6 +117,13 @@ export const AppDataSource = new DataSource(
         Dispute,
         DisputeEvidence,
         RecommendationEvent,
+        Review,
+        Feedback,
+        FeedbackVote,
+        CarbonOffset,
+        OffsetProject,
+        TrackedFlight,
+        PriceObservation,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:

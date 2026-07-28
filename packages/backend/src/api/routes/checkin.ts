@@ -90,4 +90,12 @@ router.get(
   }),
 );
 
+router.get(
+  '/:bookingId/google-wallet-pass',
+  asyncHandler(async (req: Request, res: Response) => {
+    const pass = await checkInService.generateGoogleWalletPass(req.params.bookingId);
+    return res.json({ success: true, data: pass });
+  }),
+);
+
 export default router;

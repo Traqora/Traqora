@@ -15,6 +15,7 @@ export interface CachedBooking {
   totalPrice: number;
   bookingDate: string;
   status: "pending" | "confirmed" | "cancelled";
+  currency?: string;
 }
 
 export interface CachedItinerary {

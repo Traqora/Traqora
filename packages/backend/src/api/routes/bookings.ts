@@ -23,10 +23,20 @@ import { baggageService, RESTRICTION_NOTES } from "../../services/baggageService
 
 const router = Router();
 
+// IATA name format: letters, spaces, hyphens, and apostrophes only
+const iatanameRegex = /^[A-Za-z\s'\-]+$/;
+const nameField = (label: string) =>
+  z
+    .string()
+    .min(1, `${label} is required`)
+    .max(100, `${label} must be 100 characters or fewer`)
+    .trim()
+    .regex(iatanameRegex, `${label} may only contain letters, spaces, hyphens, and apostrophes`);
+
 const passengerSchema = z.object({
   email: z.string().email(),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
+  firstName: nameField("First name"),
+  lastName: nameField("Last name"),
   middleName: z.string().optional(),
   title: z.string().optional(),
   suffix: z.string().optional(),
@@ -38,8 +48,8 @@ const passengerSchema = z.object({
 
 const passengerUpdateSchema = z.object({
   email: z.string().email().optional(),
-  firstName: z.string().min(1).optional(),
-  lastName: z.string().min(1).optional(),
+  firstName: nameField("First name").optional(),
+  lastName: nameField("Last name").optional(),
   middleName: z.string().optional(),
   title: z.string().optional(),
   suffix: z.string().optional(),
@@ -52,9 +62,9 @@ const passengerUpdateSchema = z.object({
 const nameCorrectionSchema = z.object({
   correctedName: z.object({
     title: z.string().optional(),
-    firstName: z.string().min(1),
+    firstName: nameField("First name"),
     middleName: z.string().optional(),
-    lastName: z.string().min(1),
+    lastName: nameField("Last name"),
     suffix: z.string().optional(),
   }),
   reason: z.string().min(10),
