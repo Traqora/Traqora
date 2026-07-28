@@ -6,6 +6,8 @@ declare global {
             user?: {
                 walletAddress: string;
                 walletType: string;
+                id?: string;
+                userId?: string;
             };
             admin?: {
                 adminId: string;

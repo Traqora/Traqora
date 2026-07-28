@@ -787,6 +787,87 @@ export const apiClient = {
     }
   },
 
+  getGoogleWalletPass: async (bookingId: string): Promise<ApiResult<Record<string, unknown>>> => {
+    try {
+      const body = await authedFetch(`/api/v1/checkin/${bookingId}/google-wallet-pass`)
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getJourneys: async (): Promise<ApiResult<any[]>> => {
+    try {
+      const body = await authedFetch('/api/v1/journeys')
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getJourney: async (id: string): Promise<ApiResult<any>> => {
+    try {
+      const body = await authedFetch(`/api/v1/journeys/${id}`)
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  createJourney: async (journeyData: any): Promise<ApiResult<any>> => {
+    try {
+      const body = await authedFetch('/api/v1/journeys', {
+        method: 'POST',
+        body: JSON.stringify(journeyData),
+      })
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  updateJourney: async (id: string, journeyData: any): Promise<ApiResult<any>> => {
+    try {
+      const body = await authedFetch(`/api/v1/journeys/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(journeyData),
+      })
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  deleteJourney: async (id: string): Promise<ApiResult<null>> => {
+    try {
+      await authedFetch(`/api/v1/journeys/${id}`, { method: 'DELETE' })
+      return { success: true, data: null }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  optimizeJourney: async (stops: any[]): Promise<ApiResult<any>> => {
+    try {
+      const body = await authedFetch('/api/v1/journeys/optimize', {
+        method: 'POST',
+        body: JSON.stringify({ stops }),
+      })
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getJourneyTemplates: async (): Promise<ApiResult<any[]>> => {
+    try {
+      const body = await authedFetch('/api/v1/journeys/templates')
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
   createDispute: async (payload: {
     refundId: string
     disputeType: "refund_denied" | "refund_amount" | "processing_delay" | "service_quality" | "other"

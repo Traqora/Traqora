@@ -77,7 +77,7 @@ function LoyaltyPageSkeleton() {
           </div>
           <div className="h-64 bg-muted rounded" />
         </div>
-      </main>
+      </div>
     </div>
   );
 }
@@ -298,6 +298,7 @@ export default function LoyaltyPage() {
           </div>
         </div>
       </div>
-    </div>
-  );
+    </main>
+  </div>
+);
 }

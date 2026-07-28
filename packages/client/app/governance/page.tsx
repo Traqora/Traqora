@@ -233,7 +233,8 @@ export default function GovernancePage() {
             </Card>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </main>
+  </div>
   )
 }

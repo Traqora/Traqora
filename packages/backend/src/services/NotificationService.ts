@@ -170,8 +170,9 @@ export class NotificationService {
       await scheduleNotification(
         {
           userId,
-          type: "price_alert",
+          type: "reminder",
           data: {
+            message,
             flightId,
             currentPrice,
             targetPrice,
