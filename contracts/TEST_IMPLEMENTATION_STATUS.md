@@ -69,36 +69,38 @@
 
 ### 📊 Test Coverage Summary
 
-#### Current Test Files (23 files total)
+#### Current Test Files (26 files total)
 1. `access_test.rs` - Authorization tests
 2. `admin_multisig_test.rs` - Admin multisig (149 tests, PR #81)
 3. `airline_test.rs` - Airline operations
 4. `booking_errors_test.rs` - Error handling
-5. `booking_test.rs` - Booking operations
-6. `common.rs` - Shared utilities
-7. `dispute_resolution_test.rs` - Basic dispute tests
-8. **`dispute_resolution_advanced_test.rs`** - ✨ NEW advanced tests
-9. `dispute_test.rs` - Dispute contract tests
-10. `event_assertions_test.rs` - Event validation
-11. `flight_booking_test.rs` - Flight booking
-12. `flight_registry_test.rs` - Flight registry
-13. `fuzz_property_test.rs` - Property tests (existing)
-14. `governance_test.rs` - Governance tests
-15. `integration_test.rs` - Basic integration tests
-16. `loyalty_test.rs` - Loyalty points
-17. `oracle_test.rs` - Oracle integration
-18. `proxy_access_test.rs` - Proxy access
-19. `proxy_test.rs` - Proxy behavior
-20. `refund_automation_integration_test.rs` - Refund automation
-21. `refund_test.rs` - Refund operations
-22. `storage_version_test.rs` - Versioning
-23. `token_test.rs` - Token operations
-24. **`comprehensive_integration_test.rs`** - ✨ NEW comprehensive tests
-25. **`advanced_property_tests.rs`** - ✨ NEW property tests
+5. **`booking_receipt_test.rs`** - ✨ Booking receipt soulbound token tests
+6. `booking_test.rs` - Booking operations
+7. `common.rs` - Shared utilities
+8. `dispute_resolution_test.rs` - Basic dispute tests
+9. **`dispute_resolution_advanced_test.rs`** - ✨ Advanced dispute tests
+10. `dispute_test.rs` - Dispute contract tests
+11. `event_assertions_test.rs` - Event validation
+12. `flight_booking_test.rs` - Flight booking
+13. `flight_registry_test.rs` - Flight registry
+14. `fuzz_property_test.rs` - Property tests (existing)
+15. `governance_test.rs` - Governance tests
+16. `integration_test.rs` - Basic integration tests
+17. `loyalty_test.rs` - Loyalty points
+18. `oracle_test.rs` - Oracle integration
+19. `proxy_access_test.rs` - Proxy access
+20. `proxy_test.rs` - Proxy behavior
+21. `refund_automation_integration_test.rs` - Refund automation
+22. `refund_test.rs` - Refund operations
+23. `storage_version_test.rs` - Versioning
+24. `token_test.rs` - Token operations
+25. **`comprehensive_integration_test.rs`** - ✨ Comprehensive integration tests
+26. **`advanced_property_tests.rs`** - ✨ Property-based tests
 
 #### Coverage Targets by Module
 - Token (TRQ): 95%+ ⭐ Critical
 - Booking: 90%+ ⭐ Critical
+- Booking Receipt: 90%+ ⭐ Critical
 - Refund: 90%+ ⭐ Critical
 - Refund Automation: 90%+ ⭐ Critical
 - Admin/Multisig: 93%+ ⭐ Critical
