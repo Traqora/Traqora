@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+access = { workspace = true }
 airline = { workspace = true }
 booking = { workspace = true }
 booking-receipt = { workspace = true }

@@ -44,6 +44,10 @@ export const configSchema = z.object({
   otlpTraceHeaders: z.string().optional(),
   tracingSampleRate: z.number().min(0).max(1).default(1),
 
+  sentryDsn: z.string().optional(),
+  sentryTracesSampleRate: z.number().min(0).max(1).default(0.1),
+  sentryProfilesSampleRate: z.number().min(0).max(1).default(0.1),
+
   rateLimitMax: z.number().int().positive().default(1000),
   rateLimitWindowSec: z.number().int().positive().default(60),
   rateLimitPublicMax: z.number().int().positive().default(100),

@@ -12,6 +12,15 @@ export interface ContractEvent {
   timestamp: Date;
 }
 
+export interface FlightAlertEvent {
+  message: string;
+  flightId: string;
+  status?: string;
+  gate?: string;
+  delayMinutes?: number;
+  timestamp?: Date;
+}
+
 interface UseSocketEventsOptions {
   /** Filter contract events to only those matching this wallet address. */
   walletAddress?: string;
@@ -20,11 +29,13 @@ interface UseSocketEventsOptions {
   onContractEvent?: (event: ContractEvent) => void;
   onPriceUpdate?: (data: { flightId: string; price: number; timestamp: Date }) => void;
   onBookingStatus?: (data: { bookingId: string; status: string; timestamp: Date }) => void;
+  /** Flight status changes: delays, cancellations, gate changes (#380). */
+  onFlightAlert?: (data: FlightAlertEvent) => void;
 }
 
 export function useSocketEvents(options: UseSocketEventsOptions = {}) {
   const { manager } = useSocket();
-  const { walletAddress, eventTypes, onContractEvent, onPriceUpdate, onBookingStatus } = options;
+  const { walletAddress, eventTypes, onContractEvent, onPriceUpdate, onBookingStatus, onFlightAlert } = options;
 
   const handleContractEvent = useCallback(
     (event: ContractEvent) => {
@@ -48,10 +59,15 @@ export function useSocketEvents(options: UseSocketEventsOptions = {}) {
       console.debug('contract_event', d);
       handleContractEvent(d);
     };
+    const onAlert = (d: any) => {
+      console.debug('alert', d);
+      onFlightAlert?.(d);
+    };
 
     manager.on('priceUpdate', onPrice);
     manager.on('booking_status', onBooking);
     manager.on('contract_event', onContract);
+    manager.on('alert', onAlert);
 
     // Subscribe to address-specific room for targeted contract event delivery.
     if (walletAddress) {
@@ -62,10 +78,11 @@ export function useSocketEvents(options: UseSocketEventsOptions = {}) {
       manager.off('priceUpdate', onPrice);
       manager.off('booking_status', onBooking);
       manager.off('contract_event', onContract);
+      manager.off('alert', onAlert);
 
       if (walletAddress) {
         manager.emit('unsubscribe_address', walletAddress);
       }
     };
-  }, [manager, walletAddress, handleContractEvent, onPriceUpdate, onBookingStatus]);
+  }, [manager, walletAddress, handleContractEvent, onPriceUpdate, onBookingStatus, onFlightAlert]);
 }

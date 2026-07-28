@@ -32,6 +32,8 @@ import { useTransactionHistory } from "@/hooks/use-transaction-history"
 // NEW: offline access to cached bookings when the network is unavailable
 import { useOffline } from "@/components/offline-provider"
 import { OfflineItineraryView } from "@/components/offline-itinerary-view"
+// NEW: real-time flight status alerts (delays, cancellations, gate changes)
+import { FlightStatusBanner } from "@/components/flight-status/FlightStatusBanner"
 
 // Mock user data
 const mockUser = {
@@ -296,6 +298,10 @@ export default function DashboardPage() {
           <div className="mb-8">
             <h1 className="font-serif font-bold text-3xl text-foreground mb-2">My Dashboard</h1>
             <p className="text-muted-foreground">Manage your bookings, track refunds, and view your travel history</p>
+          </div>
+
+          <div className="mb-8">
+            <FlightStatusBanner />
           </div>
 
         {/* Stats Overview */}

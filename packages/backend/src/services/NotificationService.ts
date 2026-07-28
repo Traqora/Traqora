@@ -190,6 +190,74 @@ export class NotificationService {
   }
 
   /**
+   * Send a flight status change notification (delay, cancellation, gate
+   * change, etc.) — mirrors sendPriceAlert's shape and priority.
+   * @param userId - User ID to send notification to
+   * @param flightId - Flight ID
+   * @param status - New status (e.g. "delayed", "cancelled", "gate_changed")
+   * @param details - Optional extra context (gate, delay minutes, reason)
+   * @returns Promise<boolean> - True if sent successfully
+   */
+  public async sendFlightStatusAlert(
+    userId: string,
+    flightId: string,
+    status: string,
+    details?: { gate?: string; delayMinutes?: number; reason?: string },
+  ): Promise<boolean> {
+    try {
+      const message = this.buildFlightStatusMessage(flightId, status, details);
+      logger.info(`[Flight Status Alert] User: ${userId}, Flight: ${flightId}, Status: ${status}`);
+
+      await scheduleNotification(
+        {
+          userId,
+          type: "flight_status",
+          data: {
+            flightId,
+            status,
+            ...details,
+            message,
+          },
+        },
+        0,
+        1, // High priority — status changes are time-sensitive
+      );
+
+      return true;
+    } catch (error) {
+      logger.error("Failed to send flight status alert", error);
+      return false;
+    }
+  }
+
+  private buildFlightStatusMessage(
+    flightId: string,
+    status: string,
+    details?: { gate?: string; delayMinutes?: number; reason?: string },
+  ): string {
+    switch (status) {
+      case "delayed":
+        return details?.delayMinutes
+          ? `Flight ${flightId} is delayed by ${details.delayMinutes} minutes.`
+          : `Flight ${flightId} is delayed.`;
+      case "cancelled":
+        return details?.reason
+          ? `Flight ${flightId} has been cancelled: ${details.reason}`
+          : `Flight ${flightId} has been cancelled.`;
+      case "gate_changed":
+        return details?.gate
+          ? `Flight ${flightId}'s gate has changed to ${details.gate}.`
+          : `Flight ${flightId}'s gate has changed.`;
+      case "boarding":
+        return `Flight ${flightId} is now boarding.`;
+      case "departed":
+        return `Flight ${flightId} has departed.`;
+      default:
+        return `Flight ${flightId} status updated: ${status}.`;
+    }
+  }
+
+  /**
    * Send a test notification to verify notification delivery
    * @param userId - User ID to send test notification to
    * @returns Promise<boolean> - True if sent successfully

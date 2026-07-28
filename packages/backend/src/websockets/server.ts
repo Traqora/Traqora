@@ -10,7 +10,7 @@ import { chatBotService, ChatMessage } from '../services/chatBotService';
 // Interface for typed events
 interface ServerToClientEvents {
   priceUpdate: (data: { flightId: string; price: number; timestamp: Date }) => void;
-  alert: (data: { message: string; flightId: string }) => void;
+  alert: (data: FlightAlertPayload) => void;
   booking_status: (data: { bookingId: string; status: string; timestamp: Date }) => void;
   flight_status: (data: FlightStatusPayload) => void;
   contract_event: (data: ContractEventPayload) => void;
@@ -25,6 +25,15 @@ export interface FlightStatusPayload {
   /** Present for DELAYED (new departure time) and GATE_CHANGED (new gate) updates. */
   detail?: string;
   timestamp: Date;
+}
+
+export interface FlightAlertPayload {
+  message: string;
+  flightId: string;
+  status?: string;
+  gate?: string;
+  delayMinutes?: number;
+  timestamp?: Date;
 }
 
 interface ClientToServerEvents {
@@ -229,6 +238,25 @@ export class WebSocketServer {
       status,
       detail,
       timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Broadcast a flight status change (delay, cancellation, gate change) to
+   * everyone subscribed to that flight's room. Uses the `alert` event that
+   * was already declared on ServerToClientEvents but had no emitter (#380).
+   * Distinct from `broadcastFlightStatus` above (issue #381, merged in
+   * parallel): different event name (`alert` vs `flight_status`) and a
+   * richer payload (a pre-built message string) — flightStatus.ts and the
+   * FlightStatusBanner/useFlightStatusAlerts client code this PR adds
+   * depend on this one specifically.
+   */
+  public broadcastFlightAlert(payload: FlightAlertPayload) {
+    const room = `flight:${payload.flightId}`;
+    logger.info(`Broadcasting flight alert to ${room}: ${payload.message}`);
+    this.io.to(room).emit('alert', {
+      ...payload,
+      timestamp: payload.timestamp ?? new Date(),
     });
   }
 

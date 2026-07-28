@@ -34,6 +34,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       addToast({ title: 'Booking update', description: `Booking ${data.bookingId} is ${data.status}` })
     })
 
+    manager.onFlightAlert((data) => {
+      addToast({ title: 'Flight status update', description: data.message })
+    })
+
     return () => {
       manager.off('connect', onConnect)
       manager.off('disconnect', onDisconnect)
