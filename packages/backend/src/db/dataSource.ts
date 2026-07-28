@@ -28,6 +28,7 @@ import { UserProfile } from "./entities/UserProfile";
 import { AccountDeletionRequest } from "./entities/AccountDeletionRequest";
 import { Dispute } from "./entities/Dispute";
 import { DisputeEvidence } from "./entities/DisputeEvidence";
+import { RecommendationEvent } from "./entities/RecommendationEvent";
 import { Review } from "./entities/Review";
 import { Feedback } from "./entities/Feedback";
 import { FeedbackVote } from "./entities/FeedbackVote";
@@ -72,6 +73,7 @@ export const AppDataSource = new DataSource(
         AccountDeletionRequest,
         Dispute,
         DisputeEvidence,
+        RecommendationEvent,
         Review,
         Feedback,
         FeedbackVote,
@@ -114,6 +116,7 @@ export const AppDataSource = new DataSource(
         AccountDeletionRequest,
         Dispute,
         DisputeEvidence,
+        RecommendationEvent,
         Review,
         Feedback,
         FeedbackVote,

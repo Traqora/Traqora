@@ -71,7 +71,7 @@ export default function GovernancePage() {
         </nav>
       </header>
 
-      <main id="main-content" tabIndex={-1} className="outline-none">
+      <div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Link
             href="/dashboard"
@@ -234,7 +234,12 @@ export default function GovernancePage() {
           </div>
         </div>
       </div>
-    </main>
-  </div>
+      </div>
+
+      {/* Footer — landmark: contentinfo */}
+      <footer role="contentinfo" className="sr-only">
+        <p>© {new Date().getFullYear()} Traqora. Decentralized flight booking powered by Stellar.</p>
+      </footer>
+    </div>
   )
 }

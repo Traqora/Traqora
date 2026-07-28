@@ -291,9 +291,6 @@ jobs:
     name: Accessibility Audit
     runs-on: ubuntu-latest
     needs: [test-client]
-    defaults:
-      run:
-        working-directory: packages/client
     steps:
       - uses: actions/checkout@v4
 
@@ -302,22 +299,20 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-          cache-dependency-path: packages/client/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts
-
-      - name: Install Playwright + axe-core
-        run: npm install --no-save --legacy-peer-deps @playwright/test @axe-core/playwright
+        run: npm install --legacy-peer-deps
 
       - name: Install Playwright browsers
+        working-directory: packages/client
         run: npx playwright install --with-deps chromium
 
       - name: Run axe a11y suite
+        working-directory: packages/client
         env:
           NEXT_TELEMETRY_DISABLED: '1'
         run: npx playwright test tests/a11y --reporter=list
-        continue-on-error: true
 
   # ============================================================================
   # STAGE 5: Build & Artifacts (runs after security checks)

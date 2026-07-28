@@ -275,8 +275,9 @@ export function EvidenceUpload({
                     variant="ghost"
                     size="icon"
                     onClick={() => removeFile(file.id)}
+                    aria-label={`Remove ${file.name}`}
                   >
-                    <X className="h-4 w-4" />
+                    <X className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </div>
               </div>
