@@ -1,5 +1,6 @@
-import Redis from 'ioredis';
+import Redis, { Cluster } from 'ioredis';
 import { recordCacheOperation } from '../services/metrics';
+import { RedisClusterNode } from './redisClusterConfig';
 
 export interface SearchCache {
   get<T>(key: string): Promise<T | null>;
@@ -62,17 +63,24 @@ export class InMemorySearchCache implements SearchCache {
 export class RedisSearchCache implements SearchCache {
   private readonly memoryFallback: InMemorySearchCache;
   private readonly redisUrl: string;
+  private readonly clusterNodes: RedisClusterNode[];
   private readonly cacheName: string;
-  private redisClient: Redis | null = null;
+  private redisClient: Redis | Cluster | null = null;
   private redisDisabled = false;
 
-  constructor(redisUrl: string, cacheName = 'search-redis') {
+  /**
+   * When clusterNodes is non-empty, connects via ioredis Cluster mode
+   * instead of the single-node redisUrl (issue #335). Existing single-node
+   * behavior is unchanged when clusterNodes is omitted/empty.
+   */
+  constructor(redisUrl: string, cacheName = 'search-redis', clusterNodes: RedisClusterNode[] = []) {
     this.redisUrl = redisUrl;
+    this.clusterNodes = clusterNodes;
     this.cacheName = cacheName;
     this.memoryFallback = new InMemorySearchCache(`${cacheName}-fallback`);
   }
 
-  private async getRedisClient(): Promise<Redis | null> {
+  private async getRedisClient(): Promise<Redis | Cluster | null> {
     if (this.redisDisabled) {
       return null;
     }
@@ -82,11 +90,17 @@ export class RedisSearchCache implements SearchCache {
     }
 
     try {
-      const client = new Redis(this.redisUrl, {
-        lazyConnect: true,
-        maxRetriesPerRequest: 1,
-        enableReadyCheck: true,
-      });
+      const client: Redis | Cluster = this.clusterNodes.length > 0
+        ? new Redis.Cluster(this.clusterNodes, {
+          lazyConnect: true,
+          enableReadyCheck: true,
+          redisOptions: { maxRetriesPerRequest: 1 },
+        })
+        : new Redis(this.redisUrl, {
+          lazyConnect: true,
+          maxRetriesPerRequest: 1,
+          enableReadyCheck: true,
+        });
       await client.connect();
       this.redisClient = client;
       return client;
@@ -178,7 +192,7 @@ export class RedisSearchCache implements SearchCache {
   }
 
   /** Exposes the underlying client so callers can share it with withDistributedLock. */
-  async getClient(): Promise<Redis | null> {
+  async getClient(): Promise<Redis | Cluster | null> {
     return this.getRedisClient();
   }
 }
@@ -191,7 +205,7 @@ export class RedisSearchCache implements SearchCache {
  * consistent with this module's existing single-node-outage tolerance.
  */
 export async function withDistributedLock<T>(
-  redis: Redis | null,
+  redis: Redis | Cluster | null,
   lockKey: string,
   ttlSeconds: number,
   fn: () => Promise<T>,
@@ -227,10 +241,14 @@ const getDurationSeconds = (start: bigint): number => {
   return Number(process.hrtime.bigint() - start) / 1_000_000_000;
 };
 
-export const createSearchCache = (redisUrl?: string, cacheName = 'search'): SearchCache => {
-  if (!redisUrl) {
+export const createSearchCache = (
+  redisUrl?: string,
+  cacheName = 'search',
+  clusterNodes: RedisClusterNode[] = [],
+): SearchCache => {
+  if (!redisUrl && clusterNodes.length === 0) {
     return new InMemorySearchCache(`${cacheName}-memory`);
   }
 
-  return new RedisSearchCache(redisUrl, `${cacheName}-redis`);
+  return new RedisSearchCache(redisUrl || '', `${cacheName}-redis`, clusterNodes);
 };

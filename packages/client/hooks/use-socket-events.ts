@@ -21,6 +21,16 @@ export interface FlightAlertEvent {
   timestamp?: Date;
 }
 
+export type FlightStatusValue = 'SCHEDULED' | 'DELAYED' | 'GATE_CHANGED' | 'BOARDING' | 'CANCELLED' | 'LANDED';
+
+/** Typed flight status change (issue #333) — mirrors the server's FlightStatusPayload emitted on the "flight_status" event. */
+export interface FlightStatusEvent {
+  flightId: string;
+  status: FlightStatusValue;
+  detail?: string;
+  timestamp?: Date;
+}
+
 interface UseSocketEventsOptions {
   /** Filter contract events to only those matching this wallet address. */
   walletAddress?: string;
@@ -31,11 +41,13 @@ interface UseSocketEventsOptions {
   onBookingStatus?: (data: { bookingId: string; status: string; timestamp: Date }) => void;
   /** Flight status changes: delays, cancellations, gate changes (#380). */
   onFlightAlert?: (data: FlightAlertEvent) => void;
+  /** Typed flight status transitions (issue #333) — distinct from onFlightAlert's free-text message. */
+  onFlightStatus?: (data: FlightStatusEvent) => void;
 }
 
 export function useSocketEvents(options: UseSocketEventsOptions = {}) {
   const { manager } = useSocket();
-  const { walletAddress, eventTypes, onContractEvent, onPriceUpdate, onBookingStatus, onFlightAlert } = options;
+  const { walletAddress, eventTypes, onContractEvent, onPriceUpdate, onBookingStatus, onFlightAlert, onFlightStatus } = options;
 
   const handleContractEvent = useCallback(
     (event: ContractEvent) => {
@@ -63,11 +75,16 @@ export function useSocketEvents(options: UseSocketEventsOptions = {}) {
       console.debug('alert', d);
       onFlightAlert?.(d);
     };
+    const onFlightStatusChange = (d: any) => {
+      console.debug('flight_status', d);
+      onFlightStatus?.(d);
+    };
 
     manager.on('priceUpdate', onPrice);
     manager.on('booking_status', onBooking);
     manager.on('contract_event', onContract);
     manager.on('alert', onAlert);
+    manager.on('flight_status', onFlightStatusChange);
 
     // Subscribe to address-specific room for targeted contract event delivery.
     if (walletAddress) {
@@ -79,10 +96,11 @@ export function useSocketEvents(options: UseSocketEventsOptions = {}) {
       manager.off('booking_status', onBooking);
       manager.off('contract_event', onContract);
       manager.off('alert', onAlert);
+      manager.off('flight_status', onFlightStatusChange);
 
       if (walletAddress) {
         manager.emit('unsubscribe_address', walletAddress);
       }
     };
-  }, [manager, walletAddress, handleContractEvent, onPriceUpdate, onBookingStatus, onFlightAlert]);
+  }, [manager, walletAddress, handleContractEvent, onPriceUpdate, onBookingStatus, onFlightAlert, onFlightStatus]);
 }

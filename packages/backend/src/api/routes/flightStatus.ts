@@ -6,8 +6,7 @@ import { BadRequestError, NotFoundError } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 import FlightStatusAlert from '../../models/FlightStatusAlert';
 import { FlightStatusService, FlightStatusUpdate } from '../../services/FlightStatusService';
-import { NotificationService } from '../../services/NotificationService';
-import { getWebSocketServer } from '../../websockets/server';
+import { notifyFlightStatusChange } from '../../services/flightStatusNotifier';
 
 const router = Router();
 
@@ -177,36 +176,7 @@ router.post(
       return res.json({ success: true, data: { flightId, status, notified: 0, changed: false } });
     }
 
-    const subscribers = await FlightStatusAlert.find({ flightId, isActive: true }).exec();
-    const notifier = NotificationService.getInstance();
-    let notifiedCount = 0;
-
-    for (const subscription of subscribers) {
-      const sent = await notifier.sendFlightStatusAlert(subscription.userId, flightId, status, {
-        gate,
-        delayMinutes,
-        reason,
-      });
-      if (sent) {
-        subscription.lastNotifiedAt = new Date();
-        subscription.lastStatus = status;
-        await subscription.save();
-        notifiedCount += 1;
-      }
-    }
-
-    try {
-      const ws = getWebSocketServer();
-      ws.broadcastFlightAlert({
-        flightId,
-        status,
-        gate,
-        delayMinutes,
-        message: buildAlertMessage(flightId, status, { gate, delayMinutes, reason }),
-      });
-    } catch (e) {
-      logger.warn('WebSocket server not ready, skipping flight status broadcast');
-    }
+    const { notifiedCount } = await notifyFlightStatusChange(update);
 
     logger.info(`Flight status change: ${flightId} ${previous?.status ?? 'unknown'} -> ${status}`, {
       notifiedCount,
@@ -219,31 +189,24 @@ router.post(
   }),
 );
 
-function buildAlertMessage(
-  flightId: string,
-  status: string,
-  details: { gate?: string; delayMinutes?: number; reason?: string },
-): string {
-  switch (status) {
-    case 'delayed':
-      return details.delayMinutes
-        ? `Flight ${flightId} is delayed by ${details.delayMinutes} minutes.`
-        : `Flight ${flightId} is delayed.`;
-    case 'cancelled':
-      return details.reason
-        ? `Flight ${flightId} has been cancelled: ${details.reason}`
-        : `Flight ${flightId} has been cancelled.`;
-    case 'gate_changed':
-      return details.gate
-        ? `Flight ${flightId}'s gate has changed to ${details.gate}.`
-        : `Flight ${flightId}'s gate has changed.`;
-    case 'boarding':
-      return `Flight ${flightId} is now boarding.`;
-    case 'departed':
-      return `Flight ${flightId} has departed.`;
-    default:
-      return `Flight ${flightId} status updated: ${status}.`;
-  }
-}
+/**
+ * GET /api/v1/flight-status/:flightId/performance
+ * Historical on-time performance for a flight (issue #332), derived from
+ * recorded status transitions this process has observed.
+ */
+router.get(
+  '/:flightId/performance',
+  asyncHandler(async (req: Request, res: Response) => {
+    const flightId = req.params.flightId;
+    if (!flightId) {
+      throw new BadRequestError('flightId is required');
+    }
+
+    const statusService = FlightStatusService.getInstance();
+    const performance = statusService.getOnTimePerformance(flightId);
+
+    return res.json({ success: true, data: performance });
+  }),
+);
 
 export const flightStatusRoutes = router;

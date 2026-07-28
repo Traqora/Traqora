@@ -23,6 +23,10 @@ export const configSchema = z.object({
 
   databaseUrl: z.string().min(1, "Database URL is required"),
   redisUrl: z.string().min(1, "Redis URL is required"),
+  // Comma-separated host:port list (e.g. "localhost:7000,localhost:7001").
+  // When set, cache clients connect in Redis Cluster mode instead of to the
+  // single-node redisUrl (issue #335).
+  redisClusterNodes: z.string().optional(),
   mongoUrl: z.string().optional(),
 
   jwtSecret: z.string().min(32, "JWT secret must be at least 32 characters"),
