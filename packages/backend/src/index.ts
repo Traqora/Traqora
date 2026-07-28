@@ -1,94 +1,51 @@
-import 'dotenv/config';
-import http from 'http';
-import { loadConfig } from './config';
-import { initializeTracing, shutdownTracing } from './tracing';
-import { initializeErrorTracking, shutdownErrorTracking } from './services/errorTracking';
-import { configureLogger, logger } from './utils/logger';
+/**
+ * Central export file for Traqora backend services
+ * Exposes all public APIs and services
+ */
 
-async function startServer() {
-  try {
-    const config = await loadConfig();
-    configureLogger(config);
-    initializeTracing(config);
-    initializeErrorTracking(config);
+// Services
+export { BookingOrchestrationService } from "./services/bookingOrchestrationService";
+export { FareRulesService } from "./services/fareRulesService";
+export {
+  InflightServicesService,
+  inflightServicesService,
+} from "./services/inflightServicesService";
+export {
+  SeatAvailabilityService,
+  seatAvailabilityService,
+} from "./services/seatAvailabilityService";
 
-    const [
-      appModule,
-      { initDataSource },
-      { initWebSocket },
-      { initPriceMonitorCron },
-      { verifyConnectivity },
-      contractMonitorModule,
-    ] = await Promise.all([
-      import('./app'),
-      import('./db/dataSource'),
-      import('./websockets/server'),
-      import('./jobs/priceMonitor'),
-      import('./utils/health-check'),
-      import('./services/contractMonitor'),
-    ]);
+// Types
+export type {
+  MealService,
+  WiFiService,
+  BaggageService,
+  EntertainmentService,
+  MealOrder,
+  WiFiOrder,
+  BaggageOrder,
+  EntertainmentOrder,
+  InflightServiceOrder,
+  ServicePricingBreakdown,
+  ServicesCatalog,
+  SeatAvailability,
+  ServiceDelivery,
+  SeatSelection,
+  SeatType,
+  SeatPreference,
+  DietaryRestriction,
+  WiFiPackage,
+  BaggageType,
+} from "./types/services";
 
-    await verifyConnectivity();
+// Entities
+export { Booking } from "./db/entities/Booking";
+export { Flight } from "./db/entities/Flight";
+export { Passenger } from "./db/entities/Passenger";
+export { TravelDocument } from "./db/entities/TravelDocument";
 
-    const app = await appModule.createApp();
-    const server = http.createServer(app);
-
-    initWebSocket(server);
-    initPriceMonitorCron();
-
-    const PORT = config.port || 3001;
-
-    if (process.env.NODE_ENV !== 'test') {
-      await initDataSource();
-
-      server.listen(PORT, () => {
-        logger.info('Traqora API server started', {
-          port: PORT,
-          environment: config.environment,
-          stellarNetwork: config.stellarNetwork,
-        });
-
-        contractMonitorModule.setupDefaultEventListeners();
-        contractMonitorModule.contractMonitor.startMonitoring(5000);
-
-        const wallets = [
-          { address: process.env.OPERATIONAL_WALLET_ADDRESS || '', type: 'operational' },
-        ].filter((wallet) => wallet.address);
-
-        if (wallets.length > 0) {
-          contractMonitorModule.startWalletBalanceMonitoring(wallets);
-        }
-      });
-    }
-
-    const shutdown = async () => {
-      await shutdownTracing();
-      await shutdownErrorTracking();
-      server.close();
-    };
-
-    process.once('SIGTERM', () => {
-      shutdown()
-        .then(() => process.exit(0))
-        .catch((error) => {
-          logger.error('Error during SIGTERM shutdown', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-          process.exit(1);
-        });
-    });
-
-    return { app, server };
-  } catch (error) {
-    logger.error('Failed to start server', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    process.exit(1);
-  }
-}
-
-const serverPromise = startServer();
-
-export const appPromise = serverPromise.then((server) => server?.app);
-export const app = undefined as any;
-export default (serverPromise as any);
+// Utilities
+export { AppDataSource } from "./db/dataSource";
+export { logger } from "./utils/logger";
+export { asyncHandler } from "./utils/errorHandler";
+export { BadRequestError, NotFoundError } from "./utils/errors";
