@@ -7,6 +7,10 @@ declare global {
                 walletAddress: string;
                 walletType: string;
             };
+            admin?: {
+                adminId: string;
+                email: string;
+            };
             tenantId?: string;
             tenantRole?: 'owner' | 'admin' | 'member' | 'viewer';
         }
