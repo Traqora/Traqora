@@ -60,6 +60,7 @@ const readConfigFromEnv = () => {
 
     databaseUrl: process.env.DATABASE_URL || 'sqlite::memory:',
     redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
+    redisClusterNodes: process.env.REDIS_CLUSTER_NODES || undefined,
     mongoUrl: process.env.MONGO_URI,
 
     jwtSecret: getSafeEnvString('JWT_SECRET', 32, 'your-secret-key-change-in-production-at-least-32-chars'),
@@ -194,6 +195,7 @@ export const loadConfig = async (): Promise<Config> => {
 
     databaseUrl: await secretManager.getSecret('DATABASE_URL', 'sqlite::memory:'),
     redisUrl: await secretManager.getSecret('REDIS_URL', 'redis://localhost:6379'),
+    redisClusterNodes: (await secretManager.getSecret('REDIS_CLUSTER_NODES', '')) || undefined,
     mongoUrl: (await secretManager.getSecret('MONGO_URI', '')) || undefined,
 
     jwtSecret,

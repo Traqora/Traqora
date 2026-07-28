@@ -34,6 +34,8 @@ import { useOffline } from "@/components/offline-provider"
 import { OfflineItineraryView } from "@/components/offline-itinerary-view"
 // NEW: real-time flight status alerts (delays, cancellations, gate changes)
 import { FlightStatusBanner } from "@/components/flight-status/FlightStatusBanner"
+// NEW: flight-following widget with live status + on-time performance (issue #332)
+import { FollowedFlightsCard } from "@/components/flight-status/FollowedFlightsCard"
 
 // Mock user data
 const mockUser = {
@@ -302,6 +304,10 @@ export default function DashboardPage() {
 
           <div className="mb-8">
             <FlightStatusBanner />
+          </div>
+
+          <div className="mb-8">
+            <FollowedFlightsCard />
           </div>
 
         {/* Stats Overview */}

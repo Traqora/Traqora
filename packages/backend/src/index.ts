@@ -17,6 +17,8 @@ async function startServer() {
       { initDataSource },
       { initWebSocket },
       { initPriceMonitorCron },
+      { initCacheWarmingCron },
+      { initFlightStatusPollingCron },
       { verifyConnectivity },
       contractMonitorModule,
     ] = await Promise.all([
@@ -24,6 +26,8 @@ async function startServer() {
       import('./db/dataSource'),
       import('./websockets/server'),
       import('./jobs/priceMonitor'),
+      import('./jobs/cacheWarmingJob'),
+      import('./jobs/flightStatusPollingJob'),
       import('./utils/health-check'),
       import('./services/contractMonitor'),
     ]);
@@ -40,6 +44,8 @@ async function startServer() {
 
     if (process.env.NODE_ENV !== 'test') {
       await initDataSource();
+      initCacheWarmingCron();
+      initFlightStatusPollingCron();
 
       server.listen(PORT, () => {
         logger.info('Traqora API server started', {
