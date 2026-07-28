@@ -367,7 +367,7 @@ impl RefundAutomationContract {
             .set(&DataKey::DisputeResolution(refund_id.clone()), &resolution);
         env.storage()
             .persistent()
-            .set(&DataKey::Dispute(refund_id), &dispute);
+            .set(&DataKey::Dispute(refund_id.clone()), &dispute);
 
         env.events().publish(
             (symbol_short!("refund"), symbol_short!("resolved")),
