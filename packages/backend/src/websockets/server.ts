@@ -6,6 +6,8 @@ import { logger } from '../utils/logger';
 import { config } from '../config';
 import jwt from 'jsonwebtoken';
 import { chatBotService, ChatMessage } from '../services/chatBotService';
+import { attachChatHandlers } from './chatHandler';
+import { attachAnalyticsHandlers } from './analyticsHandler';
 
 // Interface for typed events
 interface ServerToClientEvents {
@@ -71,6 +73,10 @@ export class WebSocketServer {
 
     // Setup connection handlers immediately
     this.setupConnectionHandlers();
+    
+    // Attach specialized handlers
+    attachChatHandlers(this.io);
+    attachAnalyticsHandlers(this.io);
     
     // Setup Redis adapter asynchronously but don't block
     this.setupRedisAdapter().catch(error => {
