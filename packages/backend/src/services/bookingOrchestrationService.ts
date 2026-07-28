@@ -173,6 +173,7 @@ export class BookingOrchestrationService {
             sorobanAddress: string;
         };
         idempotencyKey: string;
+        walletAddress?: string;
     }): Promise<Booking> {
         const flight = await this.flightRepo.findOne({ where: { id: params.flightId } });
         if (!flight) throw new Error('Flight not found');
@@ -205,6 +206,7 @@ export class BookingOrchestrationService {
 
             const booking = this.bookingRepo.create({
                 idempotencyKey: params.idempotencyKey,
+                walletAddress: params.walletAddress ?? null,
                 flight,
                 passenger,
                 status: 'onchain_submitted',

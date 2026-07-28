@@ -150,8 +150,14 @@ export function CommentsPanel({ dashboardId, target, targetType = "dashboard", c
             </Badge>
           )}
         </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setCollapsed((c) => !c)}>
-          {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          onClick={() => setCollapsed((c) => !c)}
+          aria-label={collapsed ? "Expand comments" : "Collapse comments"}
+        >
+          {collapsed ? <ChevronDown className="h-4 w-4" aria-hidden="true" /> : <ChevronUp className="h-4 w-4" aria-hidden="true" />}
         </Button>
       </div>
 
@@ -202,8 +208,9 @@ export function CommentsPanel({ dashboardId, target, targetType = "dashboard", c
                             className="h-5 w-5 opacity-60 hover:opacity-100"
                             onClick={() => resolveComment(comment.id)}
                             title="Mark resolved"
+                            aria-label="Mark comment resolved"
                           >
-                            <CheckCircle className="h-3 w-3" />
+                            <CheckCircle className="h-3 w-3" aria-hidden="true" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -211,8 +218,9 @@ export function CommentsPanel({ dashboardId, target, targetType = "dashboard", c
                             className="h-5 w-5 opacity-60 hover:opacity-100 text-destructive"
                             onClick={() => deleteComment(comment.id)}
                             title="Delete"
+                            aria-label="Delete comment"
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3 w-3" aria-hidden="true" />
                           </Button>
                         </div>
                       </div>

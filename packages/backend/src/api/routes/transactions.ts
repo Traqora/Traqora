@@ -3,22 +3,18 @@ import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { AppDataSource } from '../../db/dataSource';
 import { Booking } from '../../db/entities/Booking';
-import { getTransactionStatus, submitSignedSorobanXdr } from '../../services/soroban';
+import {
+  getTransactionStatus,
+  submitSignedSorobanXdr,
+  explorerUrlForTx,
+  generateTransactionReceiptPdf,
+} from '../../services/soroban';
 import { withRetries } from '../../services/retry';
 import { getWebSocketServer } from '../../websockets/server';
 import { logger } from '../../utils/logger';
 import { NotFoundError, ConflictError, BadRequestError } from '../../utils/errors';
-import { config } from '../../config';
 
 const router = Router();
-
-function explorerUrlForTx(txHash: string): string {
-  const isTestnet = config.stellarNetwork === 'testnet' || config.stellarNetwork === 'standalone';
-  const base = isTestnet
-    ? 'https://stellar.expert/explorer/testnet/tx'
-    : 'https://stellar.expert/explorer/public/tx';
-  return `${base}/${txHash}`;
-}
 
 function serializeTransaction(booking: Booking) {
   return {
@@ -148,6 +144,44 @@ router.post(
       success: true,
       data: serializeTransaction(booking),
     });
+  }),
+);
+
+// GET /api/v1/transactions/:bookingId/receipt.pdf - printable receipt for a submitted on-chain transaction
+router.get(
+  '/:bookingId/receipt.pdf',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({ where: { id: req.params.bookingId } });
+
+    if (!booking) {
+      throw new NotFoundError('Booking not found');
+    }
+    if (!booking.sorobanTxHash) {
+      throw new ConflictError('Receipt is only available once a transaction has been submitted');
+    }
+
+    const pdfBuffer = await generateTransactionReceiptPdf({
+      bookingId: booking.id,
+      bookingStatus: booking.status,
+      amountCents: booking.amountCents,
+      passengerName: `${booking.passenger.firstName} ${booking.passenger.lastName}`,
+      flightNumber: booking.flight.flightNumber,
+      airlineCode: booking.flight.airlineCode,
+      fromAirport: booking.flight.fromAirport,
+      toAirport: booking.flight.toAirport,
+      departureTime: booking.flight.departureTime,
+      txHash: booking.sorobanTxHash,
+      explorerUrl: explorerUrlForTx(booking.sorobanTxHash),
+      createdAt: booking.createdAt,
+    });
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="receipt-${booking.id}.pdf"`,
+    });
+    return res.send(pdfBuffer);
   }),
 );
 

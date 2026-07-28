@@ -127,6 +127,7 @@ router.post(
         flightId: parsed.data.flightId,
         passenger: parsed.data.passenger,
         idempotencyKey: idempotencyKeyHeader,
+        walletAddress: req.user?.walletAddress,
       });
 
       // Update idempotency key with resource ID

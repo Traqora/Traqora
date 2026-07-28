@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { Flight } from "@/lib/api";
 
 export interface CachedBooking {
   id: string;
@@ -22,9 +23,25 @@ export interface CachedItinerary {
   cachedAt: number;
 }
 
+export interface CachedSearchQuery {
+  from: string;
+  to: string;
+  date: string;
+  passengers: number;
+  class: string;
+}
+
+export interface CachedSearchResult {
+  key: string;
+  query: CachedSearchQuery;
+  flights: Flight[];
+  cachedAt: number;
+}
+
 interface OfflineData {
   bookings: Record<string, CachedBooking>;
   itineraries: Record<string, CachedItinerary>;
+  searches: Record<string, CachedSearchResult>;
   lastSyncTime: number;
   pendingSyncs: Array<{
     type: "booking" | "itinerary";
@@ -35,6 +52,7 @@ interface OfflineData {
 
 const STORAGE_KEY = "traqora_offline_data";
 const OFFLINE_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 days
+const SEARCH_CACHE_EXPIRY = 60 * 60 * 1000; // 1 hour - flight prices/availability go stale fast
 
 /**
  * Get the current offline data from localStorage
@@ -51,6 +69,11 @@ export function getOfflineData(): OfflineData {
     }
 
     const parsed = JSON.parse(stored) as OfflineData;
+
+    // Normalize data persisted before search caching was introduced
+    if (!parsed.searches) {
+      parsed.searches = {};
+    }
 
     // Clean up expired data
     cleanupExpiredData(parsed);
@@ -154,6 +177,53 @@ export function getCachedItinerary(bookingId: string): CachedItinerary | null {
 export function getCachedItineraries(): CachedItinerary[] {
   const data = getOfflineData();
   return Object.values(data.itineraries);
+}
+
+/**
+ * Build a stable cache key for a search query
+ */
+function buildSearchKey(query: CachedSearchQuery): string {
+  return `${query.from.toUpperCase()}-${query.to.toUpperCase()}-${query.date}-${query.passengers}-${query.class}`;
+}
+
+/**
+ * Cache flight search results for offline access
+ */
+export function cacheSearchResults(
+  query: CachedSearchQuery,
+  flights: Flight[],
+): void {
+  const data = getOfflineData();
+  const key = buildSearchKey(query);
+  data.searches[key] = { key, query, flights, cachedAt: Date.now() };
+  saveOfflineData(data);
+}
+
+/**
+ * Get cached search results for a query, if available and not expired
+ */
+export function getCachedSearchResults(
+  query: CachedSearchQuery,
+): CachedSearchResult | null {
+  const data = getOfflineData();
+  return data.searches[buildSearchKey(query)] || null;
+}
+
+/**
+ * Get all cached search results
+ */
+export function getAllCachedSearches(): CachedSearchResult[] {
+  const data = getOfflineData();
+  return Object.values(data.searches);
+}
+
+/**
+ * Clear all cached search results
+ */
+export function clearCachedSearchResults(): void {
+  const data = getOfflineData();
+  data.searches = {};
+  saveOfflineData(data);
 }
 
 /**
@@ -281,6 +351,7 @@ function getEmptyOfflineData(): OfflineData {
   return {
     bookings: {},
     itineraries: {},
+    searches: {},
     lastSyncTime: 0,
     pendingSyncs: [],
   };
@@ -294,6 +365,13 @@ function cleanupExpiredData(data: OfflineData): void {
   for (const [key, itinerary] of Object.entries(data.itineraries)) {
     if (now - itinerary.cachedAt > OFFLINE_EXPIRY) {
       delete data.itineraries[key];
+    }
+  }
+
+  // Remove expired search results
+  for (const [key, search] of Object.entries(data.searches)) {
+    if (now - search.cachedAt > SEARCH_CACHE_EXPIRY) {
+      delete data.searches[key];
     }
   }
 
@@ -332,6 +410,18 @@ function clearOldestData(): void {
     const removeCount = Math.ceil(sortedByDate.length / 2);
     sortedByDate.slice(0, removeCount).forEach(([key]) => {
       delete data.itineraries[key];
+    });
+  }
+
+  // Remove oldest 50% of cached searches
+  const searchEntries = Object.entries(data.searches);
+  if (searchEntries.length > 0) {
+    const sortedByDate = searchEntries.sort(
+      ([, a], [, b]) => a.cachedAt - b.cachedAt,
+    );
+    const removeCount = Math.ceil(sortedByDate.length / 2);
+    sortedByDate.slice(0, removeCount).forEach(([key]) => {
+      delete data.searches[key];
     });
   }
 

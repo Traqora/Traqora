@@ -28,6 +28,7 @@ import { UserProfile } from "./entities/UserProfile";
 import { AccountDeletionRequest } from "./entities/AccountDeletionRequest";
 import { Dispute } from "./entities/Dispute";
 import { DisputeEvidence } from "./entities/DisputeEvidence";
+import { RecommendationEvent } from "./entities/RecommendationEvent";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -65,6 +66,7 @@ export const AppDataSource = new DataSource(
         AccountDeletionRequest,
         Dispute,
         DisputeEvidence,
+        RecommendationEvent,
       ],
       logging: false,
     }
@@ -100,6 +102,7 @@ export const AppDataSource = new DataSource(
         AccountDeletionRequest,
         Dispute,
         DisputeEvidence,
+        RecommendationEvent,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:
