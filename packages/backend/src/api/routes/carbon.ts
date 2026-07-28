@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
 import { CarbonOffsetService } from '../../services/carbonOffsetService';
+import { requireAdmin } from '../../middleware/adminAuth';
 import { logger } from '../../utils/logger';
 import { BadRequestError, NotFoundError } from '../../utils/errors';
 
@@ -24,6 +25,21 @@ const purchaseSchema = z.object({
 const offsetCostSchema = z.object({
   footprintKg: z.number().int().positive(),
   projectId: z.string().min(1),
+});
+
+const carbonNeutralSchema = z.object({
+  userId: z.string().min(1),
+  flightId: z.string().min(1),
+  bookingId: z.string().min(1),
+  projectId: z.string().min(1).optional(),
+  cabinClass: z
+    .enum(['economy', 'premium_economy', 'business', 'first'])
+    .default('economy'),
+});
+
+const reportQuerySchema = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
 });
 
 /**
@@ -93,6 +109,60 @@ router.post(
       logger.error('Failed to purchase carbon offset', error);
       throw new BadRequestError(error.message || 'Failed to purchase carbon offset');
     }
+  }),
+);
+
+/**
+ * GET /api/v1/carbon/quote?flightId=&cabinClass=
+ * Prices the carbon-neutral option for a flight across all active projects.
+ */
+router.get(
+  '/quote',
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = estimateSchema.safeParse(req.query);
+    if (!parsed.success) throw new BadRequestError('Validation error', parsed.error.flatten());
+
+    const quote = await carbonService.getCarbonNeutralQuote(
+      parsed.data.flightId,
+      parsed.data.cabinClass,
+    );
+
+    return res.json({ success: true, data: quote });
+  }),
+);
+
+/**
+ * POST /api/v1/carbon/carbon-neutral-booking
+ * Offsets a booking in one step, defaulting to the cheapest active project.
+ */
+router.post(
+  '/carbon-neutral-booking',
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = carbonNeutralSchema.safeParse(req.body);
+    if (!parsed.success) throw new BadRequestError('Validation error', parsed.error.flatten());
+
+    const certificate = await carbonService.purchaseCarbonNeutralBooking(parsed.data);
+    return res.status(201).json({ success: true, data: certificate });
+  }),
+);
+
+/**
+ * GET /api/v1/carbon/report?from=&to=  (admin)
+ * Platform-wide sustainability reporting.
+ */
+router.get(
+  '/report',
+  requireAdmin,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = reportQuerySchema.safeParse(req.query);
+    if (!parsed.success) throw new BadRequestError('Validation error', parsed.error.flatten());
+
+    const report = await carbonService.getPlatformSustainabilityReport({
+      from: parsed.data.from ? new Date(parsed.data.from) : undefined,
+      to: parsed.data.to ? new Date(parsed.data.to) : undefined,
+    });
+
+    return res.json({ success: true, data: report });
   }),
 );
 
