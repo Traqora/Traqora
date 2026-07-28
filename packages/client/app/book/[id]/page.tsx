@@ -23,6 +23,7 @@ import {
 } from "lucide-react"
 
 import { SeatSelector } from "@/components/booking/seat-selector"
+import { AncillarySelector } from "@/components/booking/ancillary-selector"
 import { BookingSummary } from "@/components/booking/booking-summary"
 import { InsuranceSelector } from "@/components/booking/insurance-selector"
 import { CarbonFootprintDisplay } from "@/components/booking/carbon-footprint-display"
@@ -42,6 +43,10 @@ import {
   purchaseOffset,
   CarbonFootprint,
 } from "@/lib/api"
+import {
+  AncillaryCatalogItem,
+  purchaseAncillaryService,
+} from "@/lib/ancillary-api"
 import {
   type CurrencyCode,
   getCurrencyFromStorage,
@@ -74,7 +79,7 @@ const mockFlightDetails = {
   refundPolicy: "Free cancellation up to 24 hours before departure",
 }
 
-type BookingStep = "details" | "seats" | "insurance" | "carbon" | "wallet" | "confirm" | "success"
+type BookingStep = "details" | "seats" | "extras" | "insurance" | "carbon" | "wallet" | "confirm" | "success"
 
 export default function BookFlightPage() {
   const params = useParams()
@@ -99,6 +104,8 @@ export default function BookFlightPage() {
 
   const [bookingId, setBookingId] = useState("")
   const [selectedCoverage, setSelectedCoverage] = useState<InsuranceCoverageType | null>(null)
+  const [selectedAncillaries, setSelectedAncillaries] = useState<AncillaryCatalogItem[]>([])
+  const [isPurchasingAncillaries, setIsPurchasingAncillaries] = useState(false)
   const [insurancePolicy, setInsurancePolicy] = useState<InsurancePolicy | null>(null)
   const [isPurchasingInsurance, setIsPurchasingInsurance] = useState(false)
   const [isCarbonNeutral, setIsCarbonNeutral] = useState(false)
@@ -169,6 +176,7 @@ export default function BookFlightPage() {
   const steps: { id: BookingStep; label: string }[] = [
     { id: "details", label: "Flight Details" },
     { id: "seats", label: "Seat Selection" },
+    { id: "extras", label: "Trip Extras" },
     { id: "insurance", label: "Travel Insurance" },
     { id: "carbon", label: "Carbon Offsets" },
     { id: "wallet", label: "Connect Wallet" },
@@ -238,6 +246,26 @@ export default function BookFlightPage() {
   const handleFinalConfirm = async () => {
     const newBookingId = "TRAQ-" + Math.random().toString(36).substring(2, 9).toUpperCase()
     setBookingId(newBookingId)
+
+    if (booking?.id && selectedAncillaries.length > 0) {
+      setIsPurchasingAncillaries(true)
+      try {
+        await Promise.all(
+          selectedAncillaries.map((item) =>
+            purchaseAncillaryService({
+              bookingId: booking.id,
+              serviceCode: item.code,
+              details: item.requiresAirport ? { airport: flight.from } : undefined,
+            }),
+          ),
+        )
+      } catch (error) {
+        console.error("Ancillary purchase failed", error)
+        setIsPurchasingAncillaries(false)
+        return
+      }
+      setIsPurchasingAncillaries(false)
+    }
 
     if (selectedCoverage) {
       setIsPurchasingInsurance(true)
@@ -406,7 +434,30 @@ export default function BookFlightPage() {
               </div>
             )}
 
-            {/* Step 3: Travel Insurance */}
+            {currentStep === "extras" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <AncillarySelector
+                  cabinClass={flight.class}
+                  airport={flight.from}
+                  selectedCodes={selectedAncillaries.map((item) => item.code)}
+                  onSelectionChange={setSelectedAncillaries}
+                  displayCurrency={displayCurrency}
+                  rates={rates}
+                />
+                <div className="flex justify-between">
+                  <Button variant="ghost" onClick={prevStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button size="lg" onClick={nextStep}>
+                    Continue
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Travel Insurance */}
             {currentStep === "insurance" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <InsuranceSelector
@@ -532,10 +583,10 @@ export default function BookFlightPage() {
                   <Button
                     size="lg"
                     onClick={handleFinalConfirm}
-                    disabled={isPurchasingInsurance || isPurchasingOffset}
+                    disabled={isPurchasingInsurance || isPurchasingOffset || isPurchasingAncillaries}
                     className="px-12 shadow-lg bg-green-600 hover:bg-green-700 text-white"
                   >
-                    {isPurchasingInsurance || isPurchasingOffset ? "Processing..." : "Confirm & Pay"}
+                    {isPurchasingInsurance || isPurchasingOffset || isPurchasingAncillaries ? "Processing..." : "Confirm & Pay"}
                   </Button>
                 </div>
               </div>
@@ -681,6 +732,17 @@ export default function BookFlightPage() {
                 carbonOffset={
                   isCarbonNeutral && offsetCostCents > 0
                     ? { costCents: offsetCostCents }
+                    : undefined
+                }
+                ancillaries={
+                  selectedAncillaries.length > 0
+                    ? {
+                        count: selectedAncillaries.length,
+                        totalCents: selectedAncillaries.reduce(
+                          (total, item) => total + item.priceCents,
+                          0,
+                        ),
+                      }
                     : undefined
                 }
                 displayCurrency={displayCurrency}
