@@ -63,25 +63,46 @@ export function BoardingPassCard({ bookingId, checkIn, fromAirport, toAirport }:
                 Download PDF Boarding Pass
               </Button>
             </a>
-            <Button
-              variant="outline"
-              className="w-full justify-start bg-transparent"
-              onClick={async () => {
-                const response = await apiClient.getWalletPass(bookingId)
-                if (response.success) {
-                  const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: "application/json" })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement("a")
-                  a.href = url
-                  a.download = `boarding-pass-${bookingId}.json`
-                  a.click()
-                  URL.revokeObjectURL(url)
-                }
-              }}
-            >
-              <Wallet className="h-4 w-4 mr-2" />
-              Add to Apple/Google Wallet
-            </Button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                className="w-full justify-start bg-transparent text-xs"
+                onClick={async () => {
+                  const response = await apiClient.getWalletPass(bookingId)
+                  if (response.success) {
+                    const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: "application/json" })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement("a")
+                    a.href = url
+                    a.download = `apple-boarding-pass-${bookingId}.pkpass.json`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }
+                }}
+              >
+                <Wallet className="h-4 w-4 mr-2 text-blue-500" />
+                Apple Wallet Pass
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start bg-transparent text-xs"
+                onClick={async () => {
+                  const response = await apiClient.getGoogleWalletPass(bookingId)
+                  if (response.success) {
+                    const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: "application/json" })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement("a")
+                    a.href = url
+                    a.download = `google-boarding-pass-${bookingId}.json`
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }
+                }}
+              >
+                <Wallet className="h-4 w-4 mr-2 text-emerald-500" />
+                Google Pay Pass
+              </Button>
+            </div>
           </div>
         )}
       </CardContent>

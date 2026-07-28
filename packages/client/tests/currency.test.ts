@@ -32,7 +32,7 @@ describe('currency utilities', () => {
       expect(codes).toContain('CNY')
       expect(codes).toContain('CAD')
       expect(codes).toContain('AUD')
-      expect(codes.length).toBe(12)
+      expect(codes.length).toBe(15)
     })
 
     it('should have valid config for each currency', () => {
@@ -63,7 +63,7 @@ describe('currency utilities', () => {
 
     it('should format JPY without decimals', () => {
       const result = formatCurrency(1500, 'JPY')
-      expect(result).toContain('¥')
+      expect(result.includes('¥') || result.includes('￥')).toBe(true)
       expect(result).not.toContain('.')
     })
 

@@ -2,7 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { AppDataSource, initDataSource } from '../db/dataSource';
 import { AdminAuditLog } from '../db/entities/AdminAuditLog';
 import { logger } from '../utils/logger';
-import '../types/express';
+import '../types/express/index.d';
 
 /**
  * Factory that returns an Express middleware which writes an AdminAuditLog row

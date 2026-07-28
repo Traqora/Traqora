@@ -26,6 +26,7 @@ import serviceRoutes from './api/routes/services';
 import contractEventRoutes from './api/routes/contract-events';
 import transactionRoutes from './api/routes/transactions';
 import checkinRoutes from './api/routes/checkin';
+import journeyRoutes from './api/routes/journeys';
 import { documentRoutes } from './api/routes/documents';
 import { alertRoutes } from './api/routes/alerts';
 import { reviewRoutes } from './api/routes/reviews';
@@ -220,6 +221,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/contract-events', contractEventRoutes);
   app.use('/api/v1/transactions', transactionRoutes);
   app.use('/api/v1/checkin', requireAuth, checkinRoutes);
+  app.use('/api/v1/journeys', journeyRoutes);
   app.use('/api/v1/carbon', carbonRoutes);
   app.use('/api/v1/currencies', createCurrencyRoutes());
 

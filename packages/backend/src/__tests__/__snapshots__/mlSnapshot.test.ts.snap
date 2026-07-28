@@ -1,0 +1,115 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`ML Models Snapshot Tests AnomalyDetectionModel snapshot 1`] = `
+{
+  "anomalies": [
+    {
+      "deviation": 198.21,
+      "expectedValue": 167.67,
+      "index": 4,
+      "severity": "low",
+      "timestamp": "2026-01-05",
+      "value": 500,
+      "zScore": 2.2358,
+    },
+  ],
+  "stats": {
+    "anomalyCount": 1,
+    "mean": 167.6667,
+    "stdDev": 148.639,
+    "threshold": 2,
+    "totalPoints": 6,
+  },
+}
+`;
+
+exports[`ML Models Snapshot Tests ChurnPredictionModel baseline score snapshot 1`] = `
+{
+  "factors": [],
+  "riskLevel": "low",
+  "score": 0.1968,
+}
+`;
+
+exports[`ML Models Snapshot Tests ModelTrainingPipeline evaluation snapshot 1`] = `
+{
+  "accuracy": "81.61%",
+  "mae": 216.49,
+  "mape": 18.39,
+  "sampleSize": 14,
+}
+`;
+
+exports[`ML Models Snapshot Tests RecommendationEngine baseline snapshot 1`] = `
+[
+  {
+    "itemId": "item-2",
+    "reason": "Popular choice",
+    "score": "12.0000",
+  },
+  {
+    "itemId": "item-1",
+    "reason": "Popular choice",
+    "score": "5.0000",
+  },
+  {
+    "itemId": "item-3",
+    "reason": "Popular choice",
+    "score": "3.0000",
+  },
+]
+`;
+
+exports[`ML Models Snapshot Tests RevenuePredictionModel baseline predictions snapshot 1`] = `
+[
+  {
+    "confidenceLevel": 0.7004882904984775,
+    "day": 1,
+    "lowerBound": 980.69,
+    "predictedValue": 2374.79,
+    "upperBound": 3768.89,
+  },
+  {
+    "confidenceLevel": 0.711108547556333,
+    "day": 2,
+    "lowerBound": 1067.99,
+    "predictedValue": 2462.09,
+    "upperBound": 3856.19,
+  },
+  {
+    "confidenceLevel": 0.6890835789958751,
+    "day": 3,
+    "lowerBound": 893.58,
+    "predictedValue": 2287.68,
+    "upperBound": 3681.78,
+  },
+  {
+    "confidenceLevel": 0.6924397517802277,
+    "day": 4,
+    "lowerBound": 918.54,
+    "predictedValue": 2312.64,
+    "upperBound": 3706.75,
+  },
+  {
+    "confidenceLevel": 0.7052201953855821,
+    "day": 5,
+    "lowerBound": 1018.81,
+    "predictedValue": 2412.91,
+    "upperBound": 3807.01,
+  },
+  {
+    "confidenceLevel": 0.7269610758025082,
+    "day": 6,
+    "lowerBound": 1210.94,
+    "predictedValue": 2605.04,
+    "upperBound": 3999.14,
+  },
+  {
+    "confidenceLevel": 0.7479956980884581,
+    "day": 7,
+    "lowerBound": 1428.38,
+    "predictedValue": 2822.48,
+    "upperBound": 4216.58,
+  },
+]
+`;
