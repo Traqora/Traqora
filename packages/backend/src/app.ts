@@ -32,6 +32,8 @@ import { alertRoutes } from './api/routes/alerts';
 import { reviewRoutes } from './api/routes/reviews';
 import { userRoutes } from './api/routes/users';
 import { carbonRoutes } from './api/routes/carbon';
+import { trackingRoutes } from './api/routes/tracking';
+import { feedbackRoutes } from './api/routes/feedback';
 import { createCurrencyRoutes } from './api/routes/currencies';
 import { referralRoutes } from './api/routes/referrals';
 import { flightStatusRoutes } from './api/routes/flightStatus';
@@ -223,6 +225,8 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/checkin', requireAuth, checkinRoutes);
   app.use('/api/v1/journeys', journeyRoutes);
   app.use('/api/v1/carbon', carbonRoutes);
+  app.use('/api/v1/tracking', requireAuth, trackingRoutes);
+  app.use('/api/v1/feedback', feedbackRoutes);
   app.use('/api/v1/currencies', createCurrencyRoutes());
 
   app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {
