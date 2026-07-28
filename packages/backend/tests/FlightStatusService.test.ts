@@ -89,4 +89,49 @@ describe('FlightStatusService', () => {
     expect(result.status).toBe('gate_changed');
     expect(result.gate).toBe('B12');
   });
+
+  describe('getOnTimePerformance (issue #332)', () => {
+    it('returns a null rate for a flight with no recorded history', () => {
+      expect(service.getOnTimePerformance('flight-unknown')).toEqual({
+        flightId: 'flight-unknown',
+        sampleSize: 0,
+        onTimeCount: 0,
+        disruptedCount: 0,
+        onTimeRate: null,
+      });
+    });
+
+    it('counts delayed/cancelled transitions as disruptions and everything else as on-time', () => {
+      service.recordStatus({ flightId: 'flight-5', status: 'on_time', timestamp: new Date() });
+      service.recordStatus({ flightId: 'flight-5', status: 'delayed', timestamp: new Date() });
+      service.recordStatus({ flightId: 'flight-5', status: 'boarding', timestamp: new Date() });
+      service.recordStatus({ flightId: 'flight-5', status: 'departed', timestamp: new Date() });
+
+      const perf = service.getOnTimePerformance('flight-5');
+
+      expect(perf.sampleSize).toBe(4);
+      expect(perf.disruptedCount).toBe(1);
+      expect(perf.onTimeCount).toBe(3);
+      expect(perf.onTimeRate).toBe(0.75);
+    });
+
+    it('does not record a history entry when recordStatus reports no change', () => {
+      service.recordStatus({ flightId: 'flight-6', status: 'on_time', timestamp: new Date() });
+      service.recordStatus({ flightId: 'flight-6', status: 'on_time', timestamp: new Date() });
+
+      expect(service.getOnTimePerformance('flight-6').sampleSize).toBe(1);
+    });
+
+    it('caps history at the most recent 50 transitions per flight', () => {
+      const statuses: Array<'on_time' | 'delayed'> = [];
+      for (let i = 0; i < 60; i += 1) {
+        statuses.push(i % 2 === 0 ? 'on_time' : 'delayed');
+      }
+      statuses.forEach((status) => {
+        service.recordStatus({ flightId: 'flight-7', status, timestamp: new Date() });
+      });
+
+      expect(service.getOnTimePerformance('flight-7').sampleSize).toBe(50);
+    });
+  });
 });

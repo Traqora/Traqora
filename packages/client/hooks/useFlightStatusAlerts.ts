@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { useSocket } from '@/components/socket/SocketProvider';
+import { useSocketEvents, type FlightStatusEvent } from '@/hooks/use-socket-events';
 
 export interface FlightStatusAlert {
   id: string;
@@ -112,6 +114,65 @@ export function useFlightStatusAlerts() {
   useEffect(() => {
     fetchAlerts();
   }, [fetchAlerts]);
+
+  const { manager } = useSocket();
+  const subscribedFlightIds = useRef<Set<string>>(new Set());
+
+  // Real-time delivery over WebSocket (issue #333): join the room for every
+  // flight the user has an active alert on, so the server's
+  // broadcastFlightStatus() reaches this client immediately instead of only
+  // being visible on the next manual fetchAlerts() call.
+  useEffect(() => {
+    const activeFlightIds = new Set(alerts.filter((a) => a.isActive).map((a) => a.flightId));
+
+    activeFlightIds.forEach((flightId) => {
+      if (!subscribedFlightIds.current.has(flightId)) {
+        manager.subscribeFlight(flightId);
+      }
+    });
+    subscribedFlightIds.current.forEach((flightId) => {
+      if (!activeFlightIds.has(flightId)) {
+        manager.unsubscribeFlight(flightId);
+      }
+    });
+
+    subscribedFlightIds.current = activeFlightIds;
+  }, [alerts, manager]);
+
+  useEffect(() => {
+    return () => {
+      subscribedFlightIds.current.forEach((flightId) => manager.unsubscribeFlight(flightId));
+      subscribedFlightIds.current.clear();
+    };
+  }, [manager]);
+
+  const handleFlightStatus = useCallback(
+    (data: FlightStatusEvent) => {
+      let matched = false;
+
+      setAlerts((prev) =>
+        prev.map((alert) => {
+          if (alert.flightId !== data.flightId || !alert.isActive) return alert;
+          matched = true;
+          return {
+            ...alert,
+            lastStatus: data.status,
+            lastNotifiedAt: (data.timestamp ? new Date(data.timestamp) : new Date()).toISOString(),
+          };
+        }),
+      );
+
+      if (matched) {
+        toast({
+          title: `Flight ${data.flightId} status update`,
+          description: data.detail ? `${data.status}: ${data.detail}` : data.status,
+        });
+      }
+    },
+    [toast],
+  );
+
+  useSocketEvents({ onFlightStatus: handleFlightStatus });
 
   return {
     alerts,

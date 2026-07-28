@@ -14,4 +14,15 @@ Sentry.init({
   enabled: Boolean(process.env.NEXT_PUBLIC_SENTRY_DSN),
   // PII/secret scrubbing (#382) — see scrubEvent for the field list.
   beforeSend: scrubEvent,
+  // User feedback widget (issue #334): a "Report a Bug" tab users can open
+  // any time, plus an automatic prompt after a captured crash. Uses
+  // Sentry's own screenshot/attachment pipeline — no custom widget UI to
+  // build or maintain.
+  integrations: [
+    Sentry.feedbackIntegration({
+      colorScheme: "system",
+      showBranding: false,
+      autoInject: true,
+    }),
+  ],
 });

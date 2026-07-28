@@ -10,6 +10,13 @@ type FlightAlert = {
   delayMinutes?: number;
   timestamp?: Date;
 };
+type FlightStatusValue = 'SCHEDULED' | 'DELAYED' | 'GATE_CHANGED' | 'BOARDING' | 'CANCELLED' | 'LANDED';
+type FlightStatusChange = {
+  flightId: string;
+  status: FlightStatusValue;
+  detail?: string;
+  timestamp: Date;
+};
 
 class SocketManager {
   private socket: Socket | null = null;
@@ -76,6 +83,20 @@ class SocketManager {
   onFlightAlert(fn: (data: FlightAlert) => void) {
     // server emits "alert" (flight status changes: delays, cancellations, gate changes)
     this.socket?.on('alert', fn);
+  }
+
+  /** Server emits "flight_status" (issue #333) — the typed status enum + optional detail, distinct from "alert"'s free-text message. */
+  onFlightStatus(fn: (data: FlightStatusChange) => void) {
+    this.socket?.on('flight_status', fn);
+  }
+
+  /** Joins the `flight:<flightId>` room so flight_status/alert/priceUpdate events for it are delivered to this socket (issue #333). */
+  subscribeFlight(flightId: string) {
+    this.socket?.emit('subscribe', flightId);
+  }
+
+  unsubscribeFlight(flightId: string) {
+    this.socket?.emit('unsubscribe', flightId);
   }
 
   on(event: string, fn: (...args: any[]) => void) {

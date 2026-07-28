@@ -19,7 +19,13 @@ export class OffsetProject {
   @Column({ type: 'text' })
   description!: string;
 
-  @Column({ type: process.env.NODE_ENV === 'test' ? 'simple-json' : 'jsonb', default: [] })
+  // The array default has to be pre-serialized for the simple-json column the
+  // test driver uses; SQLite renders a raw `[]` default as `DEFAULT ()`, which
+  // fails to parse when the schema is created.
+  @Column({
+    type: process.env.NODE_ENV === 'test' ? 'simple-json' : 'jsonb',
+    default: process.env.NODE_ENV === 'test' ? '[]' : [],
+  })
   certifications!: string[];
 
   @Column({ type: 'varchar', length: 128, default: 'active' })
