@@ -12,6 +12,9 @@ import { AdminUser } from "./entities/AdminUser";
 import { AdminAuditLog } from "./entities/AdminAuditLog";
 import { Refund } from "./entities/Refund";
 import { User } from "./entities/User";
+import { ChatMessage } from "./entities/ChatMessage";
+import { FlightFollower } from "./entities/FlightFollower";
+import { FlightStatusEvent } from "./entities/FlightStatusEvent";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -33,6 +36,9 @@ export const AppDataSource = new DataSource(
         AdminAuditLog,
         Refund,
         User,
+        ChatMessage,
+        FlightFollower,
+        FlightStatusEvent,
       ],
       logging: false,
     }
@@ -52,6 +58,9 @@ export const AppDataSource = new DataSource(
         AdminAuditLog,
         Refund,
         User,
+        ChatMessage,
+        FlightFollower,
+        FlightStatusEvent,
       ],
       ssl:
         config.environment === "production"

@@ -15,6 +15,7 @@ async function startServer() {
       { initDataSource },
       { initWebSocket },
       { initPriceMonitorCron },
+      { initBoardingReminderCron },
       { verifyConnectivity },
       contractMonitorModule,
     ] = await Promise.all([
@@ -22,6 +23,7 @@ async function startServer() {
       import('./db/dataSource'),
       import('./websockets/server'),
       import('./jobs/priceMonitor'),
+      import('./jobs/boardingReminderCron'),
       import('./utils/health-check'),
       import('./services/contractMonitor'),
     ]);
@@ -31,8 +33,10 @@ async function startServer() {
     const app = createApp();
     const server = http.createServer(app);
 
+    // This correctly runs your WebSocket gateway server initialization
     initWebSocket(server);
     initPriceMonitorCron();
+    initBoardingReminderCron();
 
     const PORT = config.port || 3001;
 
