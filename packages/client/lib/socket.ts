@@ -2,6 +2,14 @@ import { io, Socket } from 'socket.io-client';
 
 type PriceUpdate = { flightId: string; price: number; currency?: string };
 type BookingStatus = { bookingId: string; status: string };
+type FlightAlert = {
+  message: string;
+  flightId: string;
+  status?: string;
+  gate?: string;
+  delayMinutes?: number;
+  timestamp?: Date;
+};
 
 class SocketManager {
   private socket: Socket | null = null;
@@ -63,6 +71,11 @@ class SocketManager {
 
   onBookingStatus(fn: (data: BookingStatus) => void) {
     this.socket?.on('booking_status', fn);
+  }
+
+  onFlightAlert(fn: (data: FlightAlert) => void) {
+    // server emits "alert" (flight status changes: delays, cancellations, gate changes)
+    this.socket?.on('alert', fn);
   }
 
   on(event: string, fn: (...args: any[]) => void) {

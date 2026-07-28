@@ -1,12 +1,13 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
 use governance::{GovernanceContract, GovernanceContractClient};
 
 #[test]
 fn test_access_control_ownership() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, GovernanceContract);
+    env.mock_all_auths();
+    let contract_id = env.register(GovernanceContract, ());
     let client = GovernanceContractClient::new(&env, &contract_id);
 
     let owner = Address::generate(&env);
@@ -33,7 +34,8 @@ fn test_access_control_ownership() {
 #[test]
 fn test_access_control_roles() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, GovernanceContract);
+    env.mock_all_auths();
+    let contract_id = env.register(GovernanceContract, ());
     let client = GovernanceContractClient::new(&env, &contract_id);
 
     let owner = Address::generate(&env);
@@ -67,7 +69,7 @@ fn test_guarded_function() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register_contract(None, GovernanceContract);
+    let contract_id = env.register(GovernanceContract, ());
     let client = GovernanceContractClient::new(&env, &contract_id);
 
     let owner = Address::generate(&env);

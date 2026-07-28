@@ -33,6 +33,8 @@ import { userRoutes } from './api/routes/users';
 import { carbonRoutes } from './api/routes/carbon';
 import { createCurrencyRoutes } from './api/routes/currencies';
 import { referralRoutes } from './api/routes/referrals';
+import { flightStatusRoutes } from './api/routes/flightStatus';
+import { analyticsRoutes } from './api/routes/analytics';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
@@ -186,6 +188,8 @@ export const createApp = async (options: AppOptions = {}) => {
 
   app.use('/api/v1/alerts', requireAuth, alertRoutes);
   app.use('/api/v1/reviews', reviewRoutes);
+  app.use('/api/v1/flight-status', flightStatusRoutes);
+  app.use('/api/v1/analytics', analyticsRoutes);
 
 
   app.use('/api/v1/auth', validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
