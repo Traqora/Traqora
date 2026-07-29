@@ -20,6 +20,11 @@ import { withRetries } from "../../services/retry";
 import { getWebSocketServer } from "../../websockets/server";
 import { logger } from "../../utils/logger";
 import { baggageService, RESTRICTION_NOTES } from "../../services/baggageService";
+import {
+  specialAssistanceService,
+  mapPassengerToRequest,
+} from "../../services/specialAssistanceService";
+import type { SpecialAssistanceRequest } from "../../types/specialAssistance";
 
 const router = Router();
 
@@ -471,6 +476,57 @@ router.get(
   }),
 );
 
+router.get(
+  "/:id/fare-rules/parsed",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.getBookingFareRulesWithParsing(req.params.id);
+    return res.json({ success: true, data: result });
+  }),
+);
+
+router.get(
+  "/:id/change-fee-tiers",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const tiers = await orchestrationService.getChangeFeeTiers(req.params.id);
+    return res.json({ success: true, data: tiers });
+  }),
+);
+
+router.get(
+  "/:id/cancellation-tiers",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const tiers = await orchestrationService.getCancellationTiers(req.params.id);
+    return res.json({ success: true, data: tiers });
+  }),
+);
+
+const changeFlightSchema = z.object({
+  newFlightId: z.string().uuid("Must be a valid flight UUID"),
+});
+
+router.post(
+  "/:id/change-quote",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = changeFlightSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+    const orchestrationService = new BookingOrchestrationService();
+    const quote = await orchestrationService.calculateBookingChangeFeeWithFlight(
+      req.params.id,
+      parsed.data.newFlightId,
+    );
+    return res.json({ success: true, data: quote });
+  }),
+);
+
 const changeFeeQuerySchema = z.object({
   newDate: z.string().min(1, "newDate query parameter is required"),
 });
@@ -669,6 +725,130 @@ router.get(
     return res.json({
       success: true,
       data: { allowance, cabinClass, restrictions: RESTRICTION_NOTES },
+    });
+  }),
+);
+
+const wheelchairSchema = z.object({
+  type: z.enum(['ramp', 'boarding', 'cabin', 'stretcher'] as const),
+  notes: z.string().max(500).optional(),
+});
+
+const medicalOxygenSchema = z.object({
+  type: z.enum(['portable_concentrator', 'cylinder'] as const),
+  flowRateLpm: z.number().int().positive().max(15).optional(),
+  quantity: z.number().int().positive().max(10).optional(),
+  notes: z.string().max(500).optional(),
+});
+
+const specialMealSchema = z.object({
+  mealType: z.string().min(2).max(10),
+  notes: z.string().max(500).optional(),
+});
+
+const serviceAnimalSchema = z.object({
+  animalType: z.enum(['guide_dog', 'hearing_dog', 'emotional_support', 'psychiatric', 'other'] as const),
+  breed: z.string().max(100).optional(),
+  weightKg: z.number().int().positive().max(200).optional(),
+  notes: z.string().max(500).optional(),
+});
+
+const accessibilityPreferenceSchema = z.object({
+  priorityBoarding: z.boolean().default(false),
+  extraLegroomPreferred: z.boolean().default(false),
+  bulkheadSeatRequired: z.boolean().default(false),
+  aisleChairRequired: z.boolean().default(false),
+  deafOrHardOfHearing: z.boolean().default(false),
+  blindOrLowVision: z.boolean().default(false),
+  cognitiveAssistance: z.boolean().default(false),
+  notes: z.string().max(1000).optional(),
+});
+
+const specialAssistanceSchema = z.object({
+  requiresWheelchair: z.boolean().default(false),
+  wheelchair: wheelchairSchema.optional(),
+  requiresMedicalOxygen: z.boolean().default(false),
+  medicalOxygen: medicalOxygenSchema.optional(),
+  specialMeal: z.boolean().default(false),
+  meal: specialMealSchema.optional(),
+  hasServiceAnimal: z.boolean().default(false),
+  serviceAnimal: serviceAnimalSchema.optional(),
+  accessibilityNeeds: accessibilityPreferenceSchema.optional(),
+  otherNeeds: z.string().max(2000).optional(),
+});
+
+router.put(
+  '/:id/passengers/:passengerId/special-assistance',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = specialAssistanceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
+    if (!booking) throw new NotFoundError('Booking not found');
+
+    const passengerRepo = AppDataSource.getRepository(Passenger);
+    const passenger = await passengerRepo.findOne({ where: { id: req.params.passengerId } });
+    if (!passenger) throw new NotFoundError('Passenger not found');
+
+    const request = parsed.data as SpecialAssistanceRequest;
+    const validationErrors = specialAssistanceService.validateAssistanceRequest(request);
+    if (validationErrors.length > 0) {
+      throw new BadRequestError('Invalid assistance request', validationErrors);
+    }
+
+    const result = await specialAssistanceService.updateAssistance(
+      req.params.id,
+      req.params.passengerId,
+      request,
+    );
+
+    res.json({
+      success: true,
+      data: {
+        assistance: mapPassengerToRequest(result.passenger),
+        notification: result.notification,
+      },
+    });
+  }),
+);
+
+router.get(
+  '/:id/passengers/:passengerId/special-assistance',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const passengerRepo = AppDataSource.getRepository(Passenger);
+    const passenger = await passengerRepo.findOne({ where: { id: req.params.passengerId } });
+    if (!passenger) throw new NotFoundError('Passenger not found');
+
+    const result = await specialAssistanceService.getAssistance(passenger);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  }),
+);
+
+router.post(
+  '/:id/passengers/:passengerId/special-assistance/validate',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = specialAssistanceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const errors = specialAssistanceService.validateAssistanceRequest(
+      parsed.data as SpecialAssistanceRequest,
+    );
+
+    res.json({
+      success: true,
+      data: { valid: errors.length === 0, errors },
     });
   }),
 );
