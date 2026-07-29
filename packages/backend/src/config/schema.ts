@@ -66,6 +66,7 @@ export const configSchema = z.object({
 
   flightSearchCacheTtlSeconds: z.number().int().positive().default(300),
   flightRegistryCacheTtlSeconds: z.number().int().nonnegative().default(60),
+  apiResponseCacheTtlSeconds: z.number().int().positive().default(60),
 
   sendgridApiKey: z.string().optional(),
   firebaseServiceAccount: z.string().optional(),
