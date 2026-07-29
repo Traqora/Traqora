@@ -32,6 +32,8 @@ import { useTransactionHistory } from "@/hooks/use-transaction-history"
 // NEW: offline access to cached bookings when the network is unavailable
 import { useOffline } from "@/components/offline-provider"
 import { OfflineItineraryView } from "@/components/offline-itinerary-view"
+import { getTransactionReceiptPdf } from "@/lib/api"
+import { toast } from "sonner"
 // NEW: real-time flight status alerts (delays, cancellations, gate changes)
 import { FlightStatusBanner } from "@/components/flight-status/FlightStatusBanner"
 // NEW: flight-following widget with live status + on-time performance (issue #332)
@@ -253,6 +255,22 @@ export default function DashboardPage() {
     return `${hash.slice(0, 10)}...${hash.slice(-8)}`
   }
 
+  const handleDownloadReceipt = async (bookingId: string) => {
+    try {
+      const blob = await getTransactionReceiptPdf(bookingId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `receipt-${bookingId}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error: any) {
+      toast.error("Failed to download receipt", {
+        description: error?.message || "Please try again",
+      })
+    }
+  }
+
   const getRefundCountdown = (deadline: string) => {
     const now = new Date()
     const deadlineDate = new Date(deadline)
@@ -295,7 +313,7 @@ export default function DashboardPage() {
       </header>
 
       {/* Primary content — landmark: main */}
-      <main id="main-content" tabIndex={-1} className="outline-none">
+      <div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-8">
             <h1 className="font-serif font-bold text-3xl text-foreground mb-2">My Dashboard</h1>
@@ -434,6 +452,17 @@ export default function DashboardPage() {
                                 View on Stellar Expert
                               </Button>
                             </a>
+                          )}
+                          {tx.txHash && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="justify-start bg-transparent w-full"
+                              onClick={() => handleDownloadReceipt(tx.bookingId)}
+                            >
+                              <Download className="h-4 w-4 mr-2" />
+                              Download Receipt
+                            </Button>
                           )}
                         </div>
                       </div>
@@ -672,7 +701,12 @@ export default function DashboardPage() {
           </TabsContent>
         </Tabs>
       </div>
-      </main>
+      </div>
+
+      {/* Footer — landmark: contentinfo */}
+      <footer role="contentinfo" className="sr-only">
+        <p>© {new Date().getFullYear()} Traqora. Decentralized flight booking powered by Stellar.</p>
+      </footer>
     </div>
   )
 }

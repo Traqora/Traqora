@@ -28,6 +28,7 @@ import { UserProfile } from "./entities/UserProfile";
 import { AccountDeletionRequest } from "./entities/AccountDeletionRequest";
 import { Dispute } from "./entities/Dispute";
 import { DisputeEvidence } from "./entities/DisputeEvidence";
+import { RecommendationEvent } from "./entities/RecommendationEvent";
 import { Review } from "./entities/Review";
 import { Feedback } from "./entities/Feedback";
 import { FeedbackVote } from "./entities/FeedbackVote";
@@ -41,6 +42,7 @@ import { CorporateAccount } from "./entities/CorporateAccount";
 import { CorporateUser } from "./entities/CorporateUser";
 import { CorporateBookingPolicy } from "./entities/CorporateBookingPolicy";
 import { BookingApproval } from "./entities/BookingApproval";
+import { AncillaryPurchase } from "./entities/AncillaryPurchase";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -78,6 +80,7 @@ export const AppDataSource = new DataSource(
         AccountDeletionRequest,
         Dispute,
         DisputeEvidence,
+        RecommendationEvent,
         Review,
         Feedback,
         FeedbackVote,
@@ -91,6 +94,7 @@ export const AppDataSource = new DataSource(
         CorporateUser,
         CorporateBookingPolicy,
         BookingApproval,
+        AncillaryPurchase,
       ],
       logging: false,
     }
@@ -126,6 +130,7 @@ export const AppDataSource = new DataSource(
         AccountDeletionRequest,
         Dispute,
         DisputeEvidence,
+        RecommendationEvent,
         Review,
         Feedback,
         FeedbackVote,
@@ -139,6 +144,7 @@ export const AppDataSource = new DataSource(
         CorporateUser,
         CorporateBookingPolicy,
         BookingApproval,
+        AncillaryPurchase,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:

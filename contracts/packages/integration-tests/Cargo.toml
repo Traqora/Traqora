@@ -22,6 +22,7 @@ refund = { workspace = true }
 refund-automation = { workspace = true }
 token = { workspace = true }
 upgrade = { workspace = true }
+booking-receipt = { workspace = true }
 admin = { workspace = true }
 
 [dev-dependencies]

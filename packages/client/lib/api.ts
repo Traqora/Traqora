@@ -170,6 +170,17 @@ export interface BookingTransactionStatusResponse {
   transactionStatus: TransactionStatus | null
 }
 
+export async function getTransactionReceiptPdf(bookingId: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/transactions/${bookingId}/receipt.pdf`, {
+    headers: { ...getAuthHeader() },
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+  }
+  return response.blob()
+}
+
 export type DisputeStatus = "open" | "evidence_submission" | "under_review" | "resolved" | "appealed" | "closed"
 
 export interface DisputeEvidence {

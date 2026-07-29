@@ -18,6 +18,7 @@ import {
   Shield,
   Leaf,
   Info,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency, type CurrencyCode } from "@/lib/currency";
@@ -72,6 +73,10 @@ interface BookingSummaryProps {
     count: number;
     totalCents: number;
   };
+  ancillaries?: {
+    count: number;
+    totalCents: number;
+  };
   className?: string;
   displayCurrency?: CurrencyCode;
   rates?: Record<string, number>;
@@ -87,6 +92,7 @@ export function BookingSummary({
   wifi,
   baggage,
   entertainment,
+  ancillaries,
   className,
   displayCurrency = "USD",
   rates,
@@ -112,6 +118,9 @@ export function BookingSummary({
   const entertainmentFare = entertainment
     ? convertPrice(entertainment.totalCents / 100)
     : 0;
+  const ancillaryFare = ancillaries
+    ? convertPrice(ancillaries.totalCents / 100)
+    : 0;
   const subtotal =
     baseFare +
     seatFare +
@@ -120,7 +129,8 @@ export function BookingSummary({
     mealsFare +
     wifiFare +
     baggageFare +
-    entertainmentFare;
+    entertainmentFare +
+    ancillaryFare;
   const taxes = subtotal * 0.08;
   const total = subtotal + taxes;
 
@@ -295,6 +305,17 @@ export function BookingSummary({
                 </span>
                 <span className="font-medium">
                   {formatCurrency(entertainmentFare, displayCurrency)}
+                </span>
+              </div>
+            )}
+            {ancillaries && (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  Trip Extras ({ancillaries.count})
+                </span>
+                <span className="font-medium">
+                  {formatCurrency(ancillaryFare, displayCurrency)}
                 </span>
               </div>
             )}

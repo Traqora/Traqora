@@ -5,7 +5,7 @@ const PAGES = [
   { name: "landing", path: "/" },
   { name: "search", path: "/search" },
   { name: "dashboard", path: "/dashboard" },
-  { name: "payment", path: "/payment" },
+  { name: "payment", path: "/payment/1" },
   { name: "governance", path: "/governance" },
   { name: "loyalty", path: "/loyalty" },
   { name: "group-booking", path: "/book/group" },

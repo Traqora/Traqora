@@ -586,7 +586,7 @@ export default function GroupBookingPage() {
         </nav>
       </header>
 
-      <main id="main-content" tabIndex={-1} className="outline-none">
+      <div>
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <h1 className="font-serif font-bold text-3xl text-foreground mb-2">Group Booking</h1>
           <p className="text-muted-foreground mb-8">Plan and split travel costs with your group.</p>
@@ -638,7 +638,12 @@ export default function GroupBookingPage() {
         {step === 'split' && renderSplit()}
         {step === 'invite' && renderInvite()}
       </div>
-      </main>
+      </div>
+
+      {/* Footer — landmark: contentinfo */}
+      <footer role="contentinfo" className="sr-only">
+        <p>© {new Date().getFullYear()} Traqora. Decentralized flight booking powered by Stellar.</p>
+      </footer>
     </div>
   );
 }

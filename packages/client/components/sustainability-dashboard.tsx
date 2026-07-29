@@ -263,6 +263,7 @@ export function SustainabilityDashboard({ userId, className }: SustainabilityDas
                       onClick={() => handleDownloadCertificate(purchase.id)}
                       disabled={downloadingId === purchase.id}
                       title="Download Certificate"
+                      aria-label="Download Certificate"
                     >
                       <Download className={cn(
                         "h-4 w-4",

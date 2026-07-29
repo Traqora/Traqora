@@ -24,6 +24,7 @@ import { collaborationRoutes } from './api/routes/collaboration';
 import { authRoutes } from './api/routes/auth';
 import disputeRoutes from './api/routes/disputes';
 import serviceRoutes from './api/routes/services';
+import ancillaryRoutes from './api/routes/ancillary';
 import contractEventRoutes from './api/routes/contract-events';
 import transactionRoutes from './api/routes/transactions';
 import checkinRoutes from './api/routes/checkin';
@@ -37,6 +38,7 @@ import { trackingRoutes } from './api/routes/tracking';
 import { feedbackRoutes } from './api/routes/feedback';
 import { createCurrencyRoutes } from './api/routes/currencies';
 import { referralRoutes } from './api/routes/referrals';
+import { recommendationRoutes } from './api/routes/recommendations';
 import { flightStatusRoutes } from './api/routes/flightStatus';
 import { analyticsRoutes } from './api/routes/analytics';
 // @ts-ignore
@@ -207,6 +209,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/security', securityRoutes);
   app.use('/api/v1/documents', requireAuth, documentRoutes);
   app.use('/api/v1/referrals', referralRoutes);
+  app.use('/api/v1/recommendations', recommendationRoutes);
   app.use('/api/v1/users', userRoutes);
 
   // Admin routes
@@ -222,6 +225,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/collaboration', collaborationRoutes);
   app.use('/api/v1/disputes', disputeRoutes);
   app.use('/api/v1/services', serviceRoutes);
+  app.use('/api/v1/ancillary', ancillaryRoutes);
   app.use('/api/v1/contract-events', contractEventRoutes);
   app.use('/api/v1/transactions', transactionRoutes);
   app.use('/api/v1/checkin', requireAuth, checkinRoutes);

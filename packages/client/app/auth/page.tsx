@@ -375,8 +375,9 @@ export default function AuthPage() {
                           size="icon"
                           onClick={() => setShowRemoveDialog(cred.id)}
                           className="text-destructive hover:text-destructive"
+                          aria-label={`Remove ${cred.deviceName || "biometric credential"}`}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
                         </Button>
                       </div>
                     ))}
