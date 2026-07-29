@@ -8,9 +8,51 @@ import { requireAuth } from "../../middleware/authMiddleware";
 import { asyncHandler } from "../../utils/errorHandler";
 import { notificationService } from "../../services/NotificationService";
 import { pushNotificationService } from "../../services/PushNotificationService";
+import { MultiChannelNotificationService } from "../../services/MultiChannelNotificationService";
+import { EmailNotificationChannel } from "../../services/channels/EmailNotificationChannel";
+import { SMSNotificationChannel } from "../../services/channels/SMSNotificationChannel";
+import { PushNotificationChannel } from "../../services/channels/PushNotificationChannel";
+import { InAppNotificationChannel } from "../../services/channels/InAppNotificationChannel";
 import { logger } from "../../utils/logger";
 
 const router = Router();
+
+// Initialize multi-channel service
+let multiChannelService: MultiChannelNotificationService;
+
+function initializeMultiChannelService() {
+  if (!multiChannelService) {
+    multiChannelService = new MultiChannelNotificationService();
+    
+    // Register channels
+    const emailChannel = new EmailNotificationChannel({
+      fromAddress: process.env.EMAIL_FROM_ADDRESS || 'noreply@traqora.com',
+      fromName: process.env.EMAIL_FROM_NAME || 'Traqora',
+    });
+    
+    const smsChannel = new SMSNotificationChannel({
+      provider: (process.env.SMS_PROVIDER as any) || 'twilio',
+      apiKey: process.env.SMS_API_KEY,
+      apiSecret: process.env.SMS_API_SECRET,
+      fromNumber: process.env.SMS_FROM_NUMBER,
+    });
+    
+    const pushChannel = new PushNotificationChannel({
+      vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
+      vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
+      subject: process.env.VAPID_SUBJECT || 'mailto:admin@traqora.com',
+    });
+    
+    const inAppChannel = new InAppNotificationChannel();
+    
+    multiChannelService.registerChannel(emailChannel);
+    multiChannelService.registerChannel(smsChannel);
+    multiChannelService.registerChannel(pushChannel);
+    multiChannelService.registerChannel(inAppChannel);
+  }
+  
+  return multiChannelService;
+}
 
 // Schemas
 const preferencesUpdateSchema = z.object({
@@ -37,6 +79,260 @@ const pushSubscriptionSchema = z.object({
 const notificationSchema = z.object({
   notificationId: z.string(),
 });
+
+/**
+ * GET /api/notifications/preferences
+ * Get user notification preferences from database
+ */
+router.get(
+  "/preferences/db",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = (req as any).user?.id || (req as any).userId;
+    const service = initializeMultiChannelService();
+    
+    const preferences = await service.getUserPreferences(userId);
+
+    return res.json({
+      userId,
+      preferences,
+      total: preferences.length,
+    });
+  }),
+);
+
+/**
+ * PUT /api/notifications/preferences/db
+ * Update notification preference in database
+ */
+router.put(
+  "/preferences/db",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const schema = z.object({
+      channel: z.enum(["email", "sms", "push", "inapp"]),
+      category: z.enum([
+        "booking",
+        "payment",
+        "itinerary",
+        "collaboration",
+        "marketing",
+        "system",
+      ]),
+      frequency: z.enum(["instant", "daily", "weekly", "never"]).optional(),
+      enabled: z.boolean(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+
+    const userId = (req as any).user?.id || (req as any).userId;
+    const service = initializeMultiChannelService();
+    
+    const preference = await service.updatePreference(
+      userId,
+      parsed.data.channel,
+      parsed.data.category,
+      {
+        enabled: parsed.data.enabled,
+        frequency: parsed.data.frequency,
+      },
+    );
+
+    logger.info("Database preference updated via API", {
+      userId,
+      channel: parsed.data.channel,
+    });
+
+    return res.json({
+      preference,
+      message: "Preference updated successfully",
+    });
+  }),
+);
+
+/**
+ * POST /api/notifications/preferences/batch
+ * Batch update notification preferences
+ */
+router.post(
+  "/preferences/batch",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const schema = z.array(
+      z.object({
+        channel: z.enum(["email", "sms", "push", "inapp"]),
+        category: z.enum([
+          "booking",
+          "payment",
+          "itinerary",
+          "collaboration",
+          "marketing",
+          "system",
+        ]),
+        enabled: z.boolean(),
+        frequency: z.enum(["instant", "daily", "weekly", "never"]).optional(),
+      })
+    );
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+
+    const userId = (req as any).user?.id || (req as any).userId;
+    const service = initializeMultiChannelService();
+    
+    const preferences = await service.batchUpdatePreferences(userId, parsed.data);
+
+    logger.info("Batch preferences updated via API", {
+      userId,
+      count: preferences.length,
+    });
+
+    return res.json({
+      preferences,
+      message: "Preferences updated successfully",
+    });
+  }),
+);
+
+/**
+ * DELETE /api/notifications/preferences
+ * Reset all preferences to defaults
+ */
+router.delete(
+  "/preferences",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = (req as any).user?.id || (req as any).userId;
+    const service = initializeMultiChannelService();
+    
+    await service.resetPreferences(userId);
+
+    logger.info("Preferences reset via API", { userId });
+
+    return res.json({
+      message: "Preferences reset successfully",
+    });
+  }),
+);
+
+/**
+ * POST /api/notifications/send
+ * Send notification via multiple channels
+ */
+router.post(
+  "/send",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const schema = z.object({
+      userId: z.string(),
+      category: z.enum([
+        "booking",
+        "payment",
+        "itinerary",
+        "collaboration",
+        "marketing",
+        "system",
+      ]),
+      title: z.string(),
+      body: z.string(),
+      icon: z.string().optional(),
+      data: z.record(z.any()).optional(),
+      actionUrl: z.string().optional(),
+      channels: z.array(z.enum(["email", "sms", "push", "inapp"])).optional(),
+      recipients: z.object({
+        email: z.string().optional(),
+        sms: z.string().optional(),
+        push: z.string().optional(),
+        inapp: z.string(),
+      }),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+
+    const service = initializeMultiChannelService();
+    
+    const payload = {
+      id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      userId: parsed.data.userId,
+      category: parsed.data.category,
+      title: parsed.data.title,
+      body: parsed.data.body,
+      icon: parsed.data.icon,
+      data: parsed.data.data,
+      actionUrl: parsed.data.actionUrl,
+      timestamp: new Date(),
+    };
+
+    const results = await service.sendNotification(
+      parsed.data.userId,
+      payload,
+      parsed.data.recipients,
+      parsed.data.channels,
+    );
+
+    logger.info("Multi-channel notification sent", {
+      userId: parsed.data.userId,
+      category: parsed.data.category,
+      results: Array.from(results.entries()),
+    });
+
+    return res.json({
+      notificationId: payload.id,
+      results: Array.from(results.entries()),
+      message: "Notification sent successfully",
+    });
+  }),
+);
+
+/**
+ * GET /api/notifications/delivery-history
+ * Get delivery history for user
+ */
+router.get(
+  "/delivery-history",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = (req as any).user?.id || (req as any).userId;
+    const { limit } = req.query;
+    const service = initializeMultiChannelService();
+    
+    const history = await service.getDeliveryHistory(
+      userId,
+      limit ? parseInt(limit as string) : 100,
+    );
+
+    return res.json({
+      userId,
+      history,
+      total: history.length,
+    });
+  }),
+);
+
+/**
+ * GET /api/notifications/delivery-stats
+ * Get delivery statistics for user
+ */
+router.get(
+  "/delivery-stats",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = (req as any).user?.id || (req as any).userId;
+    const service = initializeMultiChannelService();
+    
+    const stats = await service.getStatistics(userId);
+
+    return res.json(stats);
+  }),
+);
 
 /**
  * GET /api/notifications/preferences
@@ -293,7 +589,7 @@ router.get(
 router.get(
   "/push/stats",
   requireAuth,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (_req: Request, res: Response) => {
     const stats = await pushNotificationService.getSubscriptionStats();
 
     return res.json(stats);
