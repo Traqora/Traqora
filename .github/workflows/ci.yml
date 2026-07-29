@@ -145,7 +145,7 @@ jobs:
       - run: npm test --workspace=packages/backend -- --coverage
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           directory: packages/backend/coverage
           flags: backend
@@ -170,7 +170,7 @@ jobs:
       - run: npm test --workspace=packages/client -- --coverage
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           directory: packages/client/coverage
           flags: client
