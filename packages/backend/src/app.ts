@@ -10,6 +10,7 @@ import { bookingRoutes } from './api/routes/bookings';
 import { refundRoutes } from './api/routes/refunds';
 import { insuranceRoutes } from './api/routes/insurance';
 import { groupBookingRoutes } from './api/routes/group-bookings';
+import { corporateRoutes } from './api/routes/corporate';
 import { securityRoutes } from './api/routes/security';
 import { adminAuthRoutes } from './api/routes/admin/auth';
 import { adminFlightRoutes } from './api/routes/admin/flights';
@@ -204,6 +205,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/refunds', requireAuth, refundRoutes);
   app.use('/api/v1/insurance', insuranceRoutes);
   app.use('/api/v1/group-bookings', requireAuth, groupBookingRoutes); // <-- Added group booking routes
+  app.use('/api/v1/corporate', requireAuth, corporateRoutes);
   app.use('/api/v1/security', securityRoutes);
   app.use('/api/v1/documents', requireAuth, documentRoutes);
   app.use('/api/v1/referrals', referralRoutes);

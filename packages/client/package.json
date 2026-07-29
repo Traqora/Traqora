@@ -10,7 +10,9 @@
     "typecheck": "rimraf .next && tsc --noEmit",
     "generate:api-types": "ts-node --project tsconfig.json scripts/generate-api-types.ts",
     "test": "jest",
-    "test:e2e": "playwright test tests/e2e",
+    "test:perf": "jest tests/performance/",
+    "test:e2e": "playwright test --project=e2e",
+    "test:e2e:booking": "playwright test tests/e2e/booking",
     "test:a11y": "playwright test tests/a11y"
   },
   "dependencies": {

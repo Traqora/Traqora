@@ -36,6 +36,12 @@ import { CarbonOffset } from "./entities/CarbonOffset";
 import { OffsetProject } from "./entities/OffsetProject";
 import { TrackedFlight } from "./entities/TrackedFlight";
 import { PriceObservation } from "./entities/PriceObservation";
+import { GroupBooking } from "./entities/GroupBooking";
+import { GroupMember } from "./entities/GroupMember";
+import { CorporateAccount } from "./entities/CorporateAccount";
+import { CorporateUser } from "./entities/CorporateUser";
+import { CorporateBookingPolicy } from "./entities/CorporateBookingPolicy";
+import { BookingApproval } from "./entities/BookingApproval";
 import { AncillaryPurchase } from "./entities/AncillaryPurchase";
 
 const isTest = process.env.NODE_ENV === "test";
@@ -82,6 +88,12 @@ export const AppDataSource = new DataSource(
         OffsetProject,
         TrackedFlight,
         PriceObservation,
+        GroupBooking,
+        GroupMember,
+        CorporateAccount,
+        CorporateUser,
+        CorporateBookingPolicy,
+        BookingApproval,
         AncillaryPurchase,
       ],
       logging: false,
@@ -126,6 +138,12 @@ export const AppDataSource = new DataSource(
         OffsetProject,
         TrackedFlight,
         PriceObservation,
+        GroupBooking,
+        GroupMember,
+        CorporateAccount,
+        CorporateUser,
+        CorporateBookingPolicy,
+        BookingApproval,
         AncillaryPurchase,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],

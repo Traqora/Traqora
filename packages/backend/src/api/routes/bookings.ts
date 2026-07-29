@@ -550,6 +550,76 @@ router.post(
   }),
 );
 
+// Group Booking schemas
+const createGroupBookingSchema = z.object({
+  groupName: z.string().min(1).max(255),
+  flightId: z.string().uuid(),
+  organizerEmail: z.string().email(),
+  memberEmails: z.array(z.string().email()).min(1).max(50),
+  splitMethod: z.enum(['equal', 'custom', 'percentage']).default('equal'),
+  corporateAccountId: z.string().uuid().optional(),
+  costCenter: z.string().optional(),
+  department: z.string().optional(),
+  bookingPolicyId: z.string().uuid().optional(),
+});
+
+const groupCheckInSchema = z.object({
+  seatAllocations: z.record(z.string()).optional(),
+});
+
+router.post(
+  '/group',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = createGroupBookingSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const groupBooking = await orchestrationService.createGroupBooking(parsed.data);
+
+    return res.status(201).json({
+      success: true,
+      data: groupBooking,
+    });
+  }),
+);
+
+router.post(
+  '/:id/group-checkin',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = groupCheckInSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.groupCheckIn(
+      req.params.id,
+      parsed.data.seatAllocations,
+    );
+
+    return res.json({ success: true, data: result });
+  }),
+);
+
+router.get(
+  '/group/:id',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const groupBooking = await orchestrationService.getGroupBooking(req.params.id);
+
+    if (!groupBooking) {
+      throw new NotFoundError('Group booking not found');
+    }
+
+    return res.json({ success: true, data: groupBooking });
+  }),
+);
+
 const baggageQuerySchema = z.object({
   class: z.enum(["economy", "premium_economy", "business", "first"]).optional(),
   bags: z.coerce.number().int().min(0).max(10).optional(),

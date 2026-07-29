@@ -4,8 +4,10 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
@@ -14,10 +16,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Wallet, Loader2, CheckCircle, AlertCircle, Fingerprint, Smartphone, Trash2, Shield } from "lucide-react"
+import { Wallet, Loader2, CheckCircle, AlertCircle, Fingerprint, Smartphone, Trash2, Shield, ScanFace, ArrowLeftRight, CreditCard, KeyRound } from "lucide-react"
 import { useAuth } from "@/lib/use-auth"
 import { useWalletStore } from "@/lib/stellar-wallet-connect"
-import { AuthService, BiometricCredential } from "@/lib/auth"
+import { AuthService, BiometricCredential, getBiometricPlatformType } from "@/lib/auth"
 import { useAuthStore } from "@/lib/auth-store"
 import Link from "next/link"
 
@@ -37,6 +39,14 @@ export default function AuthPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [showRemoveDialog, setShowRemoveDialog] = useState<string | null>(null)
   const [isRemoving, setIsRemoving] = useState(false)
+  const [showDeviceNameDialog, setShowDeviceNameDialog] = useState(false)
+  const [deviceNameInput, setDeviceNameInput] = useState("")
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false)
+  const [isAuthorizingPayment, setIsAuthorizingPayment] = useState(false)
+  const [paymentResult, setPaymentResult] = useState<string | null>(null)
+  const [showFallbackDialog, setShowFallbackDialog] = useState(false)
+  const [isUsingFallback, setIsUsingFallback] = useState(false)
+  const [platformType, setPlatformType] = useState<"fingerprint" | "face" | "unknown">("unknown")
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -44,6 +54,12 @@ export default function AuthPage() {
         typeof window.PublicKeyCredential !== "undefined" &&
         typeof navigator.credentials !== "undefined"
       )
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setPlatformType(getBiometricPlatformType())
     }
   }, [])
 
@@ -76,16 +92,17 @@ export default function AuthPage() {
     }
   }
 
-  const handleRegisterBiometric = async () => {
+  const handleRegisterBiometric = async (customName?: string) => {
     if (!isAuthenticated || !address) return
     setIsRegistering(true)
     setError(null)
     setSuccessMessage(null)
     try {
-      const credential = await AuthService.registerBiometric(address)
+      const credential = await AuthService.registerBiometric(address, customName)
       setEnrolledCredentials((prev) => [...prev, credential])
       setBiometric({ enabled: true })
-      setSuccessMessage(`Successfully enrolled ${credential.deviceName || "device"} (${credential.type})`)
+      const typeLabel = platformType !== "unknown" ? platformType : credential.type
+      setSuccessMessage(`Successfully enrolled ${credential.deviceName || "device"} (${typeLabel})`)
     } catch (err) {
       if (err instanceof Error && err.message.includes("cancelled")) {
         return
@@ -96,7 +113,17 @@ export default function AuthPage() {
     }
   }
 
-  const handleBiometricAuth = async () => {
+  const handleAddDeviceWithName = () => {
+    setShowDeviceNameDialog(true)
+    setDeviceNameInput(getDeviceDisplayName() || "")
+  }
+
+  const confirmDeviceRegistration = async () => {
+    setShowDeviceNameDialog(false)
+    await handleRegisterBiometric(deviceNameInput.trim() || undefined)
+  }
+
+  const handleBiometricAuthWithFallback = async () => {
     if (!address) return
     setIsAuthenticatingBio(true)
     setError(null)
@@ -111,9 +138,37 @@ export default function AuthPage() {
       if (err instanceof Error && err.message.includes("cancelled")) {
         return
       }
+      setShowFallbackDialog(true)
       setError(err instanceof Error ? err.message : "Biometric authentication failed")
     } finally {
       setIsAuthenticatingBio(false)
+    }
+  }
+
+  const handleFallbackWalletAuth = async () => {
+    setShowFallbackDialog(false)
+    await handleAuthenticate()
+  }
+
+  const handleAuthorizePayment = async () => {
+    if (!address) return
+    setIsAuthorizingPayment(true)
+    setError(null)
+    try {
+      const result = await AuthService.authorizePayment(
+        address,
+        "100",
+        "GPAYMENTDEST123...",
+        "Demo payment authorization"
+      )
+      setPaymentResult(`Payment authorized. Token: ${result.paymentToken.slice(0, 12)}...`)
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("cancelled")) {
+        return
+      }
+      setError(err instanceof Error ? err.message : "Payment authorization failed")
+    } finally {
+      setIsAuthorizingPayment(false)
     }
   }
 
@@ -136,8 +191,19 @@ export default function AuthPage() {
     }
   }
 
+  const getDeviceDisplayName = (): string => {
+    if (typeof window === "undefined") return ""
+    const ua = navigator.userAgent
+    if (/iPhone/.test(ua)) return "My iPhone"
+    if (/iPad/.test(ua)) return "My iPad"
+    if (/Mac/.test(ua)) return "My Mac"
+    if (/Android/.test(ua)) return "My Android"
+    if (/Windows/.test(ua)) return "My PC"
+    return ""
+  }
+
   const getTypeIcon = (type: string) => {
-    return type === "face" ? "👤" : "👆"
+    return type === "face" ? <ScanFace className="h-5 w-5 text-primary" /> : <Fingerprint className="h-5 w-5 text-primary" />
   }
 
   if (authSuccess) {
@@ -256,7 +322,7 @@ export default function AuthPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={handleRegisterBiometric}
+                    onClick={handleAddDeviceWithName}
                     disabled={isRegistering || !isWebAuthnSupported}
                   >
                     {isRegistering ? (
@@ -289,14 +355,18 @@ export default function AuthPage() {
                         className="flex items-center justify-between p-3 bg-muted rounded-lg"
                       >
                         <div className="flex items-center space-x-3">
-                          <span className="text-lg">{getTypeIcon(cred.type)}</span>
+                          <span>{getTypeIcon(cred.type)}</span>
                           <div>
-                            <p className="text-sm font-medium">
-                              {cred.deviceName || "Unknown Device"}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium">
+                                {cred.deviceName || "Unknown Device"}
+                              </p>
+                              <Badge variant="outline" className="text-xs capitalize">
+                                {cred.type === "fingerprint" ? "Fingerprint" : "Face"}
+                              </Badge>
+                            </div>
                             <p className="text-xs text-muted-foreground">
-                              {cred.type === "fingerprint" ? "Fingerprint" : "Face"} &middot;{" "}
-                              {new Date(cred.enrolledAt).toLocaleDateString()}
+                              Enrolled {new Date(cred.enrolledAt).toLocaleDateString()}
                             </p>
                           </div>
                         </div>
@@ -314,6 +384,35 @@ export default function AuthPage() {
                   </div>
                 )}
               </div>
+
+              {biometric.requireForPayments && (
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-4 w-4 text-primary" />
+                      <h3 className="font-medium text-sm">Payment Authorization</h3>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowPaymentDialog(true)}
+                      disabled={enrolledCredentials.length === 0}
+                    >
+                      <KeyRound className="mr-1 h-3 w-3" />
+                      Test Payment
+                    </Button>
+                  </div>
+                  {paymentResult && (
+                    <Alert>
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                      <AlertDescription>{paymentResult}</AlertDescription>
+                    </Alert>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Biometric verification is required before processing payments when enabled.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex space-x-2">
@@ -364,6 +463,98 @@ export default function AuthPage() {
                 ) : (
                   "Remove"
                 )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showDeviceNameDialog} onOpenChange={(open) => !open && setShowDeviceNameDialog(false)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Name Your Device</DialogTitle>
+              <DialogDescription>
+                Give your device a recognizable name for biometric authentication.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <Input
+                placeholder="e.g., My iPhone, MacBook Pro, Pixel 8"
+                value={deviceNameInput}
+                onChange={(e) => setDeviceNameInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') confirmDeviceRegistration()
+                }}
+                autoFocus
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDeviceNameDialog(false)} disabled={isRegistering}>
+                Cancel
+              </Button>
+              <Button onClick={confirmDeviceRegistration} disabled={isRegistering}>
+                {isRegistering ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Enrolling...
+                  </>
+                ) : (
+                  "Enroll Device"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showPaymentDialog} onOpenChange={(open) => !open && setShowPaymentDialog(false)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Authorize Payment</DialogTitle>
+              <DialogDescription>
+                Verify your identity using biometrics to authorize a payment.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              {paymentResult ? (
+                <Alert>
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                  <AlertDescription>{paymentResult}</AlertDescription>
+                </Alert>
+              ) : (
+                <div className="text-center py-6">
+                  <CreditCard className="h-12 w-12 text-primary mx-auto mb-4" />
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Tap the button below to verify with your biometric sensor.
+                  </p>
+                  <Button
+                    onClick={handleAuthorizePayment}
+                    disabled={isAuthorizingPayment}
+                    className="w-full"
+                    size="lg"
+                  >
+                    {isAuthorizingPayment ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Verifying...
+                      </>
+                    ) : (
+                      <>
+                        <KeyRound className="mr-2 h-4 w-4" />
+                        Verify with Biometrics
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowPaymentDialog(false)
+                  setPaymentResult(null)
+                }}
+              >
+                Close
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -449,7 +640,7 @@ export default function AuthPage() {
 
               {isWebAuthnSupported && isAuthenticated && (
                 <Button
-                  onClick={handleBiometricAuth}
+                  onClick={handleBiometricAuthWithFallback}
                   variant="outline"
                   className="w-full"
                   size="lg"
@@ -462,8 +653,12 @@ export default function AuthPage() {
                     </>
                   ) : (
                     <>
-                      <Fingerprint className="mr-2 h-4 w-4" />
-                      Sign In with Biometrics
+                      {platformType === "face" ? (
+                        <ScanFace className="mr-2 h-4 w-4" />
+                      ) : (
+                        <Fingerprint className="mr-2 h-4 w-4" />
+                      )}
+                      Sign In with {platformType !== "unknown" ? (platformType === "face" ? "Face ID" : "Touch ID") : "Biometrics"}
                     </>
                   )}
                 </Button>
@@ -504,6 +699,50 @@ export default function AuthPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={showFallbackDialog} onOpenChange={(open) => !open && setShowFallbackDialog(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Biometric Authentication Failed</DialogTitle>
+            <DialogDescription>
+              Would you like to authenticate using your wallet as a fallback method?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                You can use your Stellar wallet to sign a message and complete the authentication.
+              </AlertDescription>
+            </Alert>
+          </div>
+          <DialogFooter className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowFallbackDialog(false)}
+              disabled={isUsingFallback}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleFallbackWalletAuth}
+              disabled={isUsingFallback}
+            >
+              {isUsingFallback ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Signing...
+                </>
+              ) : (
+                <>
+                  <Wallet className="mr-2 h-4 w-4" />
+                  Sign with Wallet
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
