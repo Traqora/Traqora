@@ -64,7 +64,7 @@
     "socket.io": "^4.8.3",
     "soroban-client": "^1.0.0",
     "sqlite3": "^5.1.7",
-    "stripe": "^16.2.0",
+    "stripe": "^22.3.2",
     "swagger-ui-express": "^5.0.1",
     "twilio": "^5.12.2",
     "typeorm": "^0.3.20",
