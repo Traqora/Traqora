@@ -16,4 +16,13 @@ export class User {
 
   @Column({ type: 'timestamp', nullable: true })
   lastLoginAt: Date;
+
+  @Column({ type: 'boolean', default: false })
+  twoFactorEnabled: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  twoFactorSecret: string;
+
+  @Column({ type: 'simple-array', nullable: true })
+  backupCodes: string[];
 }
