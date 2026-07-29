@@ -18,6 +18,11 @@ import {
   CircuitBreakerState,
   SyncWebhookPayload,
 } from '../../types/flightSync';
+import { CircuitBreakerWithRetry } from '../../utils/retryHandler';
+import { DeadLetterQueue } from '../deadLetterQueue';
+import { ErrorRecoveryService, RecoveryContext } from '../errorRecoveryService';
+import { FlightSyncMonitor } from '../flightSyncMonitor';
+import { getFlightSyncConfig } from '../../config/retryPolicies';
 
 /**
  * Circuit Breaker for external API calls
@@ -174,6 +179,10 @@ export class FlightSynchronizationService {
   private adapters: Map<string, IAirlineAdapter>;
   private cacheManager: FlightCacheManager;
   private circuitBreaker: CircuitBreaker;
+  private circuitBreakerWithRetry: CircuitBreakerWithRetry;
+  private deadLetterQueue: DeadLetterQueue;
+  private errorRecoveryService: ErrorRecoveryService;
+  private monitor: FlightSyncMonitor;
   private conflictResolutionMode: 'MANUAL' | 'AUTOMATIC' | 'PRIORITY' = 'PRIORITY';
   private webhookCallbacks: Set<(payload: SyncWebhookPayload) => void> = new Set();
   private lastSyncJob: FlightSyncJob | null = null;
@@ -181,46 +190,109 @@ export class FlightSynchronizationService {
   constructor(
     dataSource: DataSource,
     adapters: Map<string, IAirlineAdapter>,
-    cacheTTL: number = 300
+    cacheTTL: number = 300,
+    environment: 'development' | 'staging' | 'production' = 'production'
   ) {
     this.dataSource = dataSource;
     this.adapters = adapters;
     this.cacheManager = new FlightCacheManager(cacheTTL);
     this.circuitBreaker = new CircuitBreaker(5, 60000);
+    
+    // Initialize retry handler with environment-specific config
+    const config = getFlightSyncConfig(environment);
+    this.circuitBreakerWithRetry = new CircuitBreakerWithRetry(
+      config.retry.syncFlight,
+      config.circuitBreaker.amadeus
+    );
+    
+    // Initialize dead letter queue
+    this.deadLetterQueue = new DeadLetterQueue(dataSource, config.deadLetterQueue);
+    
+    // Initialize error recovery service
+    this.errorRecoveryService = new ErrorRecoveryService(
+      dataSource,
+      this.deadLetterQueue,
+      config.errorRecovery
+    );
+    
+    // Initialize monitor
+    this.monitor = new FlightSyncMonitor();
+    
+    // Register retry callbacks for dead letter queue
+    this.registerDeadLetterQueueCallbacks();
   }
 
   /**
    * Sync a single flight
    */
   async syncFlight(request: SyncFlightRequest): Promise<SyncFlightResponse> {
+    const startTime = Date.now();
+    
     try {
       logger.info('Starting flight sync', {
         flightNumber: request.flightNumber,
         airline: request.airline,
       });
 
-      // Fetch data from adapter
+      // Fetch data from adapter with retry and circuit breaker
       const adapter = this.adapters.get(request.airline);
       if (!adapter) {
+        const error = new Error(`No adapter found for airline: ${request.airline}`);
+        this.monitor.recordSyncFailure(error, { request });
         return {
           success: false,
           updated: false,
-          message: `No adapter found for airline: ${request.airline}`,
+          message: error.message,
           errors: ['Unknown airline'],
         };
       }
 
-      // Get flight data
-      const flightData = await this.circuitBreaker.execute(() =>
-        adapter.fetchFlightData(request.flightNumber, request.departureDate)
+      // Use circuit breaker with retry for fetching flight data
+      const flightData = await this.circuitBreakerWithRetry.execute(
+        () => adapter.fetchFlightData(request.flightNumber, request.departureDate),
+        `syncFlight:${request.flightNumber}`
       );
 
       if (!flightData) {
+        const error = new Error(`Failed to fetch flight data for ${request.flightNumber}`);
+        
+        // Attempt error recovery
+        const recoveryContext: RecoveryContext = {
+          operation: 'SYNC_FLIGHT',
+          payload: request,
+          metadata: { flightNumber: request.flightNumber, airline: request.airline },
+          timestamp: new Date(),
+        };
+        
+        const recoveryResult = await this.errorRecoveryService.attemptRecovery(error, recoveryContext);
+        
+        if (recoveryResult.success && recoveryResult.data) {
+          // Use recovered data
+          const flight = await this.upsertFlight(recoveryResult.data, adapter.airlineCode);
+          this.cacheManager.set(
+            request.flightNumber,
+            request.departureDate,
+            adapter.airlineCode,
+            recoveryResult.data
+          );
+          
+          const duration = Date.now() - startTime;
+          this.monitor.recordSyncSuccess(duration, { request, recovery: true });
+          
+          return {
+            success: true,
+            flightId: flight.id,
+            updated: true,
+            message: `Flight synced using ${recoveryResult.action}`,
+          };
+        }
+        
+        this.monitor.recordSyncFailure(error, { request });
         return {
           success: false,
           updated: false,
-          message: `Failed to fetch flight data for ${request.flightNumber}`,
-          errors: ['No data from adapter'],
+          message: error.message,
+          errors: [error.message],
         };
       }
 
@@ -235,6 +307,9 @@ export class FlightSynchronizationService {
         flightData
       );
 
+      const duration = Date.now() - startTime;
+      this.monitor.recordSyncSuccess(duration, { request });
+
       return {
         success: true,
         flightId: flight.id,
@@ -242,16 +317,46 @@ export class FlightSynchronizationService {
         message: 'Flight synced successfully',
       };
     } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      
+      this.monitor.recordSyncFailure(errorObj, { request });
+      
+      // Attempt error recovery
+      const recoveryContext: RecoveryContext = {
+        operation: 'SYNC_FLIGHT',
+        payload: request,
+        metadata: { flightNumber: request.flightNumber, airline: request.airline },
+        timestamp: new Date(),
+      };
+      
+      const recoveryResult = await this.errorRecoveryService.attemptRecovery(errorObj, recoveryContext);
+      
+      if (recoveryResult.success && recoveryResult.data) {
+        const adapter = this.adapters.get(request.airline);
+        if (adapter) {
+          const flight = await this.upsertFlight(recoveryResult.data, adapter.airlineCode);
+          this.monitor.recordSyncSuccess(duration, { request, recovery: true });
+          
+          return {
+            success: true,
+            flightId: flight.id,
+            updated: true,
+            message: `Flight synced using ${recoveryResult.action}`,
+          };
+        }
+      }
+
       logger.error('Flight sync failed', {
-        error: error instanceof Error ? error.message : String(error),
+        error: errorObj.message,
         request,
       });
 
       return {
         success: false,
         updated: false,
-        message: error instanceof Error ? error.message : 'Unknown error',
-        errors: [error instanceof Error ? error.message : String(error)],
+        message: errorObj.message,
+        errors: [errorObj.message],
       };
     }
   }
@@ -443,6 +548,76 @@ export class FlightSynchronizationService {
    */
   getCacheStats() {
     return this.cacheManager.getStats();
+  }
+
+  /**
+   * Get monitor instance
+   */
+  getMonitor() {
+    return this.monitor;
+  }
+
+  /**
+   * Get dead letter queue instance
+   */
+  getDeadLetterQueue() {
+    return this.deadLetterQueue;
+  }
+
+  /**
+   * Register callbacks for dead letter queue retry operations
+   */
+  private registerDeadLetterQueueCallbacks(): void {
+    this.deadLetterQueue.registerRetryCallback('SYNC_FLIGHT', async (entry) => {
+      try {
+        const request = entry.payload as SyncFlightRequest;
+        const result = await this.syncFlight(request);
+        return result.success;
+      } catch (error) {
+        logger.error('Dead letter queue retry callback failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    });
+
+    this.deadLetterQueue.registerRetryCallback('BATCH_SYNC', async (entry) => {
+      try {
+        const requests = entry.payload as SyncFlightRequest[];
+        const result = await this.batchSyncFlights(requests);
+        return result.failed.length === 0;
+      } catch (error) {
+        logger.error('Dead letter queue batch retry callback failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    });
+
+    this.deadLetterQueue.registerRetryCallback('WEBHOOK_PROCESS', async (entry) => {
+      try {
+        await this.processWebhook(entry.payload);
+        return true;
+      } catch (error) {
+        logger.error('Dead letter queue webhook retry callback failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    });
+
+    this.deadLetterQueue.registerRetryCallback('STATUS_UPDATE', async (entry) => {
+      try {
+        const request = entry.payload as SyncFlightRequest;
+        const result = await this.syncFlight(request);
+        return result.success;
+      } catch (error) {
+        logger.error('Dead letter queue status update retry callback failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    });
   }
 
   // ==================== Private Methods ====================

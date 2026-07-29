@@ -158,7 +158,46 @@ export class AuthService {
         }
         await this.userRepository.save(user);
 
+        // Check if 2FA is enabled
+        if (user.twoFactorEnabled) {
+            throw new Error('TWO_FACTOR_REQUIRED');
+        }
+
         return this.issueTokens(walletAddress, walletType);
+    }
+
+    /*
+     * Complete login with 2FA token verification
+     */
+    async verifyTwoFactorAndIssueTokens(
+        walletAddress: string,
+        token: string,
+        isBackupCode: boolean = false
+    ): Promise<VerifyResponse> {
+        const user = await this.userRepository.findOne({ where: { walletAddress } });
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        if (!user.twoFactorEnabled) {
+            throw new Error('2FA not enabled for this user');
+        }
+
+        // Import TwoFactorService here to avoid circular dependency
+        const { TwoFactorService } = await import('./twoFactorService');
+        const twoFactorService = new TwoFactorService(this.userRepository);
+
+        if (isBackupCode) {
+            await twoFactorService.verifyBackupCode(walletAddress, token);
+        } else {
+            await twoFactorService.verifyTwoFactorToken(walletAddress, token);
+        }
+
+        // Update last login time
+        user.lastLoginAt = new Date();
+        await this.userRepository.save(user);
+
+        return this.issueTokens(walletAddress, user.walletType);
     }
 
     /*
