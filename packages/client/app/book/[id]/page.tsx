@@ -31,6 +31,7 @@ import { CarbonOffsetSelector } from "@/components/booking/carbon-offset-selecto
 import { FareRulesSummary, FareRule } from "@/components/booking/fare-rules-summary"
 import { CurrencySelector } from "@/components/currency-selector"
 import { PassengerDetailsForm, PassengerData, validatePassengers } from "@/components/booking/passenger-details-form"
+import { SpecialAssistanceForm, SpecialAssistanceData, EMPTY_SPECIAL_ASSISTANCE } from "@/components/booking/special-assistance-form"
 import { useBooking } from "@/hooks/use-booking"
 import { useFlightSearch } from "@/hooks/use-flight-search"
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
@@ -119,6 +120,7 @@ export default function BookFlightPage() {
     { firstName: "", lastName: "", email: "", phone: "" },
   ])
   const [passengerErrors, setPassengerErrors] = useState<ReturnType<typeof validatePassengers>>([])
+  const [specialAssistance, setSpecialAssistance] = useState<SpecialAssistanceData[]>([{ ...EMPTY_SPECIAL_ASSISTANCE }])
   const [fareRules, setFareRules] = useState<FareRule[]>([])
 
   useEffect(() => {
@@ -222,11 +224,13 @@ export default function BookFlightPage() {
 
   const handleAddPassenger = () => {
     setPassengers([...passengers, { firstName: "", lastName: "", email: "", phone: "" }])
+    setSpecialAssistance([...specialAssistance, { ...EMPTY_SPECIAL_ASSISTANCE }])
   }
 
   const handleRemovePassenger = (index: number) => {
     if (passengers.length <= 1) return
     setPassengers(passengers.filter((_, i) => i !== index))
+    setSpecialAssistance(specialAssistance.filter((_, i) => i !== index))
   }
 
   const validateStep = (step: BookingStep): boolean => {
@@ -444,6 +448,23 @@ export default function BookFlightPage() {
                   displayCurrency={displayCurrency}
                   rates={rates}
                 />
+
+                <div className="space-y-4">
+                  <h3 className="font-bold text-lg">Special Assistance & Medical Needs</h3>
+                  {specialAssistance.map((sa, i) => (
+                    <SpecialAssistanceForm
+                      key={i}
+                      passengerIndex={i}
+                      data={sa}
+                      onChange={(idx, data) => {
+                        const updated = [...specialAssistance]
+                        updated[idx] = data
+                        setSpecialAssistance(updated)
+                      }}
+                    />
+                  ))}
+                </div>
+
                 <div className="flex justify-between">
                   <Button variant="ghost" onClick={prevStep}>
                     <ArrowLeft className="mr-2 h-4 w-4" />
@@ -751,7 +772,13 @@ export default function BookFlightPage() {
               />
               
               {fareRules.length > 0 && (
-                <FareRulesSummary fareRules={fareRules} airlineName={flight.airline} />
+                <FareRulesSummary
+                  fareRules={fareRules}
+                  airlineName={flight.airline}
+                  airlineCode={flight.airline.substring(0, 2).toUpperCase()}
+                  bookingId={booking.id}
+                  compact={false}
+                />
               )}
 
               <div className="p-4 bg-muted/30 rounded-xl border border-border/50 text-[10px] text-muted-foreground flex items-start gap-2">

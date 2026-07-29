@@ -15,6 +15,9 @@ import type {
   ChangeFeeQuote,
   CancellationRefund,
   UpgradeQuote,
+  FareRule,
+  ChangeFeeTier,
+  SeasonalFareOverride,
 } from "./fareRulesService";
 import { getWebSocketServer } from "../websockets/server";
 import { inflightServicesService } from "./inflightServicesService";
@@ -691,6 +694,58 @@ export class BookingOrchestrationService {
     return fareService.getApplicableFareRules(booking.flight);
   }
 
+  async getBookingFareRulesWithParsing(
+    bookingId: string,
+  ): Promise<{ rules: FareRule[]; warnings: string[]; seasonalOverride: SeasonalFareOverride | null }> {
+    const fareService = new FareRulesService();
+    const booking = await this.bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ["flight"],
+    });
+    if (!booking) {
+      throw new BadRequestError("Booking not found");
+    }
+    const flight = booking.flight;
+    const parsed = fareService.parseAirlineFareRules(
+      flight.airlineCode,
+      (flight.rawData || {}) as Record<string, any>,
+    );
+    const seasonalOverride = fareService.getActiveSeasonalOverride(flight);
+    return { rules: parsed.rules, warnings: parsed.warnings, seasonalOverride };
+  }
+
+  async getChangeFeeTiers(
+    bookingId: string,
+  ): Promise<ChangeFeeTier[]> {
+    const booking = await this.bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ["flight"],
+    });
+    if (!booking) {
+      throw new BadRequestError("Booking not found");
+    }
+    const fareService = new FareRulesService();
+    const flight = booking.flight;
+    const fareClass = (flight.rawData?.fareClass as FareClass) || "economy";
+    return fareService.getChangeFeeTiers(flight.airlineCode, fareClass);
+  }
+
+  async getCancellationTiers(
+    bookingId: string,
+  ): Promise<{ fromDays: number; toDays: number; refundPercentage: number; penaltyCents: number; label: string }[]> {
+    const booking = await this.bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ["flight"],
+    });
+    if (!booking) {
+      throw new BadRequestError("Booking not found");
+    }
+    const fareService = new FareRulesService();
+    const flight = booking.flight;
+    const fareClass = (flight.rawData?.fareClass as FareClass) || "economy";
+    return fareService.getCancellationTiers(flight.airlineCode, fareClass);
+  }
+
   async calculateBookingChangeFee(
     bookingId: string,
     newDate: string,
@@ -708,6 +763,26 @@ export class BookingOrchestrationService {
       throw new BadRequestError("Invalid date format");
     }
     return fareService.calculateChangeFee(booking, parsedDate);
+  }
+
+  async calculateBookingChangeFeeWithFlight(
+    bookingId: string,
+    newFlightId: string,
+  ): Promise<ChangeFeeQuote> {
+    const booking = await this.bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ["flight"],
+    });
+    if (!booking) {
+      throw new BadRequestError("Booking not found");
+    }
+    const flightRepo = AppDataSource.getRepository(Flight);
+    const newFlight = await flightRepo.findOne({ where: { id: newFlightId } });
+    if (!newFlight) {
+      throw new BadRequestError("New flight not found");
+    }
+    const fareService = new FareRulesService();
+    return fareService.calculateChangeFee(booking, newFlight.departureTime, newFlight);
   }
 
   async calculateBookingCancellationRefund(

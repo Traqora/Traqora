@@ -1,21 +1,11 @@
 # syntax=docker/dockerfile:1.7
 #
-# packages/backend — hardened multi-stage Node image (issue #162).
-#
-# Mirrors the hardening already applied to packages/client/Dockerfile:
-#   - Multi-stage build to drop dev deps and build toolchain from the
-#     final image
-#   - Non-root runtime user with a fixed UID
-#   - `npm ci` in build stage (deterministic from package-lock.json)
-#   - `--ignore-scripts` on install so npm lifecycle scripts can't
-#     execute untrusted code while the build is laid down
-#   - `--omit=dev` in the runner stage so devDependencies don't ship
-#   - HEALTHCHECK for Docker / k8s liveness probes
-#   - Slim alpine base, pinned to a major (use a digest in production
-#     deploys when the build pipeline supports it).
+# packages/backend — hardened multi-stage Node image.
+
+ARG NODE_VERSION=20
 
 # ─── Development stage (used by docker-compose.yml hot-reload) ──────────────
-FROM node:20-alpine AS development
+FROM node:${NODE_VERSION}-alpine AS development
 
 WORKDIR /usr/src/app
 
@@ -33,15 +23,17 @@ ENV NODE_ENV=development
 CMD ["npm", "run", "dev"]
 
 # ─── Build stage — install + compile TypeScript ─────────────────────────────
-FROM node:20-alpine AS build
+FROM node:${NODE_VERSION}-alpine AS build
+
+ARG NODE_VERSION
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION
 
 WORKDIR /usr/src/app
 
 RUN apk add --no-cache python3 make g++
 
-# Reproducible install from package-lock.json. --ignore-scripts blocks
-# any untrusted lifecycle scripts during install; the explicit `npm run
-# build` below executes only the scripts we control.
 COPY package*.json ./
 RUN npm ci --legacy-peer-deps --ignore-scripts
 
@@ -49,22 +41,31 @@ COPY . .
 RUN npm run build
 
 # ─── Runner stage — minimal, non-root, healthchecked ────────────────────────
-FROM node:20-alpine AS production
+FROM node:${NODE_VERSION}-alpine AS production
 
-# Non-root runtime user with a fixed UID for reproducibility across base
-# image rebuilds.
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION
+
+LABEL org.opencontainers.image.title="Traqora Backend"
+LABEL org.opencontainers.image.description="Traqora backend API server"
+LABEL org.opencontainers.image.vendor="Traqora"
+LABEL org.opencontainers.image.version=${VERSION}
+LABEL org.opencontainers.image.revision=${VCS_REF}
+LABEL org.opencontainers.image.created=${BUILD_DATE}
+LABEL org.opencontainers.image.source="https://github.com/anomalyco/traqora"
+LABEL org.opencontainers.image.ref.name=${VERSION}
+LABEL org.opencontainers.image.licenses="MIT"
+
 RUN addgroup -g 1001 -S traqora \
     && adduser -S -G traqora -u 1001 traqora
 
 WORKDIR /usr/src/app
 
-# Production dependencies only — no dev toolchain on the runtime image.
 COPY package*.json ./
 RUN npm ci --omit=dev --legacy-peer-deps --ignore-scripts \
     && npm cache clean --force
 
-# Built artefacts owned by the runtime user so the container can run
-# read-only-root-filesystem deployments down the road.
 COPY --from=build --chown=traqora:traqora /usr/src/app/dist ./dist
 
 USER traqora

@@ -40,6 +40,7 @@ import { referralRoutes } from './api/routes/referrals';
 import { recommendationRoutes } from './api/routes/recommendations';
 import { flightStatusRoutes } from './api/routes/flightStatus';
 import { analyticsRoutes } from './api/routes/analytics';
+import { auditRoutes } from './api/routes/audit';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
@@ -219,6 +220,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/admin/analytics', analyticsAuditLogger);
   app.use('/api/v1/admin/analytics', adminAnalyticsRoutes);
   app.use('/api/v1/admin/analytics', tenantAnalyticsRoutes);
+  app.use('/api/v1', auditRoutes);
   app.use('/api/v1/admin/refunds', adminRefundRoutes);
   app.use('/api/v1/collaboration', collaborationRoutes);
   app.use('/api/v1/disputes', disputeRoutes);
