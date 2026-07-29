@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Dialog,
   DialogContent,
@@ -27,6 +29,12 @@ export default function AuthPage() {
   const { authenticate, isAuthenticating, canAuthenticate } = useAuth()
   const { isAuthenticated, biometric, setBiometric } = useAuthStore()
   const [authSuccess, setAuthSuccess] = useState(false)
+  const [requiresTwoFactor, setRequiresTwoFactor] = useState(false)
+  const [pendingWalletAddress, setPendingWalletAddress] = useState("")
+  const [twoFactorToken, setTwoFactorToken] = useState("")
+  const [isBackupCode, setIsBackupCode] = useState(false)
+  const [twoFactorError, setTwoFactorError] = useState("")
+  const [isVerifyingTwoFactor, setIsVerifyingTwoFactor] = useState(false)
   const [activeTab, setActiveTab] = useState<"auth" | "biometric">("auth")
   const [isWebAuthnSupported, setIsWebAuthnSupported] = useState(false)
   const [isRegistering, setIsRegistering] = useState(false)
@@ -67,12 +75,50 @@ export default function AuthPage() {
   }
 
   const handleAuthenticate = async () => {
-    const success = await authenticate()
-    if (success) {
+    try {
+      const result = await authenticate()
+      if (result && typeof result === 'object' && 'requiresTwoFactor' in result) {
+        setRequiresTwoFactor(true)
+        setPendingWalletAddress(result.walletAddress)
+      } else if (result) {
+        setAuthSuccess(true)
+        setTimeout(() => {
+          router.push('/dashboard')
+        }, 1500)
+      }
+    } catch (error) {
+      console.error('Authentication error:', error)
+    }
+  }
+
+  const handleTwoFactorVerify = async () => {
+    if (!twoFactorToken.trim()) {
+      setTwoFactorError('Please enter a code')
+      return
+    }
+
+    setIsVerifyingTwoFactor(true)
+    setTwoFactorError('')
+
+    try {
+      const tokens = await AuthService.verifyTwoFactor(
+        pendingWalletAddress,
+        twoFactorToken.trim(),
+        isBackupCode
+      )
+      
+      // Store tokens
+      const { useAuthStore } = await import('@/lib/auth-store')
+      useAuthStore.getState().setTokens(tokens)
+      
       setAuthSuccess(true)
       setTimeout(() => {
         router.push('/dashboard')
       }, 1500)
+    } catch (error: any) {
+      setTwoFactorError(error.message || 'Invalid code')
+    } finally {
+      setIsVerifyingTwoFactor(false)
     }
   }
 
@@ -152,6 +198,89 @@ export default function AuthPage() {
                 You are now logged in and will be redirected to your dashboard.
               </p>
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (requiresTwoFactor) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+              <Shield className="h-6 w-6 text-primary" />
+            </div>
+            <CardTitle className="text-2xl">Two-Factor Authentication</CardTitle>
+            <CardDescription>
+              Enter your authentication code to complete login
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="space-y-4">
+            {twoFactorError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{twoFactorError}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="2fa-code">
+                {isBackupCode ? 'Backup Code' : 'Authentication Code'}
+              </Label>
+              <Input
+                id="2fa-code"
+                type="text"
+                placeholder={isBackupCode ? 'Enter backup code' : 'Enter 6-digit code'}
+                value={twoFactorToken}
+                onChange={(e) => setTwoFactorToken(e.target.value)}
+                maxLength={isBackupCode ? 8 : 6}
+                className="text-center text-lg tracking-widest"
+                disabled={isVerifyingTwoFactor}
+              />
+            </div>
+
+            <Button
+              onClick={handleTwoFactorVerify}
+              disabled={isVerifyingTwoFactor}
+              className="w-full"
+              size="lg"
+            >
+              {isVerifyingTwoFactor ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Verifying...
+                </>
+              ) : (
+                'Verify'
+              )}
+            </Button>
+
+            <Button
+              variant="ghost"
+              onClick={() => setIsBackupCode(!isBackupCode)}
+              className="w-full"
+              type="button"
+            >
+              {isBackupCode ? 'Use Authenticator App' : 'Use Backup Code'}
+            </Button>
+
+            <div className="text-center">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setRequiresTwoFactor(false)
+                  setPendingWalletAddress('')
+                  setTwoFactorToken('')
+                  setTwoFactorError('')
+                }}
+              >
+                Back
+              </Button>
             </div>
           </CardContent>
         </Card>
