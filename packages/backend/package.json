@@ -89,7 +89,7 @@
     "@types/supertest": "^6.0.3",
     "@types/uuid": "^9.0.8",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
-    "@typescript-eslint/parser": "^7.18.0",
+    "@typescript-eslint/parser": "^8.65.0",
     "better-sqlite3": "^12.6.2",
     "eslint": "^8.57.1",
     "ioredis-mock": "^8.13.1",
