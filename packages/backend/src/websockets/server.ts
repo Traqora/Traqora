@@ -1,10 +1,11 @@
-import { Server, Socket } from 'socket.io';
+import { Server, Socket, Namespace } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient } from 'redis';
 import http from 'http';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import jwt from 'jsonwebtoken';
+import { chatService } from '../services/ChatService';
 import { chatBotService, ChatMessage } from '../services/chatBotService';
 import { attachChatHandlers } from './chatHandler';
 import { attachAnalyticsHandlers } from './analyticsHandler';
@@ -55,6 +56,10 @@ export interface ContractEventPayload {
   timestamp: Date;
 }
 
+// Globally accessible namespaces so background services can push flight/chat updates
+export let flightsNamespace: Namespace;
+export let chatNamespace: Namespace;
+
 export class WebSocketServer {
   private io: Server<ClientToServerEvents, ServerToClientEvents>;
   private pubClient: any;
@@ -73,6 +78,11 @@ export class WebSocketServer {
 
     // Setup connection handlers immediately
     this.setupConnectionHandlers();
+
+    // Setup the new flights/chat namespaces (issues #313 / #314)
+    this.setupFlightsNamespace();
+    this.setupChatNamespace();
+
     
     // Attach specialized handlers
     attachChatHandlers(this.io);
@@ -88,7 +98,7 @@ export class WebSocketServer {
     try {
       const redisUrl = config.redisUrl || process.env.REDIS_URL || 'redis://172.20.145.159:6379';
       logger.info(`Attempting to connect to Redis at: ${redisUrl}`);
-      
+
       this.pubClient = createClient({ url: redisUrl });
       this.subClient = this.pubClient.duplicate();
 
@@ -106,7 +116,7 @@ export class WebSocketServer {
       // Connect with timeout
       await Promise.race([
         Promise.all([this.pubClient.connect(), this.subClient.connect()]),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Redis connection timeout')), 5000)
         )
       ]);
@@ -114,13 +124,13 @@ export class WebSocketServer {
       // Apply Redis adapter
       this.io.adapter(createAdapter(this.pubClient, this.subClient));
       this.redisEnabled = true;
-      logger.info('✅ WebSocket Redis Adapter initialized successfully');
-      
+      logger.info('WebSocket Redis Adapter initialized successfully');
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.warn(`⚠️ Redis adapter not initialized (using in-memory adapter): ${errorMessage}`);
+      logger.warn(`Redis adapter not initialized (using in-memory adapter): ${errorMessage}`);
       this.redisEnabled = false;
-      
+
       // Clean up any partial connections
       if (this.pubClient) {
         try { this.pubClient.quit(); } catch (e) {}
@@ -156,7 +166,7 @@ export class WebSocketServer {
     });
 
     this.io.on('connection', (socket: Socket) => {
-      logger.info(`✅ Client connected: ${socket.id} (Redis: ${this.redisEnabled ? 'enabled' : 'disabled'})`);
+      logger.info(`Client connected: ${socket.id} (Redis: ${this.redisEnabled ? 'enabled' : 'disabled'})`);
 
       socket.on('subscribe', (flightId: string) => {
         logger.info(`Client ${socket.id} subscribed to flight ${flightId}`);
@@ -193,6 +203,7 @@ export class WebSocketServer {
       });
 
       socket.on('disconnect', () => {
+        logger.info(`Client disconnected: ${socket.id}`);
         logger.info(`🔴 Client disconnected: ${socket.id}`);
         this.chatHistory.delete(socket.id);
       });
@@ -209,10 +220,72 @@ export class WebSocketServer {
     });
   }
 
+  /**
+   * FLIGHTS NAMESPACE (issue #314)
+   * Covers acceptance criteria: Users can follow flights without booking
+   */
+  private setupFlightsNamespace() {
+    flightsNamespace = this.io.of('/flights');
+    flightsNamespace.on('connection', (socket: Socket) => {
+      socket.on('track-flight', (flightId: string) => {
+        socket.join(flightId);
+      });
+
+      socket.on('untrack-flight', (flightId: string) => {
+        socket.leave(flightId);
+      });
+    });
+  }
+
+  /**
+   * CHAT NAMESPACE (issue #313)
+   * Covers acceptance criteria: Persisted sessions and routing
+   */
+  private setupChatNamespace() {
+    chatNamespace = this.io.of('/chat');
+    chatNamespace.on('connection', (socket: Socket) => {
+      socket.on('join-session', (userId: string) => {
+        socket.join(`session_${userId}`);
+      });
+
+      socket.on('send-message', async (data: { userId: string; text: string; attachments?: string[] }) => {
+        await chatService.saveMessage({
+          userId: data.userId,
+          sender: 'user',
+          text: data.text,
+          attachments: data.attachments,
+        });
+
+        chatNamespace.to(`session_${data.userId}`).emit('chat-message', {
+          sender: 'user',
+          text: data.text,
+          attachments: data.attachments || [],
+          timestamp: new Date(),
+        });
+
+        const botReply = await chatService.getBotResponse(data.text);
+        if (botReply) {
+          await chatService.saveMessage({
+            userId: data.userId,
+            sender: 'bot',
+            text: botReply,
+          });
+
+          chatNamespace.to(`session_${data.userId}`).emit('chat-message', {
+            sender: 'bot',
+            text: botReply,
+            attachments: [],
+            timestamp: new Date(),
+          });
+        }
+      });
+    });
+  }
+
   public broadcastPriceUpdate(flightId: string, price: number) {
     const room = `flight:${flightId}`;
     logger.info(`Broadcasting price update to ${room}: $${price}`);
-    
+
     this.io.to(room).emit('priceUpdate', {
       flightId,
       price,

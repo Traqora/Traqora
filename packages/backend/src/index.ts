@@ -17,6 +17,7 @@ async function startServer() {
       { initDataSource },
       { initWebSocket },
       { initPriceMonitorCron },
+      { initBoardingReminderCron },
       { initCacheWarmingCron },
       { initFlightStatusPollingCron },
       { verifyConnectivity },
@@ -26,6 +27,7 @@ async function startServer() {
       import('./db/dataSource'),
       import('./websockets/server'),
       import('./jobs/priceMonitor'),
+      import('./jobs/boardingReminderCron'),
       import('./jobs/cacheWarmingJob'),
       import('./jobs/flightStatusPollingJob'),
       import('./utils/health-check'),
@@ -37,8 +39,10 @@ async function startServer() {
     const app = await appModule.createApp();
     const server = http.createServer(app);
 
+    // This correctly runs your WebSocket gateway server initialization
     initWebSocket(server);
     initPriceMonitorCron();
+    initBoardingReminderCron();
 
     const PORT = config.port || 3001;
 
@@ -95,6 +99,8 @@ async function startServer() {
 
 const serverPromise = startServer();
 
+export const appPromise = serverPromise.then((server) => server.app);
+export default serverPromise;
 export const appPromise = serverPromise.then((server) => server?.app);
 export const app = undefined as any;
 export default (serverPromise as any);

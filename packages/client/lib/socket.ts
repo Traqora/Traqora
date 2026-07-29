@@ -18,6 +18,26 @@ type FlightStatusChange = {
   timestamp: Date;
 };
 
+// Flight Status Types
+type FlightStatusUpdate = {
+  flightId: string;
+  flightNumber: string;
+  airline: string;
+  eventType: string;
+  delayMinutes?: number;
+  gate?: string;
+  terminal?: string;
+  status: string;
+  cancellationReason?: string;
+  message?: string;
+  timestamp: string;
+};
+
+type FlightDelayed = FlightStatusUpdate & { delayMinutes: number };
+type GateChanged = FlightStatusUpdate & { previousGate: string; newGate: string };
+type FlightCancelled = FlightStatusUpdate & { cancellationReason: string };
+type BoardingReminder = FlightStatusUpdate & { gate: string; terminal: string };
+
 class SocketManager {
   private socket: Socket | null = null;
   private url: string;
@@ -80,6 +100,25 @@ class SocketManager {
     this.socket?.on('booking_status', fn);
   }
 
+  // Flight Status Event Handlers
+  onFlightStatusUpdate(fn: (data: FlightStatusUpdate) => void) {
+    this.socket?.on('flight-status-update', fn);
+  }
+
+  onFlightDelayed(fn: (data: FlightDelayed) => void) {
+    this.socket?.on('flight-delayed', fn);
+  }
+
+  onGateChanged(fn: (data: GateChanged) => void) {
+    this.socket?.on('gate-changed', fn);
+  }
+
+  onFlightCancelled(fn: (data: FlightCancelled) => void) {
+    this.socket?.on('flight-cancelled', fn);
+  }
+
+  onBoardingReminder(fn: (data: BoardingReminder) => void) {
+    this.socket?.on('boarding-reminder', fn);
   onFlightAlert(fn: (data: FlightAlert) => void) {
     // server emits "alert" (flight status changes: delays, cancellations, gate changes)
     this.socket?.on('alert', fn);
@@ -121,3 +160,4 @@ class SocketManager {
 const defaultManager = new SocketManager();
 
 export { SocketManager, defaultManager };
+export type { PriceUpdate, BookingStatus, FlightStatusUpdate, FlightDelayed, GateChanged, FlightCancelled, BoardingReminder };
