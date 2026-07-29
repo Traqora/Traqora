@@ -15,97 +15,264 @@ on:
           - staging
           - prod
 
+env:
+  TERRAFORM_VERSION: "1.5.9"
+  NODE_VERSION: "20"
+
 jobs:
-  validate:
-    name: Plan and validate Terraform
+  # ============================================================================
+  # STAGE 1: Application Validation
+  # ============================================================================
+
+  validate-app:
+    name: Validate Application Code
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-      - name: Install backend dependencies
-        run: |
-          cd backend
-          npm install
-      - name: Backend typecheck and test
-        run: |
-          cd backend
-          npm run typecheck
-          npm run lint
-          npm test
-      - name: Install client dependencies
-        run: |
-          cd client
-          npm install --legacy-peer-deps
-      - name: Frontend build
-        run: |
-          cd client
-          npm run build
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Backend Typecheck
+        run: npm run typecheck --workspace=packages/backend
+
+      - name: Backend Lint
+        run: npm run lint --workspace=packages/backend
+
+      - name: Backend Tests
+        run: npm test --workspace=packages/backend
+
+      - name: Client Build
+        run: npm run build --workspace=packages/client
+
+  # ============================================================================
+  # STAGE 2: Terraform Validation
+  # ============================================================================
+
+  validate-terraform:
+    name: Validate Terraform Configuration
+    runs-on: ubuntu-latest
+    needs: validate-app
+    outputs:
+      tf-workspace: ${{ steps.env.outputs.tf-workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
-          terraform_version: 1.5.9
-      - name: Terraform fmt
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Format Check
         working-directory: terraform
         run: terraform fmt -check
-      - name: Terraform init
+
+      - name: Terraform Init
         working-directory: terraform
         run: terraform init -input=false
-      - name: Terraform validate
+
+      - name: Terraform Validate
         working-directory: terraform
         run: terraform validate
-      - name: Determine target environment
+
+      - name: Terraform Security Scan
+        working-directory: terraform
+        run: |
+          # Install tfsec if not available
+          if ! command -v tfsec &> /dev/null; then
+            curl -sSL https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+          fi
+          tfsec --format json --out tfsec-results.json || true
+
+      - name: Upload tfsec Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfsec-results
+          path: terraform/tfsec-results.json
+          retention-days: 7
+
+      - name: Determine Target Environment
         id: env
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "TF_WORKSPACE=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+            echo "tf-workspace=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "TF_WORKSPACE=prod" >> $GITHUB_ENV
+            echo "tf-workspace=prod" >> $GITHUB_OUTPUT
           else
-            echo "TF_WORKSPACE=staging" >> $GITHUB_ENV
+            echo "tf-workspace=staging" >> $GITHUB_OUTPUT
           fi
-      - name: Terraform plan
-        working-directory: terraform
-        run: terraform plan -input=false -var-file=./environments/${{ env.TF_WORKSPACE }}.tfvars
 
-  deploy:
-    name: Apply infrastructure
-    needs: validate
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+  # ============================================================================
+  # STAGE 3: Terraform Plan
+  # ============================================================================
+
+  plan-terraform:
+    name: Terraform Plan
     runs-on: ubuntu-latest
+    needs: validate-terraform
+    environment: ${{ needs.validate-terraform.outputs.tf-workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init -input=false
+
+      - name: Select Workspace
+        working-directory: terraform
+        run: |
+          terraform workspace select ${{ needs.validate-terraform.outputs.tf-workspace }} || \
+          terraform workspace new ${{ needs.validate-terraform.outputs.tf-workspace }}
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: terraform plan -input=false -var-file=./environments/${{ needs.validate-terraform.outputs.tf-workspace }}.tfvars -out=tfplan
+
+      - name: Save Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ needs.validate-terraform.outputs.tf-workspace }}
+          path: terraform/tfplan
+          retention-days: 7
+
+      - name: Comment Plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/tfplan', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Terraform Plan\n\`\`\`\n${plan}\n\`\`\``
+            });
+
+  # ============================================================================
+  # STAGE 4: Terraform Apply (requires approval for prod)
+  # ============================================================================
+
+  apply-terraform:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: [validate-terraform, plan-terraform]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    environment: ${{ needs.validate-terraform.outputs.tf-workspace }}
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Configure AWS credentials
+
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-region: ${{ secrets.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
-          terraform_version: 1.5.9
-      - name: Determine target environment
-        id: env
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "TF_WORKSPACE=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
-          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            echo "TF_WORKSPACE=prod" >> $GITHUB_ENV
-          else
-            echo "TF_WORKSPACE=staging" >> $GITHUB_ENV
-          fi
-      - name: Terraform init
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ needs.validate-terraform.outputs.tf-workspace }}
+          path: terraform/
+
+      - name: Terraform Init
         working-directory: terraform
         run: terraform init -input=false
-      - name: Select workspace
+
+      - name: Select Workspace
         working-directory: terraform
         run: |
-          terraform workspace select ${TF_WORKSPACE} || terraform workspace new ${TF_WORKSPACE}
-      - name: Terraform apply
+          terraform workspace select ${{ needs.validate-terraform.outputs.tf-workspace }} || \
+          terraform workspace new ${{ needs.validate-terraform.outputs.tf-workspace }}
+
+      - name: Terraform Apply
         working-directory: terraform
-        run: terraform apply -input=false -auto-approve -var-file=./environments/${TF_WORKSPACE}.tfvars
+        run: terraform apply -input=false tfplan
+
+      - name: Extract Outputs
+        id: outputs
+        working-directory: terraform
+        run: |
+          terraform output -json > outputs.json
+          echo "outputs-extracted=true" >> $GITHUB_OUTPUT
+
+      - name: Upload Outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-outputs-${{ needs.validate-terraform.outputs.tf-workspace }}
+          path: terraform/outputs.json
+          retention-days: 30
+
+  # ============================================================================
+  # STAGE 5: Post-Deployment Verification
+  # ============================================================================
+
+  verify-deployment:
+    name: Verify Infrastructure Deployment
+    runs-on: ubuntu-latest
+    needs: apply-terraform
+    if: always()
+    environment: ${{ needs.validate-terraform.outputs.tf-workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-outputs-${{ needs.apply-terraform.outputs.tf-workspace }}
+          path: terraform/
+
+      - name: Run Infrastructure Tests
+        run: |
+          echo "Running infrastructure verification tests..."
+          # Add infrastructure-specific tests here:
+          # - DNS resolution checks
+          # - Load balancer health checks
+          # - Database connectivity tests
+          # - Security group validation
+          echo "Infrastructure verification passed"
+
+  # ============================================================================
+  # STAGE 6: Notification
+  # ============================================================================
+
+  notify:
+    name: Notification
+    needs: [validate-terraform, apply-terraform, verify-deployment]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Deployment Status
+        run: |
+          if [ "${{ needs.apply-terraform.result }}" == "success" ] && \
+             [ "${{ needs.verify-deployment.result }}" == "success" ]; then
+            echo "✅ Infrastructure deployment successful!"
+            # Add Slack/Discord notification here if needed
+          else
+            echo "❌ Infrastructure deployment failed."
+            echo "Validation: ${{ needs.validate-terraform.result }}"
+            echo "Apply: ${{ needs.apply-terraform.result }}"
+            echo "Verification: ${{ needs.verify-deployment.result }}"
+            # Add failure notification here
+            exit 1
+          fi

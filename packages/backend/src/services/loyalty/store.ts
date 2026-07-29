@@ -23,6 +23,7 @@ export class LoyaltyStore {
   private transactions: PointsTransaction[] = [];
   private campaigns = new Map<string, Campaign>();
   private expiredTxIds = new Set<string>();
+  private tierHistory = new Map<string, Array<{ tier: LoyaltyTier; changedAt: Date }>>();
 
   private constructor() {}
 
@@ -69,6 +70,18 @@ export class LoyaltyStore {
   updateAccount(account: LoyaltyAccount): void {
     account.updatedAt = new Date();
     this.accounts.set(account.userId, { ...account });
+    
+    // Track tier changes
+    const history = this.tierHistory.get(account.userId) || [];
+    const lastEntry = history[history.length - 1];
+    if (!lastEntry || lastEntry.tier !== account.tier) {
+      history.push({ tier: account.tier, changedAt: account.tierUpdatedAt });
+      this.tierHistory.set(account.userId, history);
+    }
+  }
+
+  getTierHistory(userId: string): Array<{ tier: LoyaltyTier; changedAt: Date }> {
+    return this.tierHistory.get(userId) || [];
   }
 
   getAllAccounts(): LoyaltyAccount[] {

@@ -121,3 +121,54 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}
+
+@custom-variant reduced-motion (@media (prefers-reduced-motion: reduce));
+@custom-variant high-contrast (@media (prefers-contrast: more));
+@custom-variant prefers-contrast-less (@media (prefers-contrast: less));
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --border: oklch(0.4 0 0);
+    --ring: oklch(0.3 0 0);
+  }
+  .dark {
+    --border: oklch(0.7 0 0);
+    --ring: oklch(0.8 0 0);
+  }
+}
+
+@media (max-width: 768px) {
+  button,
+  a[role="button"],
+  input[type="button"],
+  input[type="submit"],
+  [data-slot="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

@@ -1,18 +1,15 @@
 #![cfg(test)]
 
+use dispute_resolution::{DisputeResolutionContract, DisputeResolutionContractClient};
 use soroban_sdk::{
     testutils::{Address as _, StellarAsset},
     token::StellarAssetClient,
     Address, BytesN, Env, Symbol, Vec,
 };
-use dispute_resolution::{
-    DisputeResolutionContract, DisputeResolutionContractClient,
-};
 
-fn setup(env: &Env) -> (DisputeResolutionContractClient<'_>, Address, Address, Address) {
+fn setup(env: &Env) -> (DisputeResolutionContractClient<'_>, Address, Address) {
     let admin = Address::generate(env);
     let arbiter = Address::generate(env);
-    let claimant = Address::generate(env);
 
     let contract_id = env.register(DisputeResolutionContract, ());
     let client = DisputeResolutionContractClient::new(env, &contract_id);
@@ -21,7 +18,7 @@ fn setup(env: &Env) -> (DisputeResolutionContractClient<'_>, Address, Address, A
     arbiters.push_back(arbiter.clone());
     client.initialize(&admin, &arbiters);
 
-    (client, admin, arbiter, claimant)
+    (client, admin, arbiter)
 }
 
 #[test]
@@ -29,7 +26,8 @@ fn test_open_dispute_submit_counter_and_resolve_for_claimant() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, arbiter, claimant) = setup(&env);
+    let (client, _admin, _arbiter) = setup(&env);
+    let claimant = Address::generate(&env);
     let respondent = Address::generate(&env);
     let booking_id = Symbol::new(&env, "BK-001");
 
@@ -47,7 +45,13 @@ fn test_open_dispute_submit_counter_and_resolve_for_claimant() {
     let counter_hash = BytesN::from_array(&env, &[2u8; 32]);
     client.submit_counter_evidence(&dispute_id, &respondent, &counter_hash);
 
-    client.resolve_dispute(&dispute_id, &arbiter, &true);
+    let assigned_arbiter = client
+        .get_dispute(&dispute_id)
+        .unwrap()
+        .assigned_arbiter
+        .unwrap();
+
+    client.resolve_dispute(&dispute_id, &assigned_arbiter, &true);
 
     let dispute = client.get_dispute(&dispute_id).unwrap();
     assert!(dispute.resolved);
@@ -57,11 +61,15 @@ fn test_open_dispute_submit_counter_and_resolve_for_claimant() {
 }
 
 #[test]
-fn test_only_designated_arbiter_can_resolve() {
+fn test_only_assigned_arbiter_can_resolve() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, _arbiter, claimant) = setup(&env);
+    let (client, admin, _arbiter) = setup(&env);
+    let second_arbiter = Address::generate(&env);
+    client.set_arbiter(&admin, &second_arbiter, &true);
+
+    let claimant = Address::generate(&env);
     let unauthorized_arbiter = Address::generate(&env);
     let respondent = Address::generate(&env);
     let booking_id = Symbol::new(&env, "BK-002");
@@ -94,7 +102,8 @@ fn test_resolve_for_respondent_releases_escrow_to_respondent() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, arbiter, claimant) = setup(&env);
+    let (client, _admin, _arbiter) = setup(&env);
+    let claimant = Address::generate(&env);
     let respondent = Address::generate(&env);
     let booking_id = Symbol::new(&env, "BK-003");
 
@@ -114,7 +123,13 @@ fn test_resolve_for_respondent_releases_escrow_to_respondent() {
         &respondent,
         &BytesN::from_array(&env, &[6u8; 32]),
     );
-    client.resolve_dispute(&dispute_id, &arbiter, &false);
+
+    let assigned_arbiter = client
+        .get_dispute(&dispute_id)
+        .unwrap()
+        .assigned_arbiter
+        .unwrap();
+    client.resolve_dispute(&dispute_id, &assigned_arbiter, &false);
 
     let dispute = client.get_dispute(&dispute_id).unwrap();
     assert_eq!(dispute.winner.unwrap(), respondent.clone());

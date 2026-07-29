@@ -6,8 +6,11 @@ import { AppDataSource } from '../../db/dataSource';
 import { User } from '../../db/entities/User';
 import { Passenger } from '../../db/entities/Passenger';
 import { UserPreference } from '../../db/entities/UserPreference';
+import { UserProfile } from '../../db/entities/UserProfile';
+import { AccountDeletionRequest } from '../../db/entities/AccountDeletionRequest';
 import { BadRequestError, NotFoundError } from '../../utils/errors';
-import { passengerSchema, userPreferencesSchema } from '../schemas';
+import { passengerSchema, userPreferencesSchema, userProfileSchema } from '../schemas';
+import { logger } from '../../utils/logger';
 
 const router = Router();
 
@@ -31,7 +34,7 @@ router.get(
     if (!user) {
       user = userRepo.create({
         walletAddress,
-        walletType: req.user!.walletType,
+        walletType: req.user!.walletType as any,
         createdAt: new Date(),
         lastLoginAt: new Date(),
       });
@@ -88,6 +91,146 @@ router.put(
 
     await preferenceRepo.save(preferences);
     return res.json({ success: true, data: preferences });
+  }),
+);
+
+/**
+ * GET /users/me/data-export
+ * GDPR/CCPA data export (issue #386). Bundles the fields directly owned by
+ * the wallet-based user identity — the account record and notification
+ * preferences. Bookings and passenger records are NOT included: neither
+ * has a userId/walletAddress foreign key in the current schema (a
+ * passenger can be booked by someone other than its account holder), so
+ * there is no safe, unambiguous way to attribute them to this user
+ * without a schema change. Flagging this rather than silently omitting it.
+ */
+router.get(
+  '/me/data-export',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const walletAddress = ensureAuthenticatedUser(req);
+
+    const userRepo = AppDataSource.getRepository(User);
+    const preferenceRepo = AppDataSource.getRepository(UserPreference);
+
+    const [user, preferences] = await Promise.all([
+      userRepo.findOne({ where: { walletAddress } }),
+      preferenceRepo.findOne({ where: { userId: walletAddress } }),
+    ]);
+
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      userId: walletAddress,
+      account: user ?? null,
+      preferences: preferences ?? null,
+      omitted: {
+        bookings: 'not linked to a wallet-based user identity in the current schema',
+        passengers: 'not linked to a wallet-based user identity in the current schema',
+      },
+    };
+
+    logger.info('gdpr: data export generated', { userId: walletAddress });
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="traqora-data-export-${walletAddress}.json"`);
+    return res.status(200).send(JSON.stringify(exportPayload, null, 2));
+  }),
+);
+
+const deletionRequestSchema = z.object({
+  reason: z.string().trim().max(1000).optional(),
+});
+
+/**
+ * POST /users/me/deletion-request
+ * Right-to-deletion request (issue #386). Creates a durable, auditable
+ * request record rather than deleting immediately — actual erasure is a
+ * follow-on operational process (verification window, data-retention
+ * legal holds, etc.), which is intentionally out of scope for this
+ * endpoint per the "no breaking changes" constraint.
+ */
+router.post(
+  '/me/deletion-request',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const walletAddress = ensureAuthenticatedUser(req);
+
+    const parsed = deletionRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const deletionRepo = AppDataSource.getRepository(AccountDeletionRequest);
+
+    const existingPending = await deletionRepo.findOne({
+      where: { userId: walletAddress, status: 'pending' },
+    });
+    if (existingPending) {
+      return res.status(200).json({ success: true, data: existingPending, alreadyPending: true });
+    }
+
+    const request = deletionRepo.create({
+      userId: walletAddress,
+      status: 'pending',
+      reason: parsed.data.reason ?? null,
+    });
+    await deletionRepo.save(request);
+
+    logger.info('gdpr: deletion request created', { userId: walletAddress, requestId: request.id });
+
+    return res.status(202).json({ success: true, data: request, alreadyPending: false });
+  }),
+);
+
+router.get(
+  '/profile',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const walletAddress = ensureAuthenticatedUser(req);
+    const profileRepo = AppDataSource.getRepository(UserProfile);
+    const profile = await profileRepo.findOne({ where: { userId: walletAddress } });
+
+    return res.json({
+      success: true,
+      data: profile ?? {
+        userId: walletAddress,
+        displayName: null,
+        bio: null,
+        avatarUrl: null,
+        travelPreferences: null,
+      },
+    });
+  }),
+);
+
+router.patch(
+  '/profile',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const walletAddress = ensureAuthenticatedUser(req);
+    const parsed = userProfileSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const profileRepo = AppDataSource.getRepository(UserProfile);
+    let profile = await profileRepo.findOne({ where: { userId: walletAddress } });
+
+    if (!profile) {
+      profile = profileRepo.create({
+        userId: walletAddress,
+        displayName: null,
+        bio: null,
+        avatarUrl: null,
+        travelPreferences: null,
+        ...parsed.data,
+      });
+    } else {
+      Object.assign(profile, parsed.data);
+    }
+
+    await profileRepo.save(profile);
+    return res.json({ success: true, data: profile });
   }),
 );
 

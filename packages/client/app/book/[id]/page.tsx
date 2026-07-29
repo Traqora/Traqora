@@ -7,27 +7,52 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
-import { 
-  Plane, 
-  CheckCircle, 
-  Wallet, 
-  Shield, 
-  ArrowLeft, 
-  ArrowRight, 
+import {
+  Plane,
+  CheckCircle,
+  Wallet,
+  Shield,
+  Leaf,
+  ArrowLeft,
+  ArrowRight,
   CreditCard,
   QrCode,
   Download,
-  ExternalLink
+  ExternalLink,
+  FileText
 } from "lucide-react"
 
 import { SeatSelector } from "@/components/booking/seat-selector"
+import { AncillarySelector } from "@/components/booking/ancillary-selector"
 import { BookingSummary } from "@/components/booking/booking-summary"
+import { InsuranceSelector } from "@/components/booking/insurance-selector"
+import { CarbonFootprintDisplay } from "@/components/booking/carbon-footprint-display"
+import { CarbonOffsetSelector } from "@/components/booking/carbon-offset-selector"
+import { FareRulesSummary, FareRule } from "@/components/booking/fare-rules-summary"
+import { CurrencySelector } from "@/components/currency-selector"
+import { PassengerDetailsForm, PassengerData, validatePassengers } from "@/components/booking/passenger-details-form"
 import { useBooking } from "@/hooks/use-booking"
 import { useFlightSearch } from "@/hooks/use-flight-search"
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
 import { cn } from "@/lib/utils"
+import {
+  InsuranceCoverageType,
+  InsurancePolicy,
+  purchaseInsurance,
+  estimateFootprint,
+  purchaseOffset,
+  CarbonFootprint,
+} from "@/lib/api"
+import {
+  AncillaryCatalogItem,
+  purchaseAncillaryService,
+} from "@/lib/ancillary-api"
+import {
+  type CurrencyCode,
+  getCurrencyFromStorage,
+  setCurrencyToStorage,
+} from "@/lib/currency"
 
-// Mock flight data - in real app this would come from API
 const mockFlightDetails = {
   id: "1",
   airline: "Delta Airlines",
@@ -54,12 +79,14 @@ const mockFlightDetails = {
   refundPolicy: "Free cancellation up to 24 hours before departure",
 }
 
-type BookingStep = "details" | "seats" | "wallet" | "confirm" | "success"
+type BookingStep = "details" | "seats" | "extras" | "insurance" | "carbon" | "wallet" | "confirm" | "success"
 
 export default function BookFlightPage() {
   const params = useParams()
   const router = useRouter()
   const [currentStep, setCurrentStep] = useState<BookingStep>("details")
+  const [displayCurrency, setDisplayCurrency] = useState<CurrencyCode>("USD")
+  const [rates, setRates] = useState<Record<string, number> | undefined>(undefined)
   
   const { 
     isProcessing, 
@@ -76,13 +103,82 @@ export default function BookFlightPage() {
   const { handleConnect } = useWallet()
 
   const [bookingId, setBookingId] = useState("")
-  
-  // Use mock flight or find from list
+  const [selectedCoverage, setSelectedCoverage] = useState<InsuranceCoverageType | null>(null)
+  const [selectedAncillaries, setSelectedAncillaries] = useState<AncillaryCatalogItem[]>([])
+  const [isPurchasingAncillaries, setIsPurchasingAncillaries] = useState(false)
+  const [insurancePolicy, setInsurancePolicy] = useState<InsurancePolicy | null>(null)
+  const [isPurchasingInsurance, setIsPurchasingInsurance] = useState(false)
+  const [isCarbonNeutral, setIsCarbonNeutral] = useState(false)
+  const [carbonFootprint, setCarbonFootprint] = useState<CarbonFootprint | null>(null)
+  const [isFootprintLoading, setIsFootprintLoading] = useState(false)
+  const [selectedOffsetProjectId, setSelectedOffsetProjectId] = useState<string | null>(null)
+  const [offsetCostCents, setOffsetCostCents] = useState(0)
+  const [offsetCertificate, setOffsetCertificate] = useState<any>(null)
+  const [isPurchasingOffset, setIsPurchasingOffset] = useState(false)
+  const [passengers, setPassengers] = useState<PassengerData[]>([
+    { firstName: "", lastName: "", email: "", phone: "" },
+  ])
+  const [passengerErrors, setPassengerErrors] = useState<ReturnType<typeof validatePassengers>>([])
+  const [fareRules, setFareRules] = useState<FareRule[]>([])
+
+  useEffect(() => {
+    const airlineCode = flight.airline.substring(0, 2).toUpperCase()
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+    fetch(`${apiBase}/api/flights/fare-rules?airline=${encodeURIComponent(airlineCode)}&class=${encodeURIComponent(flight.class)}`)
+      .then(res => res.json())
+      .then(body => {
+        if (body.success && body.data) {
+          setFareRules(body.data)
+        }
+      })
+      .catch(() => {})
+  }, [flight.airline, flight.class])
+
+  useEffect(() => {
+    const stored = getCurrencyFromStorage()
+    setDisplayCurrency(stored)
+  }, [])
+
+  useEffect(() => {
+    if (displayCurrency === "USD") {
+      setRates(undefined)
+      return
+    }
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
+    fetch(`${apiBase}/api/flights/currencies/rates?base=USD`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setRates(data.data.rates)
+        }
+      })
+      .catch(() => {
+        setRates(undefined)
+      })
+  }, [displayCurrency])
+
+  useEffect(() => {
+    if (!(flight as any).id) return
+    setIsFootprintLoading(true)
+    estimateFootprint((flight as any).id, (flight as any).class || "economy")
+      .then((data) => setCarbonFootprint(data))
+      .catch(() => {})
+      .finally(() => setIsFootprintLoading(false))
+  }, [(flight as any).id, (flight as any).class])
+
+  const handleCurrencyChange = (currency: CurrencyCode) => {
+    setDisplayCurrency(currency)
+    setCurrencyToStorage(currency)
+  }
+
   const flight = flights.find(f => f.id === params.id) || mockFlightDetails
 
   const steps: { id: BookingStep; label: string }[] = [
     { id: "details", label: "Flight Details" },
     { id: "seats", label: "Seat Selection" },
+    { id: "extras", label: "Trip Extras" },
+    { id: "insurance", label: "Travel Insurance" },
+    { id: "carbon", label: "Carbon Offsets" },
     { id: "wallet", label: "Connect Wallet" },
     { id: "confirm", label: "Confirmation" },
     { id: "success", label: "Success" }
@@ -110,7 +206,6 @@ export default function BookFlightPage() {
   const handleWalletConnect = async () => {
     try {
       await handleConnect()
-      // If successful, the store will update and we can proceed
       if (useWalletStore.getState().isConnected) {
         setCurrentStep("confirm")
       }
@@ -119,46 +214,134 @@ export default function BookFlightPage() {
     }
   }
 
+  const handlePassengerChange = (index: number, data: PassengerData) => {
+    const updated = [...passengers]
+    updated[index] = data
+    setPassengers(updated)
+  }
+
+  const handleAddPassenger = () => {
+    setPassengers([...passengers, { firstName: "", lastName: "", email: "", phone: "" }])
+  }
+
+  const handleRemovePassenger = (index: number) => {
+    if (passengers.length <= 1) return
+    setPassengers(passengers.filter((_, i) => i !== index))
+  }
+
+  const validateStep = (step: BookingStep): boolean => {
+    if (step === "details") {
+      const errors = validatePassengers(passengers)
+      setPassengerErrors(errors)
+      return errors.every((e) => Object.keys(e).length === 0)
+    }
+    return true
+  }
+
+  const handleNextStep = () => {
+    if (!validateStep(currentStep)) return
+    nextStep()
+  }
+
   const handleFinalConfirm = async () => {
-    setBookingId("TRAQ-" + Math.random().toString(36).substring(2, 9).toUpperCase())
+    const newBookingId = "TRAQ-" + Math.random().toString(36).substring(2, 9).toUpperCase()
+    setBookingId(newBookingId)
+
+    if (booking?.id && selectedAncillaries.length > 0) {
+      setIsPurchasingAncillaries(true)
+      try {
+        await Promise.all(
+          selectedAncillaries.map((item) =>
+            purchaseAncillaryService({
+              bookingId: booking.id,
+              serviceCode: item.code,
+              details: item.requiresAirport ? { airport: flight.from } : undefined,
+            }),
+          ),
+        )
+      } catch (error) {
+        console.error("Ancillary purchase failed", error)
+        setIsPurchasingAncillaries(false)
+        return
+      }
+      setIsPurchasingAncillaries(false)
+    }
+
+    if (selectedCoverage) {
+      setIsPurchasingInsurance(true)
+      try {
+        const policy = await purchaseInsurance({
+          bookingId: newBookingId,
+          tripCostCents: Math.round(parseFloat(flight.price) * 100),
+          destination: flight.to,
+          coverageType: selectedCoverage,
+        })
+        setInsurancePolicy(policy)
+      } catch (error) {
+        console.error("Insurance purchase failed", error)
+      } finally {
+        setIsPurchasingInsurance(false)
+      }
+    }
+
+    if (isCarbonNeutral && selectedOffsetProjectId && carbonFootprint) {
+      setIsPurchasingOffset(true)
+      try {
+        const walletState = useWalletStore.getState()
+        const userId = walletState.address || "anonymous"
+        const cert = await purchaseOffset({
+          userId,
+          flightId: (flight as any).id,
+          projectId: selectedOffsetProjectId,
+          amountCents: offsetCostCents,
+          bookingId: newBookingId,
+        })
+        setOffsetCertificate(cert)
+      } catch (error) {
+        console.error("Offset purchase failed", error)
+      } finally {
+        setIsPurchasingOffset(false)
+      }
+    }
+
     setCurrentStep("success")
-    // In real app, call signAndSubmitTransaction()
   }
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2 cursor-pointer" onClick={() => router.push("/")}>
-              <Plane className="h-8 w-8 text-primary" />
-              <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Badge variant={isWalletConnected ? "secondary" : "outline"} className="px-3 py-1">
-                {isWalletConnected ? (
-                  <><CheckCircle className="h-4 w-4 mr-2 text-green-500" /> {walletType} Connected</>
-                ) : (
-                  <><Wallet className="h-4 w-4 mr-2" /> Wallet Disconnected</>
-                )}
-              </Badge>
+      <header role="banner">
+        <nav aria-label="Main navigation" className="border-b border-border bg-background/95 backdrop-blur sticky top-0 z-50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-2 cursor-pointer" onClick={() => router.push("/")} role="link" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") router.push("/") }} aria-label="Go to homepage">
+                <Plane className="h-8 w-8 text-primary" aria-hidden="true" />
+                <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+              </div>
+              <div className="flex items-center space-x-4">
+                <CurrencySelector value={displayCurrency} onValueChange={handleCurrencyChange} />
+                <Badge variant={isWalletConnected ? "secondary" : "outline"} className="px-3 py-1">
+                  {isWalletConnected ? (
+                    <><CheckCircle className="h-4 w-4 mr-2 text-green-500" aria-hidden="true" /> {walletType} Connected</>
+                  ) : (
+                    <><Wallet className="h-4 w-4 mr-2" aria-hidden="true" /> Wallet Disconnected</>
+                  )}
+                </Badge>
+              </div>
             </div>
           </div>
-        </div>
-      </nav>
+        </nav>
+      </header>
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Progress Stepper */}
         <div className="mb-12">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="font-serif font-bold text-3xl text-foreground">
-              {steps.find(s => s.id === currentStep)?.label}
-            </h1>
-            <Badge variant="outline" className="text-sm font-medium px-4 py-1">
-              Step {steps.findIndex(s => s.id === currentStep) + 1} of {steps.length}
-            </Badge>
-          </div>
+            <div className="flex justify-between items-center mb-6">
+              <h1 className="font-serif font-bold text-3xl text-foreground">
+                {steps.find(s => s.id === currentStep)?.label}
+              </h1>
+              <Badge variant="outline" className="text-sm font-medium px-4 py-1" aria-label={`Step ${steps.findIndex(s => s.id === currentStep) + 1} of ${steps.length}`}>
+                Step {steps.findIndex(s => s.id === currentStep) + 1} of {steps.length}
+              </Badge>
+            </div>
           
           <div className="relative">
             <Progress value={getStepProgress()} className="h-2" />
@@ -193,15 +376,35 @@ export default function BookFlightPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-8">
             
-            {/* Step 1: Flight Details (Review) */}
             {currentStep === "details" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <BookingSummary flight={flight} passengerCount={1} />
+                <BookingSummary flight={flight} passengerCount={passengers.length} displayCurrency={displayCurrency} rates={rates} />
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-lg">Passenger Details</h3>
+                    <Button variant="outline" size="sm" onClick={handleAddPassenger}>
+                      Add Passenger
+                    </Button>
+                  </div>
+                  {passengers.map((p, i) => (
+                    <PassengerDetailsForm
+                      key={i}
+                      passenger={p}
+                      index={i}
+                      onChange={handlePassengerChange}
+                      onRemove={handleRemovePassenger}
+                      showRemove={passengers.length > 1}
+                      errors={passengerErrors[i]}
+                      airline={flight.airline}
+                    />
+                  ))}
+                </div>
+
                 <div className="flex justify-end">
-                  <Button size="lg" onClick={nextStep} className="group px-8">
+                  <Button size="lg" onClick={handleNextStep} className="group px-8">
                     Select Seats
                     <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </Button>
@@ -209,13 +412,14 @@ export default function BookFlightPage() {
               </div>
             )}
 
-            {/* Step 2: Seat Selection */}
             {currentStep === "seats" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <SeatSelector 
                   cabinClass={flight.class} 
                   onSeatSelect={(seat) => selectSeat(seat.id, seat.price)}
                   selectedSeatId={selectedSeat?.id}
+                  displayCurrency={displayCurrency}
+                  rates={rates}
                 />
                 <div className="flex justify-between">
                   <Button variant="ghost" onClick={prevStep}>
@@ -223,6 +427,84 @@ export default function BookFlightPage() {
                     Back
                   </Button>
                   <Button size="lg" onClick={nextStep} disabled={!selectedSeat}>
+                    Continue
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {currentStep === "extras" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <AncillarySelector
+                  cabinClass={flight.class}
+                  airport={flight.from}
+                  selectedCodes={selectedAncillaries.map((item) => item.code)}
+                  onSelectionChange={setSelectedAncillaries}
+                  displayCurrency={displayCurrency}
+                  rates={rates}
+                />
+                <div className="flex justify-between">
+                  <Button variant="ghost" onClick={prevStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button size="lg" onClick={nextStep}>
+                    Continue
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Travel Insurance */}
+            {currentStep === "insurance" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <InsuranceSelector
+                  tripCostCents={Math.round(parseFloat(flight.price) * 100)}
+                  destination={flight.to}
+                  selectedCoverage={selectedCoverage}
+                  onSelectCoverage={setSelectedCoverage}
+                />
+                <div className="flex justify-between">
+                  <Button variant="ghost" onClick={prevStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button size="lg" onClick={nextStep}>
+                    Continue
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Carbon Offsets */}
+            {currentStep === "carbon" && (
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <CarbonFootprintDisplay
+                  totalCO2kg={carbonFootprint?.totalCO2kg ?? null}
+                  distanceKm={carbonFootprint?.distanceKm ?? null}
+                  cabinClassFactor={carbonFootprint?.cabinClassFactor ?? null}
+                  calculationMethod={carbonFootprint?.calculationMethod ?? null}
+                  isLoading={isFootprintLoading}
+                />
+                <CarbonOffsetSelector
+                  footprintKg={carbonFootprint?.totalCO2kg ?? null}
+                  flightId={(flight as any).id}
+                  isCarbonNeutral={isCarbonNeutral}
+                  onToggleCarbonNeutral={setIsCarbonNeutral}
+                  onOffsetSelected={(projectId, costCents) => {
+                    setSelectedOffsetProjectId(projectId)
+                    setOffsetCostCents(costCents)
+                  }}
+                />
+                <div className="flex justify-between">
+                  <Button variant="ghost" onClick={prevStep}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
+                  </Button>
+                  <Button size="lg" onClick={nextStep}>
                     Continue to Payment
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
@@ -230,7 +512,7 @@ export default function BookFlightPage() {
               </div>
             )}
 
-            {/* Step 3: Wallet Connection */}
+            {/* Step 5: Wallet Connection */}
             {currentStep === "wallet" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 text-center py-12 bg-muted/20 rounded-3xl border border-dashed border-border">
                 <div className="max-w-md mx-auto space-y-8">
@@ -260,7 +542,6 @@ export default function BookFlightPage() {
               </div>
             )}
 
-            {/* Step 4: Final Confirmation */}
             {currentStep === "confirm" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <Alert className="bg-primary/5 border-primary/20">
@@ -299,14 +580,18 @@ export default function BookFlightPage() {
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Back
                   </Button>
-                  <Button size="lg" onClick={handleFinalConfirm} className="px-12 shadow-lg bg-green-600 hover:bg-green-700 text-white">
-                    Confirm & Pay
+                  <Button
+                    size="lg"
+                    onClick={handleFinalConfirm}
+                    disabled={isPurchasingInsurance || isPurchasingOffset || isPurchasingAncillaries}
+                    className="px-12 shadow-lg bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {isPurchasingInsurance || isPurchasingOffset || isPurchasingAncillaries ? "Processing..." : "Confirm & Pay"}
                   </Button>
                 </div>
               </div>
             )}
 
-            {/* Step 5: Success */}
             {currentStep === "success" && (
               <div className="space-y-8 animate-in zoom-in duration-500">
                 <div className="text-center space-y-4">
@@ -358,6 +643,69 @@ export default function BookFlightPage() {
                   </div>
                 </div>
 
+                {insurancePolicy && (
+                  <div className="bg-card rounded-2xl border border-border p-6 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Shield className="h-5 w-5 text-primary" />
+                        <span className="font-bold">Travel Insurance</span>
+                      </div>
+                      <Badge variant="secondary" className="bg-green-100 text-green-800">
+                        Insured &middot; {insurancePolicy.coverageType}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Policy {insurancePolicy.providerPolicyRef} is active. Premium is fully refundable until{" "}
+                      {new Date(insurancePolicy.refundEligibleUntil).toLocaleString()}.
+                    </p>
+                    <div className="flex gap-3">
+                      <a
+                        href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/v1/insurance/policy/${insurancePolicy.id}/pdf`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <Button variant="outline" size="sm">
+                          <FileText className="mr-2 h-4 w-4" /> Download Policy PDF
+                        </Button>
+                      </a>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => router.push(`/insurance/claims?policyId=${insurancePolicy.id}`)}
+                      >
+                        File a Claim
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {offsetCertificate && (
+                  <div className="bg-card rounded-2xl border border-green-200 p-6 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Leaf className="h-5 w-5 text-green-600" />
+                        <span className="font-bold">Carbon Offset</span>
+                      </div>
+                      <Badge variant="secondary" className="bg-green-100 text-green-800">
+                        Carbon Neutral
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      This flight has been offset through {offsetCertificate.projectName}.
+                      {offsetCertificate.co2Kg} kg CO₂ offset &middot; Certificate: {offsetCertificate.certificateRef}
+                    </p>
+                    <a
+                      href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/v1/carbon/certificate/${offsetCertificate.purchaseId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Button variant="outline" size="sm">
+                        <FileText className="mr-2 h-4 w-4" /> Download Certificate
+                      </Button>
+                    </a>
+                  </div>
+                )}
+
                 <Button className="w-full h-12" variant="secondary" onClick={() => router.push("/dashboard")}>
                   Go to Dashboard
                 </Button>
@@ -365,17 +713,48 @@ export default function BookFlightPage() {
             )}
           </div>
 
-          {/* Sidebar Summary (Only visible during booking process) */}
           {currentStep !== "success" && (
-            <div className="lg:col-span-1 sticky top-24">
-              <BookingSummary 
-                flight={flight} 
-                passengerCount={1} 
+            <div className="lg:col-span-1 sticky top-24 space-y-6">
+              <BookingSummary
+                flight={flight}
+                passengerCount={passengers.length}
                 selectedSeat={selectedSeat || undefined}
+                insurance={
+                  selectedCoverage
+                    ? {
+                        coverageType: selectedCoverage,
+                        premiumCents:
+                          insurancePolicy?.premiumCents ??
+                          Math.round(parseFloat(flight.price) * 100 * 0.05),
+                      }
+                    : undefined
+                }
+                carbonOffset={
+                  isCarbonNeutral && offsetCostCents > 0
+                    ? { costCents: offsetCostCents }
+                    : undefined
+                }
+                ancillaries={
+                  selectedAncillaries.length > 0
+                    ? {
+                        count: selectedAncillaries.length,
+                        totalCents: selectedAncillaries.reduce(
+                          (total, item) => total + item.priceCents,
+                          0,
+                        ),
+                      }
+                    : undefined
+                }
+                displayCurrency={displayCurrency}
+                rates={rates}
                 className="bg-card shadow-2xl"
               />
               
-              <div className="mt-6 p-4 bg-muted/30 rounded-xl border border-border/50 text-[10px] text-muted-foreground flex items-start gap-2">
+              {fareRules.length > 0 && (
+                <FareRulesSummary fareRules={fareRules} airlineName={flight.airline} />
+              )}
+
+              <div className="p-4 bg-muted/30 rounded-xl border border-border/50 text-[10px] text-muted-foreground flex items-start gap-2">
                 <Shield className="h-3 w-3 shrink-0 text-primary mt-0.5" />
                 <p>Traqora Smart Contract V2.1. Verified by OpenZeppelin. Audited 2024.</p>
               </div>

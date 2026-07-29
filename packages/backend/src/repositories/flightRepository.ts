@@ -165,7 +165,7 @@ export class PostgresFlightRepository implements FlightRepository {
   }
 
   async searchFlights(criteria: FlightSearchCriteria, pagination: FlightPagination): Promise<Flight[]> {
-    const values: Array<string | number | string[]> = [];
+    const values: Array<string | number | string[] | number[]> = [];
     const whereClauses: string[] = [];
     let index = 1;
 
@@ -207,8 +207,8 @@ export class PostgresFlightRepository implements FlightRepository {
       index += 1;
     }
 
-    if (criteria.stops !== undefined) {
-      whereClauses.push(`stops = $${index}`);
+    if (criteria.stops && criteria.stops.length > 0) {
+      whereClauses.push(`stops = ANY($${index}::int[])`);
       values.push(criteria.stops);
       index += 1;
     }
@@ -317,7 +317,7 @@ export class InMemoryFlightRepository implements FlightRepository {
         (flight) =>
           normalizedAirlines.length === 0 || normalizedAirlines.includes(flight.airline.toLowerCase())
       )
-      .filter((flight) => criteria.stops === undefined || flight.stops === criteria.stops)
+      .filter((flight) => !criteria.stops || criteria.stops.length === 0 || criteria.stops.includes(flight.stops))
       .filter((flight) => criteria.durationMax === undefined || flight.duration <= criteria.durationMax)
       .sort((left, right) => compareFlights(left, right, criteria.sortBy, sortOrder));
 

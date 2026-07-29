@@ -87,6 +87,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       });
     });
 
+    manager.onFlightAlert((data) => {
+      addToast({ title: 'Flight status update', description: data.message })
+    })
+
     return () => {
       manager.off("connect", onConnect);
       manager.off("disconnect", onDisconnect);

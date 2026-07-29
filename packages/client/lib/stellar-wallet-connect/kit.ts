@@ -5,7 +5,7 @@
  * initialisation entry-point and a transaction signing helper.
  */
 
-import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/sdk";
+import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit";
 import { defaultModules } from "@creit.tech/stellar-wallets-kit/modules/utils";
 import { Networks } from "@stellar/stellar-sdk";
 import type { StellarNetwork, SignTransactionOptions } from "./types";

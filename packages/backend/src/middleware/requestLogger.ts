@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { logger, asyncLocalStorage } from '../utils/logger';
 
-const SENSITIVE_KEYS = [
+export const SENSITIVE_KEYS = [
   'authorization',
   'cookie',
   'set-cookie',
@@ -20,7 +20,7 @@ const redactValue = (value: unknown) => {
   return '[REDACTED]';
 };
 
-const sanitizeObject = (value: unknown): unknown => {
+export const sanitizeObject = (value: unknown): unknown => {
   if (!value || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map(sanitizeObject);
 

@@ -299,7 +299,7 @@ The Admin Multisig contract can manage other contracts by:
 3. Managing contract parameters through ParameterChange actions
 4. Coordinating upgrades across multiple contracts
 5. Integrating with proxy-based upgrade timelocks to enforce delayed execution after approval
-
+5. Integrating with proxy-based upgrade timelocks to enforce delayed execution after approval
 ### Example Integration
 
 ```rust
