@@ -3,8 +3,11 @@ import { Booking } from "../db/entities/Booking";
 import { Flight } from "../db/entities/Flight";
 import { Passenger } from "../db/entities/Passenger";
 import { TravelDocument, DocumentType } from "../db/entities/TravelDocument";
+import { GroupBooking } from "../db/entities/GroupBooking";
+import { CheckIn } from "../db/entities/CheckIn";
 
 import { getTransactionStatus, signAndSubmitCreateBooking } from "./soroban";
+import { GroupBookingService } from "./groupBooking";
 
 import { logger } from "../utils/logger";
 import { withRetries } from "./retry";
@@ -19,6 +22,7 @@ import type {
 import { getWebSocketServer } from "../websockets/server";
 import { inflightServicesService } from "./inflightServicesService";
 import { seatAvailabilityService } from "./seatAvailabilityService";
+import crypto from 'crypto';
 
 export interface StructuredName {
   title?: string;
@@ -931,6 +935,37 @@ export class BookingOrchestrationService {
       nameChangeHistory.set(key, []);
     }
     nameChangeHistory.get(key)!.push(entry);
+  }
+
+  async createGroupBooking(params: {
+    groupName: string;
+    flightId: string;
+    organizerEmail: string;
+    memberEmails: string[];
+    splitMethod: 'equal' | 'custom' | 'percentage';
+    corporateAccountId?: string;
+    costCenter?: string;
+    department?: string;
+    bookingPolicyId?: string;
+  }): Promise<GroupBooking> {
+    const groupService = GroupBookingService.getInstance();
+    return groupService.createGroupBooking({
+      ...params,
+      organizerWalletAddress: undefined,
+    });
+  }
+
+  async groupCheckIn(
+    groupBookingId: string,
+    seatAllocations?: Record<string, string>,
+  ): Promise<{ checkedIn: number; errors: string[] }> {
+    const groupService = GroupBookingService.getInstance();
+    return groupService.checkInAllMembers(groupBookingId, seatAllocations);
+  }
+
+  async getGroupBooking(groupBookingId: string): Promise<GroupBooking | null> {
+    const groupService = GroupBookingService.getInstance();
+    return groupService.getGroupBooking(groupBookingId);
   }
 }
 

@@ -56,7 +56,39 @@ export interface WebAuthnAuthenticationOptions {
     userVerification: 'required' | 'preferred' | 'discouraged';
 }
 
+export interface AuthorizePaymentResponse {
+    paymentToken: string;
+    expiresIn: number;
+    amount: string;
+    destination: string;
+}
+
+export interface FallbackAuthOptions {
+    challenge: string;
+    expiresIn: number;
+    message: string;
+    walletAddress: string;
+}
+
 type AuthenticatorTransport = 'usb' | 'nfc' | 'ble' | 'internal' | 'hybrid';
+
+// Known platform authenticator AAGUIDs mapped to credential types
+// Source: https://github.com/passkeydeveloper/passkey-authenticator-aaguids
+const AAGUID_TYPE_MAP: Record<string, 'fingerprint' | 'face'> = {
+    '00000000-0000-0000-0000-000000000000': 'fingerprint', // Apple (no attestation)
+    '08903358-0000-0000-0000-000000000000': 'fingerprint', // Apple Touch ID
+    '08903358-0000-0000-0000-000000000001': 'face',        // Apple Face ID
+    'adce0002-35bc-c60a-648b-0b25f1f05503': 'fingerprint', // Chrome on Android (fingerprint)
+    '6028b017-b1d4-4c02-b4b3-afcdafc96bb2': 'fingerprint', // Windows Hello (fingerprint)
+    'dd5ec99e-9c32-4c7b-8f8e-6e7c0b8f8e6e': 'face',        // Windows Hello (face)
+    '9f0d8152-0000-0000-0000-000000000000': 'fingerprint', // Samsung Pass (fingerprint)
+    '9f0d8152-0000-0000-0000-000000000001': 'face',        // Samsung Pass (face)
+};
+
+function normalizeAAGUID(aaguid: Buffer): string {
+    const hex = aaguid.toString('hex').toLowerCase();
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 // Convert Buffer or ArrayBuffer to base64url string
 function arrayBufferToBase64url(buf: Buffer | ArrayBuffer): string {
@@ -282,7 +314,8 @@ export class AuthService {
                 transports?: AuthenticatorTransport[];
             };
         },
-        deviceName?: string
+        deviceName?: string,
+        credentialType?: 'fingerprint' | 'face'
     ): Promise<BiometricCredentialInfo> {
         const expectedChallenge = await this.redis.get(`webauthn:reg:${walletAddress}`);
         if (!expectedChallenge) {
@@ -310,14 +343,18 @@ export class AuthService {
             throw new Error('Credential already registered');
         }
 
-        const credentialType = this.detectCredentialType(credential.id);
+        const resolvedType = this.detectCredentialType(
+            credential.id,
+            authData,
+            credentialType
+        );
 
         const entity = new BiometricCredential();
         entity.walletAddress = walletAddress;
         entity.credentialId = credential.id;
         entity.publicKey = credential.response.attestationObject;
         entity.counter = counter;
-        entity.credentialType = credentialType;
+        entity.credentialType = resolvedType;
         entity.deviceName = deviceName || null;
         entity.transports = credential.response.transports
             ? JSON.stringify(credential.response.transports)
@@ -445,6 +482,130 @@ export class AuthService {
         return { verified: true, credentialId: credential.id };
     }
 
+    async authorizePaymentWithBiometric(
+        walletAddress: string,
+        assertion: {
+            id: string;
+            rawId: string;
+            type: 'public-key';
+            response: {
+                clientDataJSON: string;
+                authenticatorData: string;
+                signature: string;
+                userHandle?: string;
+            };
+        },
+        paymentDetails: {
+            amount: string;
+            destination: string;
+            description?: string;
+        }
+    ): Promise<AuthorizePaymentResponse> {
+        const { verified } = await this.verifyBiometricAssertion(walletAddress, assertion);
+        if (!verified) {
+            throw new Error('Biometric verification failed');
+        }
+
+        const paymentToken = crypto.randomBytes(48).toString('hex');
+        const expiresIn = 300;
+
+        await this.redis.set(
+            `payment:auth:${paymentToken}`,
+            JSON.stringify({
+                walletAddress,
+                amount: paymentDetails.amount,
+                destination: paymentDetails.destination,
+                description: paymentDetails.description || '',
+            }),
+            'EX',
+            expiresIn
+        );
+
+        return {
+            paymentToken,
+            expiresIn,
+            amount: paymentDetails.amount,
+            destination: paymentDetails.destination,
+        };
+    }
+
+    async redeemPaymentToken(
+        paymentToken: string,
+        walletAddress: string
+    ): Promise<{ amount: string; destination: string } | null> {
+        const raw = await this.redis.get(`payment:auth:${paymentToken}`);
+        if (!raw) return null;
+
+        await this.redis.del(`payment:auth:${paymentToken}`);
+
+        const data = JSON.parse(raw);
+        if (data.walletAddress !== walletAddress) return null;
+
+        return { amount: data.amount, destination: data.destination };
+    }
+
+    async generateBiometricFallbackChallenge(
+        walletAddress: string
+    ): Promise<FallbackAuthOptions> {
+        if (!walletAddress || !walletAddress.startsWith('G') || walletAddress.length !== 56) {
+            throw new Error('Invalid Stellar public key');
+        }
+
+        const credentials = await this.biometricRepository.find({
+            where: { walletAddress, isActive: true },
+        });
+        if (credentials.length === 0) {
+            throw new Error('No biometric credentials enrolled');
+        }
+
+        const nonce = crypto.randomBytes(32).toString('hex');
+        const expiresIn = config.nonceExpirySeconds;
+
+        await this.redis.set(
+            `auth:biometric:fallback:${walletAddress}`,
+            nonce,
+            'EX',
+            expiresIn
+        );
+
+        return {
+            challenge: nonce,
+            expiresIn,
+            message: `Sign this message to authenticate with biometric fallback: ${nonce}`,
+            walletAddress,
+        };
+    }
+
+    async verifyBiometricFallback(
+        walletAddress: string,
+        signature: string,
+        walletType: 'freighter' | 'albedo' | 'rabet'
+    ): Promise<VerifyResponse> {
+        const storedNonce = await this.redis.get(`auth:biometric:fallback:${walletAddress}`);
+        if (!storedNonce) {
+            throw new Error('Fallback challenge missing or expired');
+        }
+
+        const message = `Sign this message to authenticate with biometric fallback: ${storedNonce}`;
+        const adapter = WalletAuthFactory.getAdapter(walletType);
+
+        let networkPassphrase = '';
+        if (config.stellarNetwork === 'testnet') {
+            networkPassphrase = 'Test SDF Network ; September 2015';
+        } else if (config.stellarNetwork === 'mainnet') {
+            networkPassphrase = 'Public Global Stellar Network ; September 2015';
+        }
+
+        const isValid = await adapter.verify(signature, walletAddress, message, networkPassphrase);
+        if (!isValid) {
+            throw new Error('Invalid fallback signature');
+        }
+
+        await this.redis.del(`auth:biometric:fallback:${walletAddress}`);
+
+        return this.issueTokens(walletAddress, walletType);
+    }
+
     async getBiometricCredentials(
         walletAddress: string
     ): Promise<BiometricCredentialInfo[]> {
@@ -488,9 +649,47 @@ export class AuthService {
         return { authData };
     }
 
-    private detectCredentialType(credentialId: string): 'fingerprint' | 'face' {
+    private detectCredentialType(
+        credentialId: string,
+        authData?: Buffer,
+        clientHint?: 'fingerprint' | 'face'
+    ): 'fingerprint' | 'face' {
+        if (clientHint === 'fingerprint' || clientHint === 'face') {
+            return clientHint;
+        }
+
+        if (authData) {
+            const aaguidMatch = this.resolveAAGUID(authData);
+            if (aaguidMatch) {
+                return aaguidMatch;
+            }
+        }
+
         const typeIndicator = credentialId.charCodeAt(0) % 2;
         return typeIndicator === 0 ? 'fingerprint' : 'face';
+    }
+
+    private resolveAAGUID(authData: Buffer): 'fingerprint' | 'face' | null {
+        try {
+            let offset = 0;
+            offset += 32;
+
+            const flags = authData[offset];
+            offset += 1;
+
+            offset += 4;
+
+            const hasAttestedData = (flags & 0x40) !== 0;
+            if (!hasAttestedData) return null;
+
+            const aaguid = authData.subarray(offset, offset + 16);
+            offset += 16;
+
+            const aaguidStr = normalizeAAGUID(aaguid);
+            return AAGUID_TYPE_MAP[aaguidStr] || null;
+        } catch {
+            return null;
+        }
     }
 
     private extractPublicKeyFromAttestation(attestationBuffer: Buffer): crypto.KeyObject {

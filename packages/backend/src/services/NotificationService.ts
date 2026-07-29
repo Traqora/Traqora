@@ -3,9 +3,7 @@
  * Orchestrates multi-channel notification delivery based on user preferences
  */
 
-import { AppDataSource } from "../db/dataSource";
 import { logger } from "../utils/logger";
-import { BadRequestError, NotFoundError } from "../utils/errors";
 import type {
   NotificationPreference,
   UserNotificationSettings,
@@ -13,17 +11,30 @@ import type {
   Notification,
   NotificationChannel,
   NotificationCategory,
-  NotificationFrequency,
   DeliveryStatus,
   DeliveryLog,
   NotificationPreferenceUpdate,
 } from "../types/notification";
 
 export class NotificationService {
+  private static _instance: NotificationService;
+
+  public static getInstance(): NotificationService {
+    if (!NotificationService._instance) {
+      NotificationService._instance = new NotificationService();
+    }
+    return NotificationService._instance;
+  }
+
   private preferences: Map<string, NotificationPreference[]> = new Map();
   private settings: Map<string, UserNotificationSettings> = new Map();
   private notifications: Map<string, Notification[]> = new Map();
   private deliveryLogs: Map<string, DeliveryLog[]> = new Map();
+
+  async sendEmail(to: string, subject: string, body: string): Promise<boolean> {
+    logger.info('Sending email', { to, subject, bodyLength: body.length });
+    return true;
+  }
 
   /**
    * Get or create user notification settings
