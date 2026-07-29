@@ -18,6 +18,11 @@ const schemaMap: Record<string, z.ZodTypeAny> = {
 
 export const validateRequest = (path: string) => {
   return (req: Request, res: Response, next: NextFunction) => {
+    const requestPath = (req.originalUrl || `${req.baseUrl}${req.path}`).split('?')[0];
+    if (requestPath !== path) {
+      return next();
+    }
+
     const schema = schemaMap[path];
     
     if (!schema) {
@@ -28,7 +33,7 @@ export const validateRequest = (path: string) => {
     try {
       // Validate request body
       if (req.body && Object.keys(req.body).length > 0) {
-        schema.parse(req.body);
+        req.body = schema.parse(req.body);
       }
       
       // For GET requests, validate query parameters if needed

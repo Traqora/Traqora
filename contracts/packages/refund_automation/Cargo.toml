@@ -1,0 +1,13 @@
+[package]
+name = "refund-automation"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+access = { workspace = true }
+storage-version = { workspace = true }

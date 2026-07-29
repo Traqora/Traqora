@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Traqora Price Tracker — Settings</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0 auto; padding: 32px 24px; max-width: 560px;
+        font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      p.lede { margin: 0 0 24px; opacity: 0.75; }
+      label { display: block; margin: 18px 0 6px; font-weight: 600; }
+      .hint { font-weight: 400; opacity: 0.7; display: block; margin-top: 2px; }
+      input[type="text"], input[type="password"], input[type="number"] {
+        width: 100%; padding: 8px 10px; border-radius: 6px; box-sizing: border-box;
+        border: 1px solid rgba(128, 128, 128, 0.4); background: transparent;
+        color: inherit; font: inherit;
+      }
+      .check { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+      .check label { margin: 0; }
+      button {
+        margin-top: 24px; padding: 9px 16px; border: 0; border-radius: 6px;
+        background: #2563eb; color: #fff; font: inherit; cursor: pointer;
+      }
+      #status { margin-left: 12px; font-size: 13px; }
+      .error { color: #dc2626; }
+      .ok { color: #16a34a; }
+    </style>
+  </head>
+  <body>
+    <h1>Traqora Price Tracker</h1>
+    <p class="lede">Connect the extension to your Traqora account and choose when to be alerted.</p>
+
+    <label for="apiBaseUrl">
+      API base URL
+      <span class="hint">Where your Traqora backend runs, e.g. https://api.traqora.io</span>
+    </label>
+    <input type="text" id="apiBaseUrl" placeholder="http://localhost:4000" />
+
+    <label for="authToken">
+      API token
+      <span class="hint">A Traqora bearer token. Stored in your browser profile only.</span>
+    </label>
+    <input type="password" id="authToken" placeholder="eyJhbGciOi…" />
+
+    <label for="minDropPercent">
+      Minimum drop to notify (%)
+      <span class="hint">Drops smaller than this will not raise a desktop notification.</span>
+    </label>
+    <input type="number" id="minDropPercent" min="0" max="100" step="1" />
+
+    <div class="check">
+      <input type="checkbox" id="notificationsEnabled" />
+      <label for="notificationsEnabled">Show desktop notifications on price drops</label>
+    </div>
+
+    <div class="check">
+      <input type="checkbox" id="autoDetect" />
+      <label for="autoDetect">Detect flight searches automatically while browsing</label>
+    </div>
+
+    <div>
+      <button id="save">Save settings</button>
+      <span id="status"></span>
+    </div>
+
+    <script type="module" src="dist/options.js"></script>
+  </body>
+</html>

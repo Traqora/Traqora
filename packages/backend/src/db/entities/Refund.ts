@@ -63,7 +63,7 @@ export class Refund {
   @Column({ type: 'varchar', length: 128, nullable: true })
   reviewedBy?: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', nullable: true })
   reviewedAt?: Date | null;
 
   @Column({ type: 'text', nullable: true })
@@ -93,7 +93,7 @@ export class Refund {
   @Column({ type: 'boolean', default: false })
   isDelayed!: boolean;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', nullable: true })
   delayedUntil?: Date | null;
 
   @Column({ type: 'integer', nullable: true })
@@ -102,7 +102,7 @@ export class Refund {
   @Column({ type: 'varchar', length: 128, nullable: true })
   cancelledBy?: string | null;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', nullable: true })
   cancelledAt?: Date | null;
 
   @Column({ type: 'text', nullable: true })
@@ -117,9 +117,9 @@ export class Refund {
   @Column({ type: 'text', nullable: true })
   emergencyOverrideReason?: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   updatedAt!: Date;
 }

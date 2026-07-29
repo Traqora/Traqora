@@ -1,338 +1,566 @@
-import { Router, Request, Response } from 'express';
-import { asyncHandler } from '../../utils/errorHandler';
+import { Router, Request, Response } from "express";
+import { requireAdmin, requireRole } from "../../middleware/adminAuth";
+import { complianceService } from "../../services/governance/complianceService";
+import { dataPrivacyService } from "../../services/governance/dataPrivacyService";
+import { consentService } from "../../services/governance/consentService";
+import { logger } from "../../utils/logger";
 
 const router = Router();
 
-// Mock governance data
-const mockProposals = [
-  {
-    id: 1,
-    proposer: 'GBXYZ...ADMIN1',
-    title: 'Reduce Platform Fee to 0%',
-    description: 'Proposal to eliminate all platform fees for the first year to drive adoption and onboard more airlines and travelers to the Traqora ecosystem.',
-    proposalType: 'fee_change',
-    votingStart: '2026-02-01T00:00:00Z',
-    votingEnd: '2026-02-15T00:00:00Z',
-    yesVotes: 12500,
-    noVotes: 3200,
-    status: 'active',
-    executed: false,
-    quorum: 10000,
-    totalVoters: 47,
+/**
+ * COMPLIANCE REPORT ROUTES
+ */
+
+/**
+ * POST /api/governance/reports
+ * Generate a new compliance report
+ * Requires: admin role
+ */
+router.post(
+  "/reports",
+  requireAdmin,
+  requireRole("admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const {
+        reportName,
+        reportType,
+        reportContent,
+        findings,
+        recommendations,
+        reportPeriodStart,
+        reportPeriodEnd,
+      } = req.body;
+
+      if (!reportName || !reportType || !reportContent) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message:
+              "Missing required fields: reportName, reportType, reportContent",
+          },
+        });
+        return;
+      }
+
+      const report = await complianceService.generateReport(
+        {
+          reportName,
+          reportType,
+          reportContent,
+          findings,
+          recommendations,
+          reportPeriodStart: reportPeriodStart
+            ? new Date(reportPeriodStart)
+            : undefined,
+          reportPeriodEnd: reportPeriodEnd
+            ? new Date(reportPeriodEnd)
+            : undefined,
+        },
+        req.admin!.email,
+      );
+
+      res.json({
+        success: true,
+        data: report,
+      });
+    } catch (error) {
+      logger.error("Error generating compliance report", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to generate compliance report",
+        },
+      });
+    }
   },
-  {
-    id: 2,
-    proposer: 'GBXYZ...ADMIN2',
-    title: 'Add Multi-City Booking Support',
-    description: 'Enable users to book multi-city itineraries in a single transaction, with smart contract support for linked bookings and combined refund logic.',
-    proposalType: 'feature',
-    votingStart: '2026-01-20T00:00:00Z',
-    votingEnd: '2026-02-03T00:00:00Z',
-    yesVotes: 18700,
-    noVotes: 1100,
-    status: 'passed',
-    executed: true,
-    quorum: 10000,
-    totalVoters: 82,
+);
+
+/**
+ * GET /api/governance/reports
+ * Retrieve compliance reports with filtering
+ * Requires: admin role
+ */
+router.get(
+  "/reports",
+  requireAdmin,
+  requireRole("admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const {
+        reportType,
+        status,
+        startDate,
+        endDate,
+        limit = "10",
+        offset = "0",
+      } = req.query;
+
+      const result = await complianceService.getReports({
+        reportType: reportType as any,
+        status: status as any,
+        startDate: startDate ? new Date(startDate as string) : undefined,
+        endDate: endDate ? new Date(endDate as string) : undefined,
+        limit: parseInt(limit as string),
+        offset: parseInt(offset as string),
+      });
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      logger.error("Error fetching compliance reports", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to fetch compliance reports",
+        },
+      });
+    }
   },
-  {
-    id: 3,
-    proposer: 'GBXYZ...ADMIN1',
-    title: 'Upgrade Soroban Contract to v2',
-    description: 'Migrate all smart contracts to Soroban SDK v22 for improved performance, lower gas costs, and access to new storage primitives.',
-    proposalType: 'upgrade',
-    votingStart: '2026-01-10T00:00:00Z',
-    votingEnd: '2026-01-24T00:00:00Z',
-    yesVotes: 5200,
-    noVotes: 8900,
-    status: 'rejected',
-    executed: false,
-    quorum: 10000,
-    totalVoters: 63,
+);
+
+/**
+ * PUT /api/governance/reports/:reportId/approve
+ * Approve a compliance report
+ * Requires: admin role
+ */
+router.put(
+  "/reports/:reportId/approve",
+  requireAdmin,
+  requireRole("admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { reportId } = req.params;
+      const { notes } = req.body;
+
+      const report = await complianceService.approveReport(
+        reportId,
+        req.admin!.email,
+        notes,
+      );
+
+      res.json({
+        success: true,
+        data: report,
+      });
+    } catch (error) {
+      logger.error("Error approving compliance report", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to approve compliance report",
+        },
+      });
+    }
   },
-  {
-    id: 4,
-    proposer: 'GBXYZ...USER3',
-    title: 'Increase Loyalty Rewards by 20%',
-    description: 'Boost TRQ token rewards for all bookings by 20% to incentivize platform usage and reward loyal travelers.',
-    proposalType: 'feature',
-    votingStart: '2026-02-10T00:00:00Z',
-    votingEnd: '2026-02-24T00:00:00Z',
-    yesVotes: 7800,
-    noVotes: 2100,
-    status: 'active',
-    executed: false,
-    quorum: 10000,
-    totalVoters: 35,
+);
+
+/**
+ * GET /api/governance/reports/summary
+ * Get compliance report summary
+ * Requires: admin role
+ */
+router.get(
+  "/reports/summary",
+  requireAdmin,
+  requireRole("admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { startDate, endDate } = req.query;
+
+      if (!startDate || !endDate) {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Missing required fields: startDate, endDate",
+          },
+        });
+        return;
+      }
+
+      const summary = await complianceService.getComplianceSummary(
+        new Date(startDate as string),
+        new Date(endDate as string),
+      );
+
+      res.json({
+        success: true,
+        data: summary,
+      });
+    } catch (error) {
+      logger.error("Error fetching compliance summary", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to fetch compliance summary",
+        },
+      });
+    }
   },
-  {
-    id: 5,
-    proposer: 'GBXYZ...ADMIN2',
-    title: 'Partner with Regional Airlines',
-    description: 'Allocate 50,000 TRQ from the treasury to fund onboarding partnerships with 10 regional airlines across Southeast Asia and Africa.',
-    proposalType: 'feature',
-    votingStart: '2026-02-15T00:00:00Z',
-    votingEnd: '2026-03-01T00:00:00Z',
-    yesVotes: 950,
-    noVotes: 200,
-    status: 'active',
-    executed: false,
-    quorum: 10000,
-    totalVoters: 12,
+);
+
+/**
+ * DATA PRIVACY ROUTES
+ */
+
+/**
+ * POST /api/governance/pia
+ * Create a Privacy Impact Assessment
+ * Requires: admin role
+ */
+router.post(
+  "/pia",
+  requireAdmin,
+  requireRole("admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const pia = await dataPrivacyService.createPIA(
+        req.body,
+        req.admin!.email,
+      );
+
+      res.json({
+        success: true,
+        data: pia,
+      });
+    } catch (error) {
+      logger.error("Error creating PIA", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to create Privacy Impact Assessment",
+        },
+      });
+    }
   },
-];
+);
 
-const mockVotes = [
-  { voter: 'GBXYZ...USER1', proposalId: 1, support: true, votingPower: 850, timestamp: '2026-02-02T10:30:00Z' },
-  { voter: 'GBXYZ...USER2', proposalId: 1, support: false, votingPower: 1200, timestamp: '2026-02-03T14:15:00Z' },
-  { voter: 'GBXYZ...USER3', proposalId: 1, support: true, votingPower: 500, timestamp: '2026-02-04T09:00:00Z' },
-  { voter: 'GBXYZ...USER1', proposalId: 2, support: true, votingPower: 850, timestamp: '2026-01-21T11:00:00Z' },
-  { voter: 'GBXYZ...USER2', proposalId: 2, support: true, votingPower: 1200, timestamp: '2026-01-22T16:30:00Z' },
-  { voter: 'GBXYZ...USER3', proposalId: 3, support: false, votingPower: 500, timestamp: '2026-01-12T08:45:00Z' },
-  { voter: 'GBXYZ...USER1', proposalId: 4, support: true, votingPower: 850, timestamp: '2026-02-11T13:20:00Z' },
-];
+/**
+ * PUT /api/governance/pia/:piaId/approve
+ * Approve a Privacy Impact Assessment
+ * Requires: admin role
+ */
+router.put(
+  "/pia/:piaId/approve",
+  requireAdmin,
+  requireRole("admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { piaId } = req.params;
 
-const mockDelegations = [
-  { delegator: 'GBXYZ...USER4', delegate: 'GBXYZ...USER1', amount: 300, timestamp: '2026-01-15T10:00:00Z' },
-  { delegator: 'GBXYZ...USER5', delegate: 'GBXYZ...USER2', amount: 500, timestamp: '2026-01-20T14:30:00Z' },
-];
+      const pia = await dataPrivacyService.approvePIA(piaId, req.admin!.email);
 
-// GET /api/v1/governance/proposals - List all proposals
-router.get('/proposals', asyncHandler(async (req: Request, res: Response) => {
-  const { status } = req.query;
+      res.json({
+        success: true,
+        data: pia,
+      });
+    } catch (error) {
+      logger.error("Error approving PIA", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to approve Privacy Impact Assessment",
+        },
+      });
+    }
+  },
+);
 
-  let filtered = mockProposals;
-  if (status && typeof status === 'string') {
-    filtered = mockProposals.filter(p => p.status === status);
-  }
+/**
+ * GET /api/governance/classification
+ * Get data classification guidelines
+ * Requires: admin role
+ */
+router.get(
+  "/classification",
+  requireAdmin,
+  requireRole("admin"),
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const guidelines = await dataPrivacyService.getClassificationGuidelines();
 
-return res.json({
-    success: true,
-    data: filtered,
-    total: filtered.length,
-  });
-}));
+      res.json({
+        success: true,
+        data: guidelines,
+      });
+    } catch (error) {
+      logger.error("Error fetching classification guidelines", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to fetch data classification guidelines",
+        },
+      });
+    }
+  },
+);
 
-// GET /api/v1/governance/proposals/:id - Get proposal detail
-router.get('/proposals/:id', asyncHandler(async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id);
-  const proposal = mockProposals.find(p => p.id === id);
+/**
+ * POST /api/governance/access-policies
+ * Create a data access policy
+ * Requires: super_admin role
+ */
+router.post(
+  "/access-policies",
+  requireAdmin,
+  requireRole("super_admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const {
+        policyName,
+        description,
+        dataClassification,
+        requiredRoles,
+        applicableFrameworks,
+      } = req.body;
 
-  if (!proposal) {
-    return res.status(404).json({
+      const policy = await dataPrivacyService.createAccessPolicy(
+        policyName,
+        description,
+        dataClassification,
+        requiredRoles,
+        applicableFrameworks,
+        req.admin!.email,
+      );
+
+      res.json({
+        success: true,
+        data: policy,
+      });
+    } catch (error) {
+      logger.error("Error creating access policy", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to create data access policy",
+        },
+      });
+    }
+  },
+);
+
+/**
+ * GET /api/governance/access-policies
+ * Get active access policies
+ * Requires: admin role
+ */
+router.get(
+  "/access-policies",
+  requireAdmin,
+  requireRole("admin"),
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const policies = await dataPrivacyService.getAccessPolicies();
+
+      res.json({
+        success: true,
+        data: policies,
+      });
+    } catch (error) {
+      logger.error("Error fetching access policies", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to fetch data access policies",
+        },
+      });
+    }
+  },
+);
+
+/**
+ * CONSENT MANAGEMENT ROUTES
+ */
+
+/**
+ * POST /api/governance/consent
+ * Grant user consent
+ * Requires: user authentication
+ */
+router.post("/consent", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const {
+      userWalletAddress,
+      consentType,
+      consentDetails,
+      ipAddress,
+      userAgent,
+      expiresAt,
+    } = req.body;
+
+    if (!userWalletAddress || !consentType || !consentDetails) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: "VALIDATION_ERROR",
+          message:
+            "Missing required fields: userWalletAddress, consentType, consentDetails",
+        },
+      });
+      return;
+    }
+
+    const consent = await consentService.grantConsent({
+      userWalletAddress,
+      consentType,
+      consentDetails,
+      ipAddress,
+      userAgent,
+      expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+    });
+
+    res.json({
+      success: true,
+      data: consent,
+    });
+  } catch (error) {
+    logger.error("Error granting consent", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({
       success: false,
-      error: { message: 'Proposal not found', code: 'PROPOSAL_NOT_FOUND' },
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Failed to grant consent",
+      },
     });
   }
+});
 
-return res.json({
-    success: true,
-    data: proposal,
-  });
-}));
+/**
+ * GET /api/governance/consent/:userWalletAddress
+ * Get user's active consents
+ * Requires: user authentication
+ */
+router.get(
+  "/consent/:userWalletAddress",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { userWalletAddress } = req.params;
 
-// POST /api/v1/governance/proposals - Create a new proposal (admin)
-router.post('/proposals', asyncHandler(async (req: Request, res: Response) => {
-  const { proposer, title, description, proposalType, votingPeriodDays } = req.body;
+      const consents = await consentService.getUserConsents(userWalletAddress);
 
-  if (!proposer || !title || !description || !proposalType || !votingPeriodDays) {
-    return res.status(400).json({
-      success: false,
-      error: { message: 'Missing required fields', code: 'VALIDATION_ERROR' },
-    });
-  }
+      res.json({
+        success: true,
+        data: consents,
+      });
+    } catch (error) {
+      logger.error("Error fetching user consents", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to fetch user consents",
+        },
+      });
+    }
+  },
+);
 
-  const now = new Date();
-  const votingEnd = new Date(now.getTime() + votingPeriodDays * 24 * 60 * 60 * 1000);
+/**
+ * DELETE /api/governance/consent/:consentId
+ * Withdraw user consent
+ * Requires: user authentication
+ */
+router.delete(
+  "/consent/:consentId",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { consentId } = req.params;
+      const { reason } = req.body;
 
-  const newProposal = {
-    id: mockProposals.length + 1,
-    proposer,
-    title,
-    description,
-    proposalType,
-    votingStart: now.toISOString(),
-    votingEnd: votingEnd.toISOString(),
-    yesVotes: 0,
-    noVotes: 0,
-    status: 'active',
-    executed: false,
-    quorum: 10000,
-    totalVoters: 0,
-  };
+      const consent = await consentService.withdrawConsent(
+        consentId,
+        reason,
+        "user_request",
+      );
 
-return res.status(201).json({
-    success: true,
-    data: newProposal,
-    message: 'Proposal created successfully',
-  });
-}));
+      res.json({
+        success: true,
+        data: consent,
+      });
+    } catch (error) {
+      logger.error("Error withdrawing consent", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to withdraw consent",
+        },
+      });
+    }
+  },
+);
 
-// POST /api/v1/governance/proposals/:id/vote - Cast a vote
-router.post('/proposals/:id/vote', asyncHandler(async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id);
-  const { voter, support, votingPower } = req.body;
+/**
+ * GET /api/governance/consent-stats/:consentType
+ * Get consent statistics
+ * Requires: admin role
+ */
+router.get(
+  "/consent-stats/:consentType",
+  requireAdmin,
+  requireRole("admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { consentType } = req.params;
 
-  const proposal = mockProposals.find(p => p.id === id);
-  if (!proposal) {
-    return res.status(404).json({
-      success: false,
-      error: { message: 'Proposal not found', code: 'PROPOSAL_NOT_FOUND' },
-    });
-  }
+      const stats = await consentService.getConsentStatistics(
+        consentType as any,
+      );
 
-  if (proposal.status !== 'active') {
-    return res.status(400).json({
-      success: false,
-      error: { message: 'Proposal is not active', code: 'PROPOSAL_NOT_ACTIVE' },
-    });
-  }
+      res.json({
+        success: true,
+        data: stats,
+      });
+    } catch (error) {
+      logger.error("Error fetching consent statistics", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(500).json({
+        success: false,
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Failed to fetch consent statistics",
+        },
+      });
+    }
+  },
+);
 
-  const existingVote = mockVotes.find(v => v.voter === voter && v.proposalId === id);
-  if (existingVote) {
-    return res.status(400).json({
-      success: false,
-      error: { message: 'Already voted on this proposal', code: 'ALREADY_VOTED' },
-    });
-  }
-
-  const vote = {
-    voter,
-    proposalId: id,
-    support,
-    votingPower,
-    timestamp: new Date().toISOString(),
-  };
-
-return res.status(201).json({
-    success: true,
-    data: vote,
-    message: 'Vote cast successfully',
-  });
-}));
-
-// GET /api/v1/governance/proposals/:id/votes - Get voting history for a proposal
-router.get('/proposals/:id/votes', asyncHandler(async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id);
-  const votes = mockVotes.filter(v => v.proposalId === id);
-
-  res.json({
-    success: true,
-    data: votes,
-    total: votes.length,
-  });
-}));
-
-// POST /api/v1/governance/delegate - Delegate voting power
-router.post('/delegate', asyncHandler(async (req: Request, res: Response) => {
-  const { delegator, delegate, amount } = req.body;
-
-  if (!delegator || !delegate || !amount) {
-    return res.status(400).json({
-      success: false,
-      error: { message: 'Missing required fields', code: 'VALIDATION_ERROR' },
-    });
-  }
-
-  if (delegator === delegate) {
-    return res.status(400).json({
-      success: false,
-      error: { message: 'Cannot delegate to self', code: 'SELF_DELEGATION' },
-    });
-  }
-
-  const delegation = {
-    delegator,
-    delegate,
-    amount,
-    timestamp: new Date().toISOString(),
-  };
-
-return res.status(201).json({
-    success: true,
-    data: delegation,
-    message: 'Voting power delegated successfully',
-  });
-}));
-
-// DELETE /api/v1/governance/delegate - Revoke delegation
-router.delete('/delegate', asyncHandler(async (req: Request, res: Response) => {
-  const { delegator } = req.body;
-
-  if (!delegator) {
-    return res.status(400).json({
-      success: false,
-      error: { message: 'Missing delegator address', code: 'VALIDATION_ERROR' },
-    });
-  }
-
-return res.json({
-    success: true,
-    message: 'Delegation revoked successfully',
-  });
-}));
-
-// GET /api/v1/governance/voting-power/:address - Get voting power for an address
-router.get('/voting-power/:address', asyncHandler(async (req: Request, res: Response) => {
-  const { address } = req.params;
-
-  // Mock voting power calculation
-  const baseBalance = 850;
-  const delegatedToUser = mockDelegations
-    .filter(d => d.delegate === address)
-    .reduce((sum, d) => sum + d.amount, 0);
-  const delegatedAway = mockDelegations
-    .filter(d => d.delegator === address)
-    .reduce((sum, d) => sum + d.amount, 0);
-
-  res.json({
-    success: true,
-    data: {
-      address,
-      baseBalance,
-      delegatedToUser,
-      delegatedAway,
-      totalVotingPower: baseBalance + delegatedToUser - delegatedAway,
-    },
-  });
-}));
-
-// GET /api/v1/governance/delegations/:address - Get delegations for an address
-router.get('/delegations/:address', asyncHandler(async (req: Request, res: Response) => {
-  const { address } = req.params;
-
-  const delegatedBy = mockDelegations.filter(d => d.delegator === address);
-  const delegatedTo = mockDelegations.filter(d => d.delegate === address);
-
-  res.json({
-    success: true,
-    data: {
-      delegatedBy,
-      delegatedTo,
-    },
-  });
-}));
-
-// GET /api/v1/governance/votes/:address - Get all votes by an address
-router.get('/votes/:address', asyncHandler(async (req: Request, res: Response) => {
-  const { address } = req.params;
-  const userVotes = mockVotes.filter(v => v.voter === address);
-
-  // Enrich with proposal info
-  const enrichedVotes = userVotes.map(vote => {
-    const proposal = mockProposals.find(p => p.id === vote.proposalId);
-    return {
-      ...vote,
-      proposalTitle: proposal?.title || 'Unknown',
-      proposalStatus: proposal?.status || 'unknown',
-    };
-  });
-
-  res.json({
-    success: true,
-    data: enrichedVotes,
-    total: enrichedVotes.length,
-  });
-}));
-
-export const governanceRoutes = router;
+export default router;

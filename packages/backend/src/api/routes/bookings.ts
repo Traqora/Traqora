@@ -2,10 +2,9 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../../middleware/authMiddleware";
 import { asyncHandler } from "../../utils/errorHandler";
-import { initDataSource, AppDataSource } from "../../db/dataSource";
-import { Flight } from "../../db/entities/Flight";
-import { Passenger } from "../../db/entities/Passenger";
+import { AppDataSource } from "../../db/dataSource";
 import { Booking } from "../../db/entities/Booking";
+import { Passenger } from "../../db/entities/Passenger";
 import { IdempotencyKey } from "../../db/entities/IdempotencyKey";
 import {
   getOrCreateIdempotencyKey,
@@ -14,23 +13,74 @@ import {
 import { BookingOrchestrationService } from "../../services/bookingOrchestrationService";
 import { stripe, stripeWebhookSecret } from "../../services/stripe";
 import {
-  buildCreateBookingUnsignedXdr,
   submitSignedSorobanXdr,
   getTransactionStatus,
 } from "../../services/soroban";
 import { withRetries } from "../../services/retry";
-import { config } from "../../config";
 import { getWebSocketServer } from "../../websockets/server";
 import { logger } from "../../utils/logger";
+import { baggageService, RESTRICTION_NOTES } from "../../services/baggageService";
 
 const router = Router();
 
+// IATA name format: letters, spaces, hyphens, and apostrophes only
+const iatanameRegex = /^[A-Za-z\s'\-]+$/;
+const nameField = (label: string) =>
+  z
+    .string()
+    .min(1, `${label} is required`)
+    .max(100, `${label} must be 100 characters or fewer`)
+    .trim()
+    .regex(iatanameRegex, `${label} may only contain letters, spaces, hyphens, and apostrophes`);
+
 const passengerSchema = z.object({
   email: z.string().email(),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
+  firstName: nameField("First name"),
+  lastName: nameField("Last name"),
+  middleName: z.string().optional(),
+  title: z.string().optional(),
+  suffix: z.string().optional(),
+  dateOfBirth: z.string().optional(),
+  nationality: z.string().optional(),
   phone: z.string().min(4).optional(),
   sorobanAddress: z.string().min(1),
+});
+
+const passengerUpdateSchema = z.object({
+  email: z.string().email().optional(),
+  firstName: nameField("First name").optional(),
+  lastName: nameField("Last name").optional(),
+  middleName: z.string().optional(),
+  title: z.string().optional(),
+  suffix: z.string().optional(),
+  dateOfBirth: z.string().optional(),
+  nationality: z.string().optional(),
+  phone: z.string().min(4).optional(),
+  sorobanAddress: z.string().min(1).optional(),
+});
+
+const nameCorrectionSchema = z.object({
+  correctedName: z.object({
+    title: z.string().optional(),
+    firstName: nameField("First name"),
+    middleName: z.string().optional(),
+    lastName: nameField("Last name"),
+    suffix: z.string().optional(),
+  }),
+  reason: z.string().min(10),
+});
+
+const documentVerificationSchema = z.object({
+  documentType: z.enum(['passport', 'national_id', 'drivers_license', 'visa', 'residence_permit', 'other']),
+  documentNumber: z.string().min(1),
+});
+
+const correctionApprovalSchema = z.object({
+  reviewedBy: z.string().min(1),
+});
+
+const correctionRejectionSchema = z.object({
+  reason: z.string().min(5),
 });
 
 const createBookingSchema = z.object({
@@ -38,40 +88,25 @@ const createBookingSchema = z.object({
   passenger: passengerSchema,
 });
 
+import { BadRequestError, NotFoundError, ConflictError, InternalServerError } from "../../utils/errors";
+
 router.post(
   "/",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    await initDataSource();
-
     const parsed = createBookingSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          message: "Validation error",
-          code: "VALIDATION_ERROR",
-          details: parsed.error.flatten(),
-        },
-      });
+      throw new BadRequestError("Validation error", parsed.error.flatten());
     }
 
     const idempotencyKeyHeader = req.header("Idempotency-Key");
     if (!idempotencyKeyHeader) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          message: "Missing Idempotency-Key header",
-          code: "IDEMPOTENCY_KEY_REQUIRED",
-        },
-      });
+      throw new BadRequestError("Missing Idempotency-Key header");
     }
 
     const requestHash = hashObject(parsed.data);
 
     const bookingRepo = AppDataSource.getRepository(Booking);
-    const flightRepo = AppDataSource.getRepository(Flight);
-    const passengerRepo = AppDataSource.getRepository(Passenger);
     const idempotencyRepo = AppDataSource.getRepository(IdempotencyKey);
 
     const idem = await getOrCreateIdempotencyKey({
@@ -82,13 +117,7 @@ router.post(
     });
 
     if (idem.requestHash !== requestHash) {
-      return res.status(409).json({
-        success: false,
-        error: {
-          message: "Idempotency key reuse with different payload",
-          code: "IDEMPOTENCY_CONFLICT",
-        },
-      });
+      throw new ConflictError("Idempotency key reuse with different payload");
     }
 
     if (idem.resourceId) {
@@ -108,6 +137,7 @@ router.post(
         flightId: parsed.data.flightId,
         passenger: parsed.data.passenger,
         idempotencyKey: idempotencyKeyHeader,
+        walletAddress: req.user?.walletAddress,
       });
 
       // Update idempotency key with resource ID
@@ -121,14 +151,10 @@ router.post(
     } catch (error: any) {
       logger.error("Booking creation failed", { error: error.message });
       
-      const statusCode = error.message === "Flight not found" ? 404 : 409;
-      return res.status(statusCode).json({
-        success: false,
-        error: {
-          message: error.message,
-          code: "BOOKING_FAILED",
-        },
-      });
+      if (error.message === "Flight not found") {
+        throw new NotFoundError(error.message);
+      }
+      throw new ConflictError(error.message || "Booking failed");
     }
   }),
 );
@@ -137,16 +163,10 @@ router.get(
   "/:id",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    await initDataSource();
     const bookingRepo = AppDataSource.getRepository(Booking);
     const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
     if (!booking) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          error: { message: "Booking not found", code: "BOOKING_NOT_FOUND" },
-        });
+      throw new NotFoundError("Booking not found");
     }
     return res.json({ success: true, data: booking });
   }),
@@ -156,37 +176,20 @@ router.post(
   "/:id/submit-onchain",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    await initDataSource();
     const schema = z.object({ signedXdr: z.string().min(1) });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: { message: "Validation error", code: "VALIDATION_ERROR" },
-        });
+      throw new BadRequestError("Validation error");
     }
 
     const bookingRepo = AppDataSource.getRepository(Booking);
     const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
     if (!booking) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          error: { message: "Booking not found", code: "BOOKING_NOT_FOUND" },
-        });
+      throw new NotFoundError("Booking not found");
     }
 
     if (booking.status !== "paid" && booking.status !== "onchain_pending") {
-      return res.status(409).json({
-        success: false,
-        error: {
-          message: "Booking not ready for on-chain submission",
-          code: "BOOKING_NOT_READY",
-        },
-      });
+      throw new ConflictError("Booking not ready for on-chain submission");
     }
 
     booking.status = "onchain_pending";
@@ -215,30 +218,12 @@ router.post(
 router.post(
   "/webhook/stripe",
   asyncHandler(async (req: Request, res: Response) => {
-    await initDataSource();
-
     const sig = req.headers["stripe-signature"];
     if (!stripeWebhookSecret) {
-      return res
-        .status(500)
-        .json({
-          success: false,
-          error: {
-            message: "Stripe webhook secret not configured",
-            code: "CONFIG_ERROR",
-          },
-        });
+      throw new InternalServerError("Stripe webhook secret not configured");
     }
     if (!sig || typeof sig !== "string") {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: {
-            message: "Missing stripe-signature header",
-            code: "SIGNATURE_REQUIRED",
-          },
-        });
+      throw new BadRequestError("Missing stripe-signature header");
     }
 
     let event;
@@ -249,15 +234,7 @@ router.post(
         stripeWebhookSecret,
       );
     } catch (err: any) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: {
-            message: err.message || "Invalid signature",
-            code: "INVALID_SIGNATURE",
-          },
-        });
+      throw new BadRequestError(err.message || "Invalid signature");
     }
 
     if (event.type === "payment_intent.succeeded") {
@@ -288,17 +265,11 @@ router.get(
   "/:id/transaction-status",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    await initDataSource();
     const bookingRepo = AppDataSource.getRepository(Booking);
     const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
 
     if (!booking) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          error: { message: "Booking not found", code: "BOOKING_NOT_FOUND" },
-        });
+      throw new NotFoundError("Booking not found");
     }
 
     if (!booking.sorobanTxHash) {
@@ -347,6 +318,287 @@ router.get(
         bookingStatus: booking.status,
         transactionStatus: txStatus,
       },
+    });
+  }),
+);
+
+router.patch(
+  "/:id/passengers/:passengerId",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = passengerUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const passengerRepo = AppDataSource.getRepository(Passenger);
+    const passenger = await passengerRepo.findOne({ where: { id: req.params.passengerId } });
+    if (!passenger) {
+      throw new NotFoundError("Passenger not found");
+    }
+
+    Object.assign(passenger, parsed.data);
+    await passengerRepo.save(passenger);
+
+    return res.json({ success: true, data: passenger });
+  }),
+);
+
+router.post(
+  "/:id/passengers/:passengerId/correct-name",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = nameCorrectionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
+    if (!booking) {
+      throw new NotFoundError("Booking not found");
+    }
+
+    const passengerRepo = AppDataSource.getRepository(Passenger);
+    const passenger = await passengerRepo.findOne({ where: { id: req.params.passengerId } });
+    if (!passenger) {
+      throw new NotFoundError("Passenger not found");
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.requestNameCorrection(
+      req.params.id,
+      req.params.passengerId,
+      parsed.data.correctedName,
+      parsed.data.reason,
+    );
+
+    return res.status(201).json({ success: true, data: result });
+  }),
+);
+
+router.post(
+  "/:id/passengers/:passengerId/correct-name/:correctionId/approve",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = correctionApprovalSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.approveNameCorrection(
+      req.params.correctionId,
+      parsed.data.reviewedBy,
+    );
+
+    return res.json({ success: true, data: result });
+  }),
+);
+
+router.post(
+  "/:id/passengers/:passengerId/correct-name/:correctionId/reject",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = correctionRejectionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.rejectNameCorrection(
+      req.params.correctionId,
+      parsed.data.reason,
+    );
+
+    return res.json({ success: true, data: result });
+  }),
+);
+
+router.post(
+  "/:id/passengers/:passengerId/verify-document",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = documentVerificationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.verifyAgainstDocument(
+      req.params.passengerId,
+      parsed.data.documentType,
+      parsed.data.documentNumber,
+    );
+
+    return res.json({ success: true, data: result });
+  }),
+);
+
+router.get(
+  "/:id/passengers/:passengerId/name-history",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const history = orchestrationService.getPassengerNameHistory(
+      req.params.id,
+      req.params.passengerId,
+    );
+
+    return res.json({ success: true, data: history });
+  }),
+);
+
+router.get(
+  "/:id/passengers/:passengerId/name-change-fee",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const isMinor = req.query.minor === "true";
+    const orchestrationService = new BookingOrchestrationService();
+    const fee = orchestrationService.calculateNameChangeFee(req.params.id, isMinor);
+
+    return res.json({ success: true, data: fee });
+  }),
+);
+
+router.get(
+  "/:id/fare-rules",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const rules = await orchestrationService.getBookingFareRules(req.params.id);
+    return res.json({ success: true, data: rules });
+  }),
+);
+
+const changeFeeQuerySchema = z.object({
+  newDate: z.string().min(1, "newDate query parameter is required"),
+});
+
+router.get(
+  "/:id/change-fee",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = changeFeeQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+    const orchestrationService = new BookingOrchestrationService();
+    const quote = await orchestrationService.calculateBookingChangeFee(
+      req.params.id,
+      parsed.data.newDate,
+    );
+    return res.json({ success: true, data: quote });
+  }),
+);
+
+router.get(
+  "/:id/cancellation-refund",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const refund = await orchestrationService.calculateBookingCancellationRefund(req.params.id);
+    return res.json({ success: true, data: refund });
+  }),
+);
+
+router.post(
+  "/:id/cancel",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.processCancellation(req.params.id);
+    return res.json({ success: true, data: result });
+  }),
+);
+
+const upgradeQuerySchema = z.object({
+  targetClass: z.enum(["economy", "premium_economy", "business", "first"]),
+});
+
+router.get(
+  "/:id/upgrade-price",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = upgradeQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+    const orchestrationService = new BookingOrchestrationService();
+    const quote = await orchestrationService.calculateUpgradePrice(
+      req.params.id,
+      parsed.data.targetClass,
+    );
+    return res.json({ success: true, data: quote });
+  }),
+);
+
+router.post(
+  "/:id/upgrade",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = upgradeQuerySchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.processUpgrade(
+      req.params.id,
+      parsed.data.targetClass,
+    );
+    return res.json({ success: true, data: result });
+  }),
+);
+
+const baggageQuerySchema = z.object({
+  class: z.enum(["economy", "premium_economy", "business", "first"]).optional(),
+  bags: z.coerce.number().int().min(0).max(10).optional(),
+  heaviestBagKg: z.coerce.number().min(0).max(100).optional(),
+});
+
+/**
+ * GET /bookings/:id/baggage-allowance (issue #387)
+ * Returns the checked/carry-on baggage allowance for a booking, based on
+ * its flight's airline and a cabin class (the booking record itself has
+ * no stored cabin class, so it defaults to economy — pass ?class= to
+ * preview the allowance for a different class, e.g. before upgrading).
+ * When bags/heaviestBagKg are supplied, also returns the excess fee.
+ */
+router.get(
+  "/:id/baggage-allowance",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = baggageQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new BadRequestError("Invalid query parameters", parsed.error.flatten());
+    }
+
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
+    if (!booking) {
+      throw new NotFoundError("Booking not found");
+    }
+
+    const cabinClass = parsed.data.class ?? "economy";
+    const airlineCode = booking.flight?.airlineCode ?? "";
+
+    if (parsed.data.bags !== undefined && parsed.data.heaviestBagKg !== undefined) {
+      const result = baggageService.calculateExcessFee(
+        airlineCode,
+        cabinClass,
+        parsed.data.bags,
+        parsed.data.heaviestBagKg,
+      );
+      return res.json({
+        success: true,
+        data: { ...result, cabinClass, restrictions: RESTRICTION_NOTES },
+      });
+    }
+
+    const allowance = baggageService.getAllowance(airlineCode, cabinClass);
+    return res.json({
+      success: true,
+      data: { allowance, cabinClass, restrictions: RESTRICTION_NOTES },
     });
   }),
 );

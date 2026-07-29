@@ -1,4 +1,4 @@
-import { notificationQueue, NotificationPayload } from "./notificationQueue";
+import { notificationQueue } from "./notificationQueue";
 import { AppDataSource } from "../db/dataSource";
 import { UserPreference } from "../db/entities/UserPreference";
 import { NotificationLog } from "../db/entities/NotificationLog";

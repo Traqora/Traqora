@@ -2,6 +2,7 @@ import 'dotenv/config';
 import http from 'http';
 import { loadConfig } from './config';
 import { initializeTracing, shutdownTracing } from './tracing';
+import { initializeErrorTracking, shutdownErrorTracking } from './services/errorTracking';
 import { configureLogger, logger } from './utils/logger';
 
 async function startServer() {
@@ -9,12 +10,15 @@ async function startServer() {
     const config = await loadConfig();
     configureLogger(config);
     initializeTracing(config);
+    initializeErrorTracking(config);
 
     const [
-      { createApp },
+      appModule,
       { initDataSource },
       { initWebSocket },
       { initPriceMonitorCron },
+      { initCacheWarmingCron },
+      { initFlightStatusPollingCron },
       { verifyConnectivity },
       contractMonitorModule,
     ] = await Promise.all([
@@ -22,13 +26,15 @@ async function startServer() {
       import('./db/dataSource'),
       import('./websockets/server'),
       import('./jobs/priceMonitor'),
+      import('./jobs/cacheWarmingJob'),
+      import('./jobs/flightStatusPollingJob'),
       import('./utils/health-check'),
       import('./services/contractMonitor'),
     ]);
 
     await verifyConnectivity();
 
-    const app = createApp();
+    const app = await appModule.createApp();
     const server = http.createServer(app);
 
     initWebSocket(server);
@@ -38,6 +44,8 @@ async function startServer() {
 
     if (process.env.NODE_ENV !== 'test') {
       await initDataSource();
+      initCacheWarmingCron();
+      initFlightStatusPollingCron();
 
       server.listen(PORT, () => {
         logger.info('Traqora API server started', {
@@ -61,6 +69,7 @@ async function startServer() {
 
     const shutdown = async () => {
       await shutdownTracing();
+      await shutdownErrorTracking();
       server.close();
     };
 
@@ -86,5 +95,6 @@ async function startServer() {
 
 const serverPromise = startServer();
 
-export const appPromise = serverPromise.then((server) => server.app);
-export default serverPromise;
+export const appPromise = serverPromise.then((server) => server?.app);
+export const app = undefined as any;
+export default (serverPromise as any);
