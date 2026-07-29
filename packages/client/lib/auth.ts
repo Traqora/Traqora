@@ -1,6 +1,7 @@
 "use client"
 
 import { api } from "@/lib/api"
+import { API_BASE_URL } from "@/lib/api"
 
 export interface AuthChallenge {
   nonce: string
@@ -29,17 +30,80 @@ export interface AuthResponse {
   }
 }
 
+export interface BiometricCredential {
+  id: string
+  credentialId: string
+  type: "fingerprint" | "face"
+  deviceName: string | null
+  enrolledAt: string
+  lastUsedAt: string | null
+}
+
+export interface WebAuthnRegistrationOptions {
+  challenge: string
+  rp: { name: string; id: string }
+  user: { id: string; name: string; displayName: string }
+  pubKeyCredParams: Array<{ type: "public-key"; alg: number }>
+  timeout: number
+  attestation: "none" | "direct" | "indirect"
+  authenticatorSelection: {
+    authenticatorAttachment: "platform" | "cross-platform"
+    residentKey: "preferred" | "required" | "discouraged"
+    userVerification: "required" | "preferred" | "discouraged"
+  }
+}
+
+export interface WebAuthnAuthenticationOptions {
+  challenge: string
+  timeout: number
+  rpId: string
+  allowCredentials: Array<{
+    type: "public-key"
+    id: string
+    transports?: string[]
+  }>
+  userVerification: "required" | "preferred" | "discouraged"
+}
+
+function isWebAuthnAvailable(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.PublicKeyCredential !== "undefined" &&
+    typeof navigator.credentials !== "undefined"
+  )
+}
+
+function base64urlToArrayBuffer(base64url: string): ArrayBuffer {
+  const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/")
+  const pad = base64.length % 4 === 0 ? "" : "=".repeat(4 - (base64.length % 4))
+  const binary = atob(base64 + pad)
+  const buffer = new ArrayBuffer(binary.length)
+  const view = new Uint8Array(buffer)
+  for (let i = 0; i < binary.length; i++) {
+    view[i] = binary.charCodeAt(i)
+  }
+  return buffer
+}
+
+function arrayBufferToBase64url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ""
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "")
+}
+
 export class AuthService {
   private static readonly CHALLENGE_ENDPOINT = '/api/v1/auth/challenge'
   private static readonly VERIFY_ENDPOINT = '/api/v1/auth/verify'
   private static readonly VERIFY_2FA_ENDPOINT = '/api/v1/auth/verify-2fa'
   private static readonly REFRESH_ENDPOINT = '/api/v1/auth/refresh'
   private static readonly LOGOUT_ENDPOINT = '/api/v1/auth/logout'
-  private static readonly TWO_FACTOR_SETUP_ENDPOINT = '/api/v1/auth/2fa/setup'
-  private static readonly TWO_FACTOR_ENABLE_ENDPOINT = '/api/v1/auth/2fa/enable'
-  private static readonly TWO_FACTOR_DISABLE_ENDPOINT = '/api/v1/auth/2fa/disable'
-  private static readonly TWO_FACTOR_STATUS_ENDPOINT = '/api/v1/auth/2fa/status'
-  private static readonly TWO_FACTOR_REGENERATE_ENDPOINT = '/api/v1/auth/2fa/regenerate-backup-codes'
+
 
   static async getChallenge(walletAddress: string): Promise<AuthChallenge> {
     const response = await api.post(this.CHALLENGE_ENDPOINT, {
@@ -115,53 +179,3 @@ export class AuthService {
     }
   }
 
-  static async setupTwoFactor(): Promise<TwoFactorSetup> {
-    const response = await api.post(this.TWO_FACTOR_SETUP_ENDPOINT, {})
-
-    if (!response.ok) {
-      throw new Error('Failed to setup 2FA')
-    }
-
-    const data = await response.json()
-    return data
-  }
-
-  static async enableTwoFactor(token: string): Promise<void> {
-    const response = await api.post(this.TWO_FACTOR_ENABLE_ENDPOINT, { token })
-
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error?.message || 'Failed to enable 2FA')
-    }
-  }
-
-  static async disableTwoFactor(): Promise<void> {
-    const response = await api.post(this.TWO_FACTOR_DISABLE_ENDPOINT, {})
-
-    if (!response.ok) {
-      throw new Error('Failed to disable 2FA')
-    }
-  }
-
-  static async getTwoFactorStatus(): Promise<{ enabled: boolean }> {
-    const response = await api.get(this.TWO_FACTOR_STATUS_ENDPOINT)
-
-    if (!response.ok) {
-      throw new Error('Failed to get 2FA status')
-    }
-
-    const data = await response.json()
-    return data
-  }
-
-  static async regenerateBackupCodes(): Promise<{ backupCodes: string[] }> {
-    const response = await api.post(this.TWO_FACTOR_REGENERATE_ENDPOINT, {})
-
-    if (!response.ok) {
-      throw new Error('Failed to regenerate backup codes')
-    }
-
-    const data = await response.json()
-    return data
-  }
-}

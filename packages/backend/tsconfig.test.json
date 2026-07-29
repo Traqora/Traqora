@@ -5,7 +5,8 @@
         "declaration": true,
         "rootDir": ".",
         "noUnusedLocals": false,
-        "noUnusedParameters": false
+        "noUnusedParameters": false,
+        "types": ["node", "jest"]
     },
     "include": [
         "src/**/*",

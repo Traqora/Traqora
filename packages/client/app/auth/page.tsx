@@ -1,29 +1,20 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Wallet, Loader2, CheckCircle, AlertCircle, Shield } from "lucide-react"
-import { useAuth } from "@/lib/use-auth"
-import { useWalletStore } from "@/lib/stellar-wallet-connect"
-import { AuthService } from "@/lib/auth"
+
 import Link from "next/link"
 
 export default function AuthPage() {
   const router = useRouter()
   const { isConnected, address, walletType } = useWalletStore()
   const { authenticate, isAuthenticating, canAuthenticate } = useAuth()
+  const { isAuthenticated, biometric, setBiometric } = useAuthStore()
   const [authSuccess, setAuthSuccess] = useState(false)
-  const [requiresTwoFactor, setRequiresTwoFactor] = useState(false)
-  const [pendingWalletAddress, setPendingWalletAddress] = useState("")
-  const [twoFactorToken, setTwoFactorToken] = useState("")
-  const [isBackupCode, setIsBackupCode] = useState(false)
-  const [twoFactorError, setTwoFactorError] = useState("")
-  const [isVerifyingTwoFactor, setIsVerifyingTwoFactor] = useState(false)
 
   const handleAuthenticate = async () => {
     try {
@@ -73,6 +64,70 @@ export default function AuthPage() {
     }
   }
 
+  const handleRegisterBiometric = async () => {
+    if (!isAuthenticated || !address) return
+    setIsRegistering(true)
+    setError(null)
+    setSuccessMessage(null)
+    try {
+      const credential = await AuthService.registerBiometric(address)
+      setEnrolledCredentials((prev) => [...prev, credential])
+      setBiometric({ enabled: true })
+      setSuccessMessage(`Successfully enrolled ${credential.deviceName || "device"} (${credential.type})`)
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("cancelled")) {
+        return
+      }
+      setError(err instanceof Error ? err.message : "Failed to register biometric")
+    } finally {
+      setIsRegistering(false)
+    }
+  }
+
+  const handleBiometricAuth = async () => {
+    if (!address) return
+    setIsAuthenticatingBio(true)
+    setError(null)
+    try {
+      const tokens = await AuthService.authenticateBiometric(address)
+      useAuthStore.getState().setTokens(tokens)
+      setAuthSuccess(true)
+      setTimeout(() => {
+        router.push('/dashboard')
+      }, 1500)
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("cancelled")) {
+        return
+      }
+      setError(err instanceof Error ? err.message : "Biometric authentication failed")
+    } finally {
+      setIsAuthenticatingBio(false)
+    }
+  }
+
+  const handleRemoveCredential = async () => {
+    if (!showRemoveDialog) return
+    setIsRemoving(true)
+    setError(null)
+    try {
+      await AuthService.removeBiometric(showRemoveDialog)
+      setEnrolledCredentials((prev) => prev.filter((c) => c.id !== showRemoveDialog))
+      setSuccessMessage("Biometric credential removed")
+      if (enrolledCredentials.length <= 1) {
+        setBiometric({ enabled: false })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove credential")
+    } finally {
+      setIsRemoving(false)
+      setShowRemoveDialog(null)
+    }
+  }
+
+  const getTypeIcon = (type: string) => {
+    return type === "face" ? "👤" : "👆"
+  }
+
   if (authSuccess) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -92,7 +147,7 @@ export default function AuthPage() {
     )
   }
 
-  if (requiresTwoFactor) {
+
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
@@ -100,77 +155,12 @@ export default function AuthPage() {
             <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
               <Shield className="h-6 w-6 text-primary" />
             </div>
-            <CardTitle className="text-2xl">Two-Factor Authentication</CardTitle>
-            <CardDescription>
-              Enter your authentication code to complete login
-            </CardDescription>
-          </CardHeader>
 
-          <CardContent className="space-y-4">
-            {twoFactorError && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{twoFactorError}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="2fa-code">
-                {isBackupCode ? 'Backup Code' : 'Authentication Code'}
-              </Label>
-              <Input
-                id="2fa-code"
-                type="text"
-                placeholder={isBackupCode ? 'Enter backup code' : 'Enter 6-digit code'}
-                value={twoFactorToken}
-                onChange={(e) => setTwoFactorToken(e.target.value)}
-                maxLength={isBackupCode ? 8 : 6}
-                className="text-center text-lg tracking-widest"
-                disabled={isVerifyingTwoFactor}
-              />
-            </div>
-
-            <Button
-              onClick={handleTwoFactorVerify}
-              disabled={isVerifyingTwoFactor}
-              className="w-full"
-              size="lg"
-            >
-              {isVerifyingTwoFactor ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Verifying...
-                </>
-              ) : (
-                'Verify'
-              )}
-            </Button>
-
-            <Button
-              variant="ghost"
-              onClick={() => setIsBackupCode(!isBackupCode)}
-              className="w-full"
-              type="button"
-            >
-              {isBackupCode ? 'Use Authenticator App' : 'Use Backup Code'}
-            </Button>
-
-            <div className="text-center">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setRequiresTwoFactor(false)
-                  setPendingWalletAddress('')
-                  setTwoFactorToken('')
-                  setTwoFactorError('')
-                }}
-              >
-                Back
               </Button>
             </div>
           </CardContent>
         </Card>
+
       </div>
     )
   }
@@ -189,6 +179,13 @@ export default function AuthPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
           {!isConnected ? (
             <Alert>
               <AlertCircle className="h-4 w-4" />
@@ -231,12 +228,58 @@ export default function AuthPage() {
                   </>
                 )}
               </Button>
+
+              {isWebAuthnSupported && isAuthenticated && (
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
+                  </div>
+                </div>
+              )}
+
+              {isWebAuthnSupported && isAuthenticated && (
+                <Button
+                  onClick={handleBiometricAuth}
+                  variant="outline"
+                  className="w-full"
+                  size="lg"
+                  disabled={isAuthenticatingBio}
+                >
+                  {isAuthenticatingBio ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Authenticating...
+                    </>
+                  ) : (
+                    <>
+                      <Fingerprint className="mr-2 h-4 w-4" />
+                      Sign In with Biometrics
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {isAuthenticated && isWebAuthnSupported && (
+            <div className="text-center">
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => setActiveTab("biometric")}
+              >
+                <Shield className="mr-1 h-4 w-4" />
+                Manage Biometric Settings
+              </Button>
             </div>
           )}
 
           <div className="text-center space-y-2">
             <p className="text-sm text-muted-foreground">
-              Don't have a wallet?{" "}
+              Don&apos;t have a wallet?{" "}
               <a
                 href="https://www.freighter.app/"
                 target="_blank"

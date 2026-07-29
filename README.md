@@ -1,5 +1,5 @@
 # Traqora – Decentralized Travel Booking on Stellar
-
+//WIP
 Traqora is a decentralized travel booking platform that allows users to book flights directly using blockchain technology on the Stellar ecosystem.
 
 ## What is Traqora?
@@ -103,8 +103,13 @@ Open these files and configure the environment variables as needed. Refer to the
 
 From the repository root, install dependencies for the entire monorepo:
 ```bash
-npm install --legacy-peer-deps
+npm install
 ```
+
+> **Note:** Some packages in this project depend on React 19, which may cause peer dependency warnings with older tooling. If you see `ERESOLVE` errors during install, append the `--legacy-peer-deps` flag:
+> ```bash
+> npm install --legacy-peer-deps
+> ```
 
 ### Step 4: Run the Application
 

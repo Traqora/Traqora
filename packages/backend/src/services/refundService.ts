@@ -23,10 +23,62 @@ export interface CreateRefundRequest {
   requestedBy?: string;
 }
 
+export interface AutomatedRefundResult {
+  refundId: string;
+  bookingId: string;
+  status: string;
+  refundPercentage: number;
+  refundAmountCents: number;
+  tier: string;
+}
+
+export interface BatchRefundResult {
+  processed: number;
+  failed: number;
+  results: AutomatedRefundResult[];
+}
+
+export interface DisputeRequest {
+  reason: string;
+  details?: string;
+  filedBy?: string;
+}
+
+export interface DisputeResolution {
+  resolution: 'approved' | 'rejected' | 'partial';
+  resolvedBy: string;
+  notes: string;
+  customRefundPercentage?: number;
+}
+
+export interface RefundStats {
+  totalRefunds: number;
+  totalApproved: number;
+  totalRejected: number;
+  totalPending: number;
+  totalAmountCents: number;
+  totalApprovedAmountCents: number;
+  totalFeesCents: number;
+  averageProcessingTimeHours: number;
+  byReason: Record<string, number>;
+  byStatus: Record<string, number>;
+}
+
 // Refund tier thresholds (in cents)
 export const REFUND_TIER_THRESHOLDS = {
   IMMEDIATE_MAX: 10000, // $100
   DELAYED_HOURS: 48, // 48 hours delay for large refunds
+} as const;
+
+export const REFUND_TIER_PERCENTAGES = {
+  FULL: 100,
+  PARTIAL: 50,
+  NONE: 0,
+} as const;
+
+export const REFUND_TIER_HOURS = {
+  FULL_REFUND_MIN: 72, // >= 72h before departure: 100%
+  PARTIAL_REFUND_MIN: 24, // >= 24h and < 72h: 50%
 } as const;
 
 export class RefundService {
@@ -713,7 +765,7 @@ export class RefundService {
     refund.requiresManualReview = eligibility.requiresManualReview;
 
     if (eligibility.isEligible && !eligibility.requiresManualReview) {
-      await this.approveRefund(refundId, eligibility.refundPercentage);
+      return await this.approveRefund(refundId, eligibility.refundPercentage);
     } else if (eligibility.requiresManualReview) {
       refund.status = 'manual_review';
       await refundRepo.save(refund);
@@ -794,7 +846,7 @@ export class RefundService {
     refund.requiresManualReview = eligibility.requiresManualReview;
 
     if (eligibility.isEligible && !eligibility.requiresManualReview) {
-      await this.approveRefund(refundId, eligibility.refundPercentage);
+      return await this.approveRefund(refundId, eligibility.refundPercentage);
     } else if (eligibility.requiresManualReview) {
       refund.status = 'manual_review';
       await refundRepo.save(refund);
@@ -837,5 +889,318 @@ export class RefundService {
       relations: ['booking', 'booking.passenger', 'booking.flight'],
       order: { delayedUntil: 'ASC' },
     });
+  }
+
+  /**
+   * Calculate refund amount based on tier policy percentages and time to departure
+   */
+  public calculateRefundAmount(
+    amountCents: number,
+    hoursUntilDeparture: number
+  ): { refundPercentage: number; refundAmountCents: number; tier: string } {
+    if (hoursUntilDeparture >= REFUND_TIER_HOURS.FULL_REFUND_MIN) {
+      return {
+        refundPercentage: REFUND_TIER_PERCENTAGES.FULL,
+        refundAmountCents: amountCents,
+        tier: 'full',
+      };
+    }
+
+    if (hoursUntilDeparture >= REFUND_TIER_HOURS.PARTIAL_REFUND_MIN) {
+      const refundAmountCents = Math.floor(amountCents * REFUND_TIER_PERCENTAGES.PARTIAL / 100);
+      return {
+        refundPercentage: REFUND_TIER_PERCENTAGES.PARTIAL,
+        refundAmountCents,
+        tier: 'partial',
+      };
+    }
+
+    return {
+      refundPercentage: REFUND_TIER_PERCENTAGES.NONE,
+      refundAmountCents: 0,
+      tier: 'no_refund',
+    };
+  }
+
+  /**
+   * Process an automated refund - auto-approve based on tier thresholds
+   */
+  public async processAutomatedRefund(bookingId: string): Promise<AutomatedRefundResult> {
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const refundRepo = AppDataSource.getRepository(Refund);
+
+    const booking = await bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ['flight', 'passenger'],
+    });
+
+    if (!booking) {
+      throw new Error('Booking not found');
+    }
+
+    const now = new Date();
+    const hoursUntilDeparture = (booking.flight.departureTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+    const { refundPercentage, refundAmountCents, tier } = this.calculateRefundAmount(
+      booking.amountCents,
+      hoursUntilDeparture
+    );
+
+    const existingRefund = await refundRepo.findOne({
+      where: { booking: { id: booking.id } },
+    });
+
+    let refund: Refund;
+
+    if (existingRefund) {
+      refund = existingRefund;
+    } else {
+      refund = refundRepo.create({
+        booking,
+        status: 'approved',
+        reason: 'customer_request',
+        requestedAmountCents: booking.amountCents,
+        approvedAmountCents: refundAmountCents,
+        processingFeeCents: 0,
+        isEligible: refundPercentage > 0,
+        eligibilityNotes: `Automated refund at ${refundPercentage}% (${tier} tier)`,
+        requiresManualReview: false,
+        requestedBy: 'system',
+      });
+    }
+
+    refund.approvedAmountCents = refundAmountCents;
+    refund.status = refundPercentage > 0 ? 'approved' : 'rejected';
+    refund.isEligible = refundPercentage > 0;
+    refund.eligibilityNotes = `Automated refund: ${tier} tier, ${refundPercentage}% of ${booking.amountCents} cents`;
+    refund.processingFeeCents = 0;
+
+    const saved = await refundRepo.save(refund);
+
+    await this.auditService.logAction({
+      refundId: saved.id,
+      action: 'automated_refund_processed',
+      actor: 'system',
+      previousStatus: 'eligibility_check',
+      newStatus: saved.status,
+      metadata: {
+        refundPercentage,
+        refundAmountCents,
+        tier,
+        hoursUntilDeparture,
+      },
+    });
+
+    logger.info(`Automated refund ${saved.id}: ${tier} tier, ${refundPercentage}%`);
+
+    if (refundPercentage > 0) {
+      await this.notificationService.sendEmail(
+        booking.passenger.email,
+        'Automated Refund Processed',
+        `Your refund of $${(refundAmountCents / 100).toFixed(2)} has been automatically processed (${tier} refund).`
+      );
+    }
+
+    if (refundPercentage > 0) {
+      await this.processRefund(saved.id);
+    }
+
+    return {
+      refundId: saved.id,
+      bookingId: booking.id,
+      status: saved.status,
+      refundPercentage,
+      refundAmountCents,
+      tier,
+    };
+  }
+
+  /**
+   * Process batch refunds for multiple bookings
+   */
+  public async processBatchRefunds(bookingIds: string[]): Promise<BatchRefundResult> {
+    const results: AutomatedRefundResult[] = [];
+    let processed = 0;
+    let failed = 0;
+
+    for (const bookingId of bookingIds) {
+      try {
+        const result = await withRetries(
+          () => this.processAutomatedRefund(bookingId),
+          { retries: 2, baseDelayMs: 200 }
+        );
+        results.push(result);
+        processed++;
+      } catch (error: any) {
+        logger.error(`Batch refund failed for booking ${bookingId}`, error);
+        results.push({
+          refundId: '',
+          bookingId,
+          status: 'failed',
+          refundPercentage: 0,
+          refundAmountCents: 0,
+          tier: 'error',
+        });
+        failed++;
+      }
+    }
+
+    await this.auditService.logAction({
+      refundId: 'batch',
+      action: 'batch_refund_processed',
+      actor: 'system',
+      metadata: {
+        total: bookingIds.length,
+        processed,
+        failed,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    logger.info(`Batch refund: ${processed} processed, ${failed} failed out of ${bookingIds.length}`);
+
+    return { processed, failed, results };
+  }
+
+  /**
+   * Handle dispute resolution with admin review
+   */
+  public async handleDisputeResolution(
+    refundId: string,
+    resolution: DisputeResolution
+  ): Promise<Refund> {
+    const refundRepo = AppDataSource.getRepository(Refund);
+    const refund = await refundRepo.findOne({
+      where: { id: refundId },
+      relations: ['booking', 'booking.passenger'],
+    });
+
+    if (!refund) {
+      throw new Error('Refund not found');
+    }
+
+    await this.auditService.logAction({
+      refundId: refund.id,
+      action: 'dispute_resolved',
+      actor: resolution.resolvedBy,
+      previousStatus: refund.status,
+      newStatus: resolution.resolution === 'rejected' ? 'rejected' : 'approved',
+      metadata: {
+        resolution: resolution.resolution,
+        notes: resolution.notes,
+        customRefundPercentage: resolution.customRefundPercentage,
+      },
+    });
+
+    if (resolution.resolution === 'approved') {
+      const refundPercentage = resolution.customRefundPercentage || 100;
+      return await this.approveRefund(refundId, refundPercentage);
+    }
+
+    if (resolution.resolution === 'partial') {
+      const refundPercentage = resolution.customRefundPercentage || 50;
+      return await this.approveRefund(refundId, refundPercentage);
+    }
+
+    refund.status = 'rejected';
+    refund.reviewedBy = resolution.resolvedBy;
+    refund.reviewedAt = new Date();
+    refund.reviewNotes = resolution.notes;
+    const saved = await refundRepo.save(refund);
+
+    await this.notificationService.sendEmail(
+      refund.booking.passenger.email,
+      'Dispute Resolution: Refund Rejected',
+      `Your dispute for booking ${refund.booking.id} has been reviewed and rejected. Reason: ${resolution.notes}`
+    );
+
+    logger.info(`Dispute for refund ${refundId} resolved as rejected by ${resolution.resolvedBy}`);
+
+    return saved;
+  }
+
+  /**
+   * Check automated refund eligibility for a booking
+   */
+  public async checkAutomatedEligibility(bookingId: string): Promise<RefundEligibilityResult> {
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ['flight'],
+    });
+
+    if (!booking) {
+      throw new Error('Booking not found');
+    }
+
+    return this.checkEligibility(booking);
+  }
+
+  /**
+   * Get refund statistics
+   */
+  public async getRefundStats(): Promise<RefundStats> {
+    const refundRepo = AppDataSource.getRepository(Refund);
+
+    const totalRefunds = await refundRepo.count();
+    const totalApproved = await refundRepo.count({ where: { status: 'completed' } });
+    const totalRejected = await refundRepo.count({ where: { status: 'rejected' } });
+    const totalPending = await refundRepo.count({
+      where: { status: 'pending' },
+    });
+
+    const totalAmountResult = await refundRepo
+      .createQueryBuilder('refund')
+      .select('SUM(refund.requestedAmountCents)', 'total')
+      .getRawOne();
+    const totalAmountCents = totalAmountResult?.total || 0;
+
+    const totalApprovedResult = await refundRepo
+      .createQueryBuilder('refund')
+      .select('SUM(refund.approvedAmountCents)', 'total')
+      .where('refund.status = :status', { status: 'completed' })
+      .getRawOne();
+    const totalApprovedAmountCents = totalApprovedResult?.total || 0;
+
+    const totalFeesResult = await refundRepo
+      .createQueryBuilder('refund')
+      .select('SUM(refund.processingFeeCents)', 'total')
+      .getRawOne();
+    const totalFeesCents = totalFeesResult?.total || 0;
+
+    const byReasonRaw = await refundRepo
+      .createQueryBuilder('refund')
+      .select('refund.reason', 'reason')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('refund.reason')
+      .getRawMany();
+    const byReason: Record<string, number> = {};
+    for (const row of byReasonRaw) {
+      byReason[row.reason] = parseInt(row.count, 10);
+    }
+
+    const byStatusRaw = await refundRepo
+      .createQueryBuilder('refund')
+      .select('refund.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('refund.status')
+      .getRawMany();
+    const byStatus: Record<string, number> = {};
+    for (const row of byStatusRaw) {
+      byStatus[row.status] = parseInt(row.count, 10);
+    }
+
+    return {
+      totalRefunds,
+      totalApproved,
+      totalRejected,
+      totalPending,
+      totalAmountCents,
+      totalApprovedAmountCents,
+      totalFeesCents,
+      averageProcessingTimeHours: 0,
+      byReason,
+      byStatus,
+    };
   }
 }

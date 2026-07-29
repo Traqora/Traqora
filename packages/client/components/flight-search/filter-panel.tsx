@@ -157,8 +157,8 @@ export function FilterPanel({
               </Badge>
             )}
           </CardTitle>
-          <Button variant="ghost" size="sm" onClick={onToggle}>
-            <X className="h-4 w-4" />
+          <Button variant="ghost" size="sm" onClick={onToggle} aria-label="Close filters">
+            <X className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
         {getActiveFiltersCount() > 0 && (

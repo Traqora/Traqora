@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { logger } from './logger';
 import { mapStellarError } from './stellarErrors';
 import { AppError } from '../services/ErrorHandlingService';
+import { captureException } from '../services/errorTracking';
 
 export interface ApiError extends Error {
   statusCode?: number;
@@ -57,21 +58,30 @@ export const errorHandler = (
     retryAfterMs,
   });
 
+  // Only report server-side failures (5xx) to Sentry — 4xx responses are
+  // expected client-input errors (validation, auth, not-found) and would
+  // otherwise drown out real incidents.
+  if (statusCode >= 500) {
+    captureException(err, {
+      requestId,
+      userId,
+      path: req.path,
+      method: req.method,
+      tags: { code: appError.code },
+    });
+  }
+
   if (retryAfterMs && retryAfterMs > 0) {
     res.setHeader('Retry-After', Math.ceil(retryAfterMs / 1000).toString());
   }
 
   res.status(statusCode).json({
-    success: false,
-    error: {
-      code,
-      message,
-      retryable,
-      requestId,
-      timestamp: new Date().toISOString(),
-      ...(retryAfterMs ? { retryAfterMs } : {}),
-      ...(details ? { details } : {}),
-    },
+    error: message,
+    code,
+    details: details || null,
+    requestId,
+    timestamp: new Date().toISOString(),
+    success: false, // Keep for backward compatibility
   });
 };
 

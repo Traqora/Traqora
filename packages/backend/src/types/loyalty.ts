@@ -3,6 +3,7 @@ export enum LoyaltyTier {
   SILVER = 'silver',
   GOLD = 'gold',
   PLATINUM = 'platinum',
+  DIAMOND = 'diamond',
 }
 
 export enum PointsTransactionType {
@@ -25,6 +26,14 @@ export interface TierConfig {
   bonusPercentage: number;
 }
 
+export interface ReferralStats {
+  totalClicks: number;
+  totalConversions: number;
+  pendingPoints: number;
+  earnedPoints: number;
+  referees: string[];
+}
+
 export interface LoyaltyAccount {
   userId: string;
   tier: LoyaltyTier;
@@ -35,6 +44,10 @@ export interface LoyaltyAccount {
   tierUpdatedAt: Date;
   createdAt: Date;
   updatedAt: Date;
+  /** Referral program fields (issue #377) */
+  referralCode?: string;
+  referralStats?: ReferralStats;
+  referralConversions?: string[];
 }
 
 export interface PointsTransaction {
