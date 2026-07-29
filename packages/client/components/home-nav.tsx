@@ -17,53 +17,57 @@ export function HomeNav() {
   const { isConnected } = useWalletStore()
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
-          {/* Logo */}
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary/80 rounded-xl flex items-center justify-center shadow-lg">
-              <Plane className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <span className="font-serif font-black text-2xl text-foreground">Traqora</span>
-          </div>
-
-          <div className="hidden md:flex items-center space-x-8">
-            <a
-              href="/search"
-              className="text-muted-foreground hover:text-primary transition-all duration-300 font-medium hover:scale-105"
-            >
-              Search Flights
-            </a>
-            <a
-              href="#how-it-works"
-              className="text-muted-foreground hover:text-primary transition-all duration-300 font-medium hover:scale-105"
-            >
-              How It Works
-            </a>
-
-            {/* NEW: show Dashboard link when wallet is connected */}
-            {isConnected && (
-              <a
-                href="/dashboard"
-                className="text-muted-foreground hover:text-primary transition-all duration-300 font-medium hover:scale-105"
+    <header role="banner">
+      <nav
+        aria-label="Main navigation"
+        className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border"
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-20">
+            <div className="flex items-center space-x-3">
+              <div
+                className="w-10 h-10 bg-gradient-to-br from-primary to-primary/80 rounded-xl flex items-center justify-center shadow-lg"
+                aria-hidden="true"
               >
-                Dashboard
-              </a>
-            )}
-
-            <div className="flex items-center space-x-4">
-              {/* NEW: real wallet connect / disconnect button */}
-              <NavWalletButton />
+                <Plane className="h-6 w-6 text-primary-foreground" aria-hidden="true" />
+              </div>
+              <span className="font-serif font-black text-2xl text-foreground">Traqora</span>
             </div>
-          </div>
 
-          {/* Mobile menu button - NEW: now uses MobileNav with real wallet state */}
-          <div className="md:hidden">
-            <MobileNav />
+            <div className="hidden md:flex items-center space-x-8">
+              <a
+                href="/search"
+                className="text-muted-foreground hover:text-primary transition-all duration-300 font-medium hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              >
+                Search Flights
+              </a>
+              <a
+                href="#how-it-works"
+                className="text-muted-foreground hover:text-primary transition-all duration-300 font-medium hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              >
+                How It Works
+              </a>
+
+              {isConnected && (
+                <a
+                  href="/dashboard"
+                  className="text-muted-foreground hover:text-primary transition-all duration-300 font-medium hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                >
+                  Dashboard
+                </a>
+              )}
+
+              <div className="flex items-center space-x-4">
+                <NavWalletButton />
+              </div>
+            </div>
+
+            <div className="md:hidden">
+              <MobileNav />
+            </div>
           </div>
         </div>
-      </div>
-    </nav>
+      </nav>
+    </header>
   )
 }

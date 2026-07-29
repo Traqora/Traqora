@@ -582,7 +582,7 @@ All endpoints require JWT token:
 
 ```bash
 curl -X GET http://localhost:3000/api/sync/health \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+  -H "Authorization: Bearer <YOUR_JWT_TOKEN>"
 ```
 
 ---

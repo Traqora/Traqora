@@ -32,7 +32,7 @@ export const securityMiddleware = [
   }),
 
   // Additional security headers not covered by basic helmet
-  (req: Request, res: Response, next: NextFunction) => {
+  (_req: Request, res: Response, next: NextFunction) => {
     // Set Permissions-Policy
     res.setHeader(
       'Permissions-Policy',

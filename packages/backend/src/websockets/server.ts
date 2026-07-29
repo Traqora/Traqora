@@ -5,17 +5,54 @@ import http from 'http';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import jwt from 'jsonwebtoken';
+import { chatBotService, ChatMessage } from '../services/chatBotService';
+import { attachChatHandlers } from './chatHandler';
+import { attachAnalyticsHandlers } from './analyticsHandler';
 
 // Interface for typed events
 interface ServerToClientEvents {
   priceUpdate: (data: { flightId: string; price: number; timestamp: Date }) => void;
-  alert: (data: { message: string; flightId: string }) => void;
+  alert: (data: FlightAlertPayload) => void;
   booking_status: (data: { bookingId: string; status: string; timestamp: Date }) => void;
+  flight_status: (data: FlightStatusPayload) => void;
+  contract_event: (data: ContractEventPayload) => void;
+  'chat:reply': (data: { message: ChatMessage; escalated: boolean }) => void;
+}
+
+export type FlightStatus = 'SCHEDULED' | 'DELAYED' | 'GATE_CHANGED' | 'BOARDING' | 'CANCELLED' | 'LANDED';
+
+export interface FlightStatusPayload {
+  flightId: string;
+  status: FlightStatus;
+  /** Present for DELAYED (new departure time) and GATE_CHANGED (new gate) updates. */
+  detail?: string;
+  timestamp: Date;
+}
+
+export interface FlightAlertPayload {
+  message: string;
+  flightId: string;
+  status?: string;
+  gate?: string;
+  delayMinutes?: number;
+  timestamp?: Date;
 }
 
 interface ClientToServerEvents {
   subscribe: (flightId: string) => void;
   unsubscribe: (flightId: string) => void;
+  subscribe_address: (walletAddress: string) => void;
+  unsubscribe_address: (walletAddress: string) => void;
+  'chat:message': (text: string) => void;
+}
+
+export interface ContractEventPayload {
+  contractId: string;
+  eventType: string;
+  ledger: number;
+  walletAddress?: string;
+  data: unknown;
+  timestamp: Date;
 }
 
 export class WebSocketServer {
@@ -23,6 +60,8 @@ export class WebSocketServer {
   private pubClient: any;
   private subClient: any;
   private redisEnabled: boolean = false; // Track Redis status
+  /** Chat message history per socket connection (issue #379). Cleared on disconnect. */
+  private chatHistory = new Map<string, ChatMessage[]>();
 
   constructor(httpServer: http.Server) {
     this.io = new Server(httpServer, {
@@ -34,6 +73,10 @@ export class WebSocketServer {
 
     // Setup connection handlers immediately
     this.setupConnectionHandlers();
+    
+    // Attach specialized handlers
+    attachChatHandlers(this.io);
+    attachAnalyticsHandlers(this.io);
     
     // Setup Redis adapter asynchronously but don't block
     this.setupRedisAdapter().catch(error => {
@@ -135,8 +178,23 @@ export class WebSocketServer {
         socket.leave(`booking:${bookingId}`);
       });
 
+      socket.on('subscribe_address', (walletAddress: string) => {
+        logger.info(`Client ${socket.id} subscribed to address room ${walletAddress}`);
+        socket.join(`address:${walletAddress}`);
+      });
+
+      socket.on('unsubscribe_address', (walletAddress: string) => {
+        logger.info(`Client ${socket.id} unsubscribed from address room ${walletAddress}`);
+        socket.leave(`address:${walletAddress}`);
+      });
+
+      socket.on('chat:message', (text: string) => {
+        this.handleChatMessage(socket, text);
+      });
+
       socket.on('disconnect', () => {
         logger.info(`🔴 Client disconnected: ${socket.id}`);
+        this.chatHistory.delete(socket.id);
       });
 
       // Handle errors
@@ -172,9 +230,106 @@ export class WebSocketServer {
     });
   }
 
+  /**
+   * Broadcasts a flight status change (issue #381) — delays, gate changes,
+   * cancellations, boarding calls — to clients subscribed to that flight's
+   * room via the existing `subscribe`/`unsubscribe` events. Distinct from
+   * `priceUpdate`, which only covers pricing.
+   */
+  public broadcastFlightStatus(flightId: string, status: FlightStatus, detail?: string) {
+    const room = `flight:${flightId}`;
+    logger.info(`Broadcasting flight status to ${room}: ${status}`);
+    this.io.to(room).emit('flight_status', {
+      flightId,
+      status,
+      detail,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Broadcast a flight status change (delay, cancellation, gate change) to
+   * everyone subscribed to that flight's room. Uses the `alert` event that
+   * was already declared on ServerToClientEvents but had no emitter (#380).
+   * Distinct from `broadcastFlightStatus` above (issue #381, merged in
+   * parallel): different event name (`alert` vs `flight_status`) and a
+   * richer payload (a pre-built message string) — flightStatus.ts and the
+   * FlightStatusBanner/useFlightStatusAlerts client code this PR adds
+   * depend on this one specifically.
+   */
+  public broadcastFlightAlert(payload: FlightAlertPayload) {
+    const room = `flight:${payload.flightId}`;
+    logger.info(`Broadcasting flight alert to ${room}: ${payload.message}`);
+    this.io.to(room).emit('alert', {
+      ...payload,
+      timestamp: payload.timestamp ?? new Date(),
+    });
+  }
+
+  /**
+   * Broadcast a Soroban contract event to all subscribers of the contract room
+   * and, when a wallet address is present, to that address-specific room too.
+   */
+  public broadcastContractEvent(payload: ContractEventPayload) {
+    const contractRoom = `contract:${payload.contractId}`;
+    this.io.to(contractRoom).emit('contract_event', payload);
+
+    if (payload.walletAddress) {
+      const addressRoom = `address:${payload.walletAddress}`;
+      this.io.to(addressRoom).emit('contract_event', payload);
+    }
+
+    logger.debug('Contract event broadcast', {
+      contractId: payload.contractId,
+      eventType: payload.eventType,
+      ledger: payload.ledger,
+    });
+  }
+
   // Method to check Redis status
   public isRedisEnabled(): boolean {
     return this.redisEnabled;
+  }
+
+  /**
+   * Handles an inbound chat message (issue #379): appends it to the
+   * socket's history, gets a bot response (or an escalation signal), and
+   * replies over the same socket. Escalation just flags the message —
+   * routing to a human queue is a follow-on integration, not built here.
+   */
+  private handleChatMessage(socket: Socket<ClientToServerEvents, ServerToClientEvents>, text: string): void {
+    const trimmed = typeof text === 'string' ? text : '';
+    const history = this.chatHistory.get(socket.id) ?? [];
+
+    const userMessage: ChatMessage = {
+      id: `${socket.id}-${history.length}`,
+      from: 'user',
+      text: trimmed,
+      createdAt: new Date(),
+    };
+    history.push(userMessage);
+
+    const { reply, escalate } = chatBotService.respond(trimmed);
+    const botMessage: ChatMessage = {
+      id: `${socket.id}-${history.length}`,
+      from: escalate ? 'agent' : 'bot',
+      text: reply,
+      createdAt: new Date(),
+    };
+    history.push(botMessage);
+
+    this.chatHistory.set(socket.id, history);
+
+    if (escalate) {
+      logger.info(`Chat escalated to human agent for socket ${socket.id}`);
+    }
+
+    socket.emit('chat:reply', { message: botMessage, escalated: escalate });
+  }
+
+  /** Test/introspection hook: read a socket's chat history. */
+  public getChatHistory(socketId: string): ChatMessage[] {
+    return this.chatHistory.get(socketId) ?? [];
   }
 }
 

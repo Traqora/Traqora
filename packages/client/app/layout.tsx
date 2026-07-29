@@ -8,8 +8,10 @@ import "./globals.css";
 import { SocketProvider } from "@/components/socket/SocketProvider";
 import { Toaster } from "@/components/ui/toaster";
 import { ConnectionIndicator } from "@/components/connection-indicator";
-// NEW: WalletProvider to initialise StellarWalletsKit on app mount
 import { WalletProvider } from "@/components/wallet-provider";
+import { OfflineProvider } from "@/components/offline-provider";
+import { OfflineIndicator } from "@/components/offline-indicator";
+import { SkipNav } from "@/components/skip-nav";
 
 const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
@@ -30,7 +32,29 @@ export const metadata: Metadata = {
   description:
     "Book flights directly with airlines using blockchain technology. No intermediaries, transparent pricing, automated refunds.",
   generator: "v0.app",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Traqora",
+  },
 };
+
+export const viewport = {
+  themeColor: "#0f172a",
+};
+
+function A11yAnnouncer() {
+  return (
+    <div aria-live="polite" aria-atomic="true" className="sr-only" id="a11y-polite-announce" />
+  )
+}
+
+function A11yAssertiveAnnouncer() {
+  return (
+    <div aria-live="assertive" aria-atomic="true" className="sr-only" id="a11y-assertive-announce" />
+  )
+}
 
 export default function RootLayout({
   children,
@@ -43,14 +67,22 @@ export default function RootLayout({
       className={`${playfairDisplay.variable} ${sourceSansPro.variable} antialiased`}
     >
       <body className="font-sans">
+        <SkipNav />
+        <A11yAnnouncer />
+        <A11yAssertiveAnnouncer />
         {/* Nesting providers ensures both Wallet and Socket functionality are available app-wide */}
-        <WalletProvider>
-          <SocketProvider>
-            <ConnectionIndicator />
-            <Toaster />
-            {children}
-          </SocketProvider>
-        </WalletProvider>
+        <OfflineProvider>
+          <WalletProvider>
+            <SocketProvider>
+              <ConnectionIndicator />
+              <OfflineIndicator />
+              <Toaster />
+              <main id="main-content" tabIndex={-1} className="outline-none">
+                {children}
+              </main>
+            </SocketProvider>
+          </WalletProvider>
+        </OfflineProvider>
       </body>
     </html>
   );

@@ -1,17 +1,27 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/tests'],
-  testMatch: ['**/*.integration.test.ts'],
+  roots: ['<rootDir>/tests', '<rootDir>/src'],
+  testMatch: ['**/*.test.ts'],
   clearMocks: true,
   testEnvironmentOptions: {
-    env: { NODE_ENV: 'test' },
-  },
-  globals: {
-    'ts-jest': {
-      diagnostics: {
-        ignoreCodes: ['TS6133'], // unused variable — test files only
-      },
+    env: {
+      NODE_ENV: 'test',
+      ENCRYPTION_KEY: 'test-encryption-key-for-traqora-database-encryption-!!!',
     },
+  },
+  moduleNameMapper: {
+    '^.*/src/index$': '<rootDir>/tests/mock-index.ts',
+  },
+  setupFiles: ['<rootDir>/tests/setup.ts'],
+  moduleDirectories: ['node_modules', '../../node_modules', '../../node_modules/ts-jest'],
+  transform: {
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        tsconfig: '<rootDir>/tsconfig.test.json',
+        diagnostics: false,
+      },
+    ],
   },
 };

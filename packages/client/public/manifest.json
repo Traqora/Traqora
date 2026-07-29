@@ -1,0 +1,37 @@
+{
+  "name": "Traqora - Decentralized Flight Booking",
+  "short_name": "Traqora",
+  "description": "Book flights directly with airlines using blockchain technology. No intermediaries, transparent pricing, automated refunds.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/placeholder-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/placeholder-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "My Bookings",
+      "url": "/dashboard",
+      "description": "View your flight bookings"
+    },
+    {
+      "name": "Search Flights",
+      "url": "/search",
+      "description": "Search for flights"
+    }
+  ]
+}
