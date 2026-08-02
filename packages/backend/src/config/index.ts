@@ -60,6 +60,7 @@ const readConfigFromEnv = () => {
 
     databaseUrl: process.env.DATABASE_URL || 'sqlite::memory:',
     redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
+    redisClusterNodes: process.env.REDIS_CLUSTER_NODES || undefined,
     mongoUrl: process.env.MONGO_URI,
 
     jwtSecret: getSafeEnvString('JWT_SECRET', 32, 'your-secret-key-change-in-production-at-least-32-chars'),
@@ -81,6 +82,10 @@ const readConfigFromEnv = () => {
     otlpTraceHeaders: process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS || process.env.OTEL_EXPORTER_OTLP_HEADERS,
     tracingSampleRate: parseNumber(process.env.OTEL_TRACES_SAMPLER_ARG || process.env.TRACING_SAMPLE_RATE, 1),
 
+    sentryDsn: process.env.SENTRY_DSN,
+    sentryTracesSampleRate: parseNumber(process.env.SENTRY_TRACES_SAMPLE_RATE, 0.1),
+    sentryProfilesSampleRate: parseNumber(process.env.SENTRY_PROFILES_SAMPLE_RATE, 0.1),
+
     rateLimitMax: parseInteger(process.env.RATE_LIMIT_MAX, 1000),
     rateLimitWindowSec: parseInteger(process.env.RATE_LIMIT_WINDOW_SEC, 60),
     rateLimitPublicMax: parseInteger(process.env.RATE_LIMIT_PUBLIC_MAX, 100),
@@ -95,6 +100,7 @@ const readConfigFromEnv = () => {
 
     flightSearchCacheTtlSeconds: parseInteger(process.env.FLIGHT_SEARCH_CACHE_TTL_SECONDS, 300),
     flightRegistryCacheTtlSeconds: parseInteger(process.env.FLIGHT_REGISTRY_CACHE_TTL_SECONDS, 60),
+    apiResponseCacheTtlSeconds: parseInteger(process.env.API_RESPONSE_CACHE_TTL_SECONDS, 60),
 
     sendgridApiKey: process.env.SENDGRID_API_KEY,
     firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT,
@@ -190,6 +196,7 @@ export const loadConfig = async (): Promise<Config> => {
 
     databaseUrl: await secretManager.getSecret('DATABASE_URL', 'sqlite::memory:'),
     redisUrl: await secretManager.getSecret('REDIS_URL', 'redis://localhost:6379'),
+    redisClusterNodes: (await secretManager.getSecret('REDIS_CLUSTER_NODES', '')) || undefined,
     mongoUrl: (await secretManager.getSecret('MONGO_URI', '')) || undefined,
 
     jwtSecret,
@@ -211,6 +218,10 @@ export const loadConfig = async (): Promise<Config> => {
     otlpTraceHeaders: await secretManager.getSecret('OTEL_EXPORTER_OTLP_TRACES_HEADERS', ''),
     tracingSampleRate: parseNumber(await secretManager.getSecret('TRACING_SAMPLE_RATE', '1'), 1),
 
+    sentryDsn: await secretManager.getSecret('SENTRY_DSN', ''),
+    sentryTracesSampleRate: parseNumber(await secretManager.getSecret('SENTRY_TRACES_SAMPLE_RATE', '0.1'), 0.1),
+    sentryProfilesSampleRate: parseNumber(await secretManager.getSecret('SENTRY_PROFILES_SAMPLE_RATE', '0.1'), 0.1),
+
     rateLimitMax: parseInteger(await secretManager.getSecret('RATE_LIMIT_MAX', '1000'), 1000),
     rateLimitWindowSec: parseInteger(await secretManager.getSecret('RATE_LIMIT_WINDOW_SEC', '60'), 60),
     rateLimitPublicMax: parseInteger(await secretManager.getSecret('RATE_LIMIT_PUBLIC_MAX', '100'), 100),
@@ -225,6 +236,7 @@ export const loadConfig = async (): Promise<Config> => {
 
     flightSearchCacheTtlSeconds: parseInteger(await secretManager.getSecret('FLIGHT_SEARCH_CACHE_TTL_SECONDS', '300'), 300),
     flightRegistryCacheTtlSeconds: parseInteger(await secretManager.getSecret('FLIGHT_REGISTRY_CACHE_TTL_SECONDS', '60'), 60),
+    apiResponseCacheTtlSeconds: parseInteger(await secretManager.getSecret('API_RESPONSE_CACHE_TTL_SECONDS', '60'), 60),
 
     sendgridApiKey: await secretManager.getSecret('SENDGRID_API_KEY', ''),
     firebaseServiceAccount: await secretManager.getSecret('FIREBASE_SERVICE_ACCOUNT', ''),

@@ -73,27 +73,29 @@ export default function PaymentPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-4">
-              <Button variant="ghost" size="sm" onClick={() => router.back()}>
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back
-              </Button>
-              <div className="flex items-center space-x-2">
-                <Plane className="h-8 w-8 text-primary" />
-                <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+      {/* Navigation — landmark: banner */}
+      <header role="banner">
+        <nav aria-label="Main navigation" className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-4">
+                <Button variant="ghost" size="sm" onClick={() => router.back()}>
+                  <ArrowLeft className="h-4 w-4 mr-2" aria-hidden="true" />
+                  Back
+                </Button>
+                <div className="flex items-center space-x-2">
+                  <Plane className="h-8 w-8 text-primary" aria-hidden="true" />
+                  <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+                </div>
               </div>
+              <Badge variant="outline" className="px-3 py-1">
+                <Lock className="h-4 w-4 mr-2" aria-hidden="true" />
+                Secure Payment
+              </Badge>
             </div>
-            <Badge variant="outline" className="px-3 py-1">
-              <Lock className="h-4 w-4 mr-2" />
-              Secure Payment
-            </Badge>
           </div>
-        </div>
-      </nav>
+        </nav>
+      </header>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid lg:grid-cols-2 gap-8">
@@ -353,6 +355,11 @@ export default function PaymentPage() {
           </div>
         </div>
       </div>
+
+      {/* Footer — landmark: contentinfo */}
+      <footer role="contentinfo" className="sr-only">
+        <p>© {new Date().getFullYear()} Traqora. Decentralized flight booking powered by Stellar.</p>
+      </footer>
     </div>
   )
 }

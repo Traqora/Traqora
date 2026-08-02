@@ -33,6 +33,27 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis Cluster (issue #383) — local dev/test cluster for the caching
+  # abstraction's cluster-mode wiring. Opt-in: the app defaults to the
+  # single-node `redis` service above; point REDIS_CLUSTER_NODES at the
+  # ports below (7000-7005) to exercise cluster mode locally.
+  # Not started by default — run with `docker compose --profile cluster up`.
+  redis-cluster:
+    image: grokzen/redis-cluster:7.0.10
+    container_name: traqora-redis-cluster
+    restart: always
+    profiles: [ "cluster" ]
+    environment:
+      IP: "0.0.0.0"
+      INITIAL_PORT: 7000
+    ports:
+      - "7000-7005:7000-7005"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-p", "7000", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   # Stellar Local Node
   stellar:
     image: stellar/quickstart:latest

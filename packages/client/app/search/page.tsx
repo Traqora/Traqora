@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Plane, Calendar, BarChart3, Keyboard } from "lucide-react"
+import Link from "next/link"
+import { Plane, Calendar, BarChart3, Keyboard, Bookmark, History, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { NavWalletButton } from "@/components/nav-wallet-button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
 
 import { SearchForm, SearchFormData } from "@/components/flight-search/search-form"
@@ -15,6 +18,7 @@ import { FlexibleDateSearchPanel } from "@/components/flight-search/FlexibleDate
 import { PriceTrendSparkline } from "@/components/flight-search/price-trend-sparkline"
 import { FlightComparison } from "@/components/flight-comparison"
 import { useFlightSearch } from "@/hooks/use-flight-search"
+import { apiClient, SavedSearch, SearchHistoryEntry } from "@/lib/api"
 
 const FILTERS_STORAGE_KEY = "traqora:flight-search-filters"
 const MAX_COMPARE = 3
@@ -54,13 +58,23 @@ function departureWindowToHours(window: string): [number, number] | null {
     default:
       return null
   }
+
+  function toSearchMemoryPayload(query: SearchFormData) {
+    return {
+      from: query.from.toUpperCase(),
+      to: query.to.toUpperCase(),
+      date: query.departure,
+      passengers: parseInt(query.passengers, 10),
+      class: query.class,
+    }
+  }
 }
 
 export default function SearchPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
-  const { flights, isLoading, error, searchFlights } = useFlightSearch()
+  const { flights, isLoading, error, searchFlights, isFromCache } = useFlightSearch()
 
   const [searchMode, setSearchMode] = useState<"exact" | "flexible">("exact")
   const [isFilterOpen, setIsFilterOpen] = useState(true)
@@ -68,11 +82,38 @@ export default function SearchPage() {
   const [lastQuery, setLastQuery] = useState<SearchFormData | null>(null)
   const [compareIds, setCompareIds] = useState<string[]>([])
   const [showComparison, setShowComparison] = useState(false)
+  const [searchHistory, setSearchHistory] = useState<SearchHistoryEntry[]>([])
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([])
+  const [isMemoryLoading, setIsMemoryLoading] = useState(false)
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     setFilters(loadStoredFilters())
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+    const loadSearchMemory = async () => {
+      setIsMemoryLoading(true)
+      const [historyResponse, savedResponse] = await Promise.all([
+        apiClient.getSearchHistory(),
+        apiClient.getSavedSearches(),
+      ])
+      if (!isMounted) return
+
+      if (historyResponse.success) {
+        setSearchHistory(historyResponse.data)
+      }
+      if (savedResponse.success) {
+        setSavedSearches(savedResponse.data)
+      }
+      setIsMemoryLoading(false)
+    }
+    loadSearchMemory()
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   const runSearch = useCallback(
@@ -128,6 +169,12 @@ export default function SearchPage() {
     })
     router.replace(`/search?${params.toString()}`)
     runSearch(data, filters)
+
+    void apiClient.addSearchHistory(toSearchMemoryPayload(data)).then((response) => {
+      if (response.success) {
+        setSearchHistory((prev) => [response.data, ...prev.filter((item) => item.id !== response.data.id)].slice(0, 10))
+      }
+    })
   }
 
   const handleDateSelect = (date: string) => {
@@ -212,13 +259,54 @@ export default function SearchPage() {
   }, [flights])
 
   const selectedFlightsForComparison = flights.filter((f) => compareIds.includes(f.id))
+  const applySearchMemory = (query: SearchFormData) => {
+    handleSearch(query)
+  }
+
+  const saveCurrentSearch = async () => {
+    if (!lastQuery) return
+    const name = typeof window !== "undefined" ? window.prompt("Optional name for this saved search") || "" : ""
+    const response = await apiClient.createSavedSearch({ ...toSearchMemoryPayload(lastQuery), name })
+    if (!response.success) {
+      toast({ title: "Failed to save search", description: response.error.message, variant: "destructive" })
+      return
+    }
+    setSavedSearches((prev) => [response.data, ...prev])
+    toast({ title: "Search saved" })
+  }
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Navigation — landmark: banner */}
+      <header role="banner">
+        <nav aria-label="Main navigation" className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-2">
+                <Plane className="h-8 w-8 text-primary" aria-hidden="true" />
+                <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+              </div>
+              <div className="hidden md:flex items-center space-x-8">
+                <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Home
+                </Link>
+                <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Dashboard
+                </Link>
+                <Link href="/governance" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Governance
+                </Link>
+                <NavWalletButton />
+              </div>
+            </div>
+          </div>
+        </nav>
+      </header>
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="font-serif font-bold text-3xl text-foreground flex items-center gap-2">
-            <Plane className="h-7 w-7 text-primary" />
+            <Plane className="h-7 w-7 text-primary" aria-hidden="true" />
             Search Flights
           </h1>
           <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground">
@@ -254,6 +342,100 @@ export default function SearchPage() {
             />
           </TabsContent>
         </Tabs>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <History className="h-4 w-4 text-primary" />
+                Recent Searches
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {isMemoryLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+              {!isMemoryLoading && searchHistory.length === 0 && (
+                <p className="text-sm text-muted-foreground">No recent searches yet.</p>
+              )}
+              {searchHistory.map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-2 rounded border px-3 py-2">
+                  <button
+                    className="text-left text-sm hover:underline"
+                    onClick={() =>
+                      applySearchMemory({
+                        from: item.fromAirport,
+                        to: item.toAirport,
+                        departure: item.departureDate,
+                        passengers: String(item.passengers),
+                        class: item.cabinClass,
+                      })
+                    }
+                  >
+                    {item.fromAirport} → {item.toAirport} · {item.departureDate}
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={async () => {
+                      const response = await apiClient.deleteSearchHistory(item.id)
+                      if (response.success) setSearchHistory((prev) => prev.filter((entry) => entry.id !== item.id))
+                    }}
+                    aria-label={`Remove search history: ${item.fromAirport} to ${item.toAirport}`}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Bookmark className="h-4 w-4 text-primary" />
+                Saved Searches
+              </CardTitle>
+              <Button size="sm" variant="outline" onClick={saveCurrentSearch} disabled={!lastQuery}>
+                Save Current
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {isMemoryLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+              {!isMemoryLoading && savedSearches.length === 0 && (
+                <p className="text-sm text-muted-foreground">No saved searches yet.</p>
+              )}
+              {savedSearches.map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-2 rounded border px-3 py-2">
+                  <button
+                    className="text-left text-sm hover:underline"
+                    onClick={() =>
+                      applySearchMemory({
+                        from: item.fromAirport,
+                        to: item.toAirport,
+                        departure: item.departureDate,
+                        passengers: String(item.passengers),
+                        class: item.cabinClass,
+                      })
+                    }
+                  >
+                    <span className="font-medium">{item.name || `${item.fromAirport} → ${item.toAirport}`}</span>
+                    <span className="text-muted-foreground"> · {item.departureDate}</span>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={async () => {
+                      const response = await apiClient.deleteSavedSearch(item.id)
+                      if (response.success) setSavedSearches((prev) => prev.filter((entry) => entry.id !== item.id))
+                    }}
+                    aria-label={`Remove saved search: ${item.name || `${item.fromAirport} to ${item.toAirport}`}`}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
 
         {lastQuery && <PriceTrendSparkline from={lastQuery.from} to={lastQuery.to} />}
 
@@ -294,6 +476,14 @@ export default function SearchPage() {
           />
 
           <div className="flex-1 min-w-0">
+            {isFromCache && (
+              <div
+                role="status"
+                className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800"
+              >
+                Showing cached results from your last search. Reconnect to see up-to-date prices and availability.
+              </div>
+            )}
             <ResultsList
               flights={flights}
               isLoading={isLoading}
@@ -318,6 +508,11 @@ export default function SearchPage() {
           </div>
         </div>
       </div>
+
+      {/* Footer — landmark: contentinfo */}
+      <footer role="contentinfo" className="sr-only">
+        <p>© {new Date().getFullYear()} Traqora. Decentralized flight booking powered by Stellar.</p>
+      </footer>
     </div>
   )
 }

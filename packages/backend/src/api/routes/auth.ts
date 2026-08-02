@@ -86,15 +86,19 @@ authRoutes.post('/biometric/register/complete', requireAuth, async (req: Request
         if (!walletAddress) {
             throw new UnauthorizedError();
         }
-        const { credential, deviceName } = req.body;
+        const { credential, deviceName, credentialType } = req.body;
         if (!credential) {
             throw new BadRequestError('Credential data is required');
+        }
+        if (credentialType && !['fingerprint', 'face'].includes(credentialType)) {
+            throw new BadRequestError('Invalid credential type. Must be "fingerprint" or "face"');
         }
         const authService = getAuthService();
         const result = await authService.registerBiometricCredential(
             walletAddress,
             credential,
-            deviceName
+            deviceName,
+            credentialType
         );
         res.json({ credential: result });
     } catch (err: any) {
@@ -133,6 +137,67 @@ authRoutes.post('/biometric/authenticate/complete', async (req: Request, res: Re
         res.json({ ...result, ...tokens });
     } catch (err: any) {
         next(new UnauthorizedError(err.message));
+    }
+});
+
+authRoutes.post('/biometric/authorize-payment', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const walletAddress = req.user?.walletAddress;
+        if (!walletAddress) {
+            throw new UnauthorizedError();
+        }
+        const { assertion, amount, destination, description } = req.body;
+        if (!assertion || !amount || !destination) {
+            throw new BadRequestError('Assertion, amount, and destination are required');
+        }
+        const authService = getAuthService();
+        const result = await authService.authorizePaymentWithBiometric(
+            walletAddress,
+            assertion,
+            { amount, destination, description }
+        );
+        res.json(result);
+    } catch (err: any) {
+        next(err);
+    }
+});
+
+authRoutes.post('/biometric/authenticate/fallback/begin', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { walletAddress } = req.body;
+        if (!walletAddress) {
+            throw new BadRequestError('Wallet address is required');
+        }
+        const authService = getAuthService();
+        const options = await authService.generateBiometricFallbackChallenge(walletAddress);
+        res.json(options);
+    } catch (err: any) {
+        if (err.message.includes('No biometric credentials')) {
+            next(new NotFoundError(err.message));
+        } else {
+            next(err);
+        }
+    }
+});
+
+authRoutes.post('/biometric/authenticate/fallback/complete', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { walletAddress, signature, walletType } = req.body;
+        if (!walletAddress || !signature || !walletType) {
+            throw new BadRequestError('Wallet address, signature, and wallet type are required');
+        }
+        const authService = getAuthService();
+        const tokens = await authService.verifyBiometricFallback(walletAddress, signature, walletType);
+        res.json(tokens);
+    } catch (err: any) {
+        if (
+            err.message.includes('Fallback challenge missing') ||
+            err.message.includes('Invalid fallback')
+        ) {
+            next(new UnauthorizedError(err.message));
+        } else {
+            next(err);
+        }
     }
 });
 

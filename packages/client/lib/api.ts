@@ -101,6 +101,38 @@ export interface FlightSearchResponse {
   }
 }
 
+export interface SearchMemoryQuery {
+  from: string
+  to: string
+  date: string
+  passengers: number
+  class: "economy" | "premium_economy" | "business" | "first"
+}
+
+export interface SearchHistoryEntry {
+  id: string
+  userId: string
+  fromAirport: string
+  toAirport: string
+  departureDate: string
+  passengers: number
+  cabinClass: SearchMemoryQuery["class"]
+  createdAt: string
+}
+
+export interface SavedSearch {
+  id: string
+  userId: string
+  name: string | null
+  fromAirport: string
+  toAirport: string
+  departureDate: string
+  passengers: number
+  cabinClass: SearchMemoryQuery["class"]
+  createdAt: string
+  updatedAt: string
+}
+
 export interface CreateBookingRequest {
   flightId: string
   passengerCount: number
@@ -136,6 +168,54 @@ export interface TransactionRecord {
 export interface BookingTransactionStatusResponse {
   bookingStatus: string
   transactionStatus: TransactionStatus | null
+}
+
+export async function getTransactionReceiptPdf(bookingId: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/transactions/${bookingId}/receipt.pdf`, {
+    headers: { ...getAuthHeader() },
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+  }
+  return response.blob()
+}
+
+export type DisputeStatus = "open" | "evidence_submission" | "under_review" | "resolved" | "appealed" | "closed"
+
+export interface DisputeEvidence {
+  id: string
+  submittedBy: string
+  description: string
+  fileUrl: string | null
+  submittedAt: string
+}
+
+export interface DisputeTimelineEvent {
+  type: "dispute_opened" | "arbitrator_assigned" | "evidence_submitted" | "dispute_resolved" | "dispute_appealed"
+  at: string
+  actor: string
+  notes?: string
+}
+
+export interface DisputeRecord {
+  id: string
+  refundId: string
+  bookingId: string
+  claimantAddress: string
+  respondentAddress: string
+  arbitratorAddress: string | null
+  disputeType: string
+  description: string
+  desiredOutcome: string | null
+  status: DisputeStatus
+  outcome: "claimant_wins" | "respondent_wins" | "partial" | null
+  resolutionNotes: string | null
+  evidence: DisputeEvidence[]
+  timeline: DisputeTimelineEvent[]
+  createdAt: string
+  updatedAt: string
+  deadlineAt: string | null
 }
 
 export type CheckInStatus = 'pending' | 'checked_in' | 'cancelled'
@@ -465,6 +545,51 @@ export async function getPriceTrend(from: string, to: string, days = 14): Promis
   return apiGet<PriceTrend>(`/api/flights/price-trend?from=${from}&to=${to}&days=${days}`)
 }
 
+export async function getSearchHistory(): Promise<SearchHistoryEntry[]> {
+  const body = await authedFetch('/api/v1/flights/search/history')
+  return body.data as SearchHistoryEntry[]
+}
+
+export async function createSearchHistoryEntry(payload: SearchMemoryQuery): Promise<SearchHistoryEntry> {
+  const body = await authedFetch('/api/v1/flights/search/history', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return body.data as SearchHistoryEntry
+}
+
+export async function deleteSearchHistoryEntry(id: string): Promise<void> {
+  await authedFetch(`/api/v1/flights/search/history/${id}`, { method: 'DELETE' })
+}
+
+export async function getSavedSearches(): Promise<SavedSearch[]> {
+  const body = await authedFetch('/api/v1/flights/saved-searches')
+  return body.data as SavedSearch[]
+}
+
+export async function createSavedSearch(payload: SearchMemoryQuery & { name?: string }): Promise<SavedSearch> {
+  const body = await authedFetch('/api/v1/flights/saved-searches', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return body.data as SavedSearch
+}
+
+export async function updateSavedSearch(
+  id: string,
+  payload: SearchMemoryQuery & { name?: string },
+): Promise<SavedSearch> {
+  const body = await authedFetch(`/api/v1/flights/saved-searches/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+  return body.data as SavedSearch
+}
+
+export async function deleteSavedSearch(id: string): Promise<void> {
+  await authedFetch(`/api/v1/flights/saved-searches/${id}`, { method: 'DELETE' })
+}
+
 export async function getInsuranceQuotes(
   tripCostCents: number,
   destination: string,
@@ -673,6 +798,141 @@ export const apiClient = {
     }
   },
 
+  getGoogleWalletPass: async (bookingId: string): Promise<ApiResult<Record<string, unknown>>> => {
+    try {
+      const body = await authedFetch(`/api/v1/checkin/${bookingId}/google-wallet-pass`)
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getJourneys: async (): Promise<ApiResult<any[]>> => {
+    try {
+      const body = await authedFetch('/api/v1/journeys')
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getJourney: async (id: string): Promise<ApiResult<any>> => {
+    try {
+      const body = await authedFetch(`/api/v1/journeys/${id}`)
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  createJourney: async (journeyData: any): Promise<ApiResult<any>> => {
+    try {
+      const body = await authedFetch('/api/v1/journeys', {
+        method: 'POST',
+        body: JSON.stringify(journeyData),
+      })
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  updateJourney: async (id: string, journeyData: any): Promise<ApiResult<any>> => {
+    try {
+      const body = await authedFetch(`/api/v1/journeys/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(journeyData),
+      })
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  deleteJourney: async (id: string): Promise<ApiResult<null>> => {
+    try {
+      await authedFetch(`/api/v1/journeys/${id}`, { method: 'DELETE' })
+      return { success: true, data: null }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  optimizeJourney: async (stops: any[]): Promise<ApiResult<any>> => {
+    try {
+      const body = await authedFetch('/api/v1/journeys/optimize', {
+        method: 'POST',
+        body: JSON.stringify({ stops }),
+      })
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getJourneyTemplates: async (): Promise<ApiResult<any[]>> => {
+    try {
+      const body = await authedFetch('/api/v1/journeys/templates')
+      return { success: true, data: body.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  createDispute: async (payload: {
+    refundId: string
+    disputeType: "refund_denied" | "refund_amount" | "processing_delay" | "service_quality" | "other"
+    description: string
+    desiredOutcome: string
+    evidence?: Array<{ description: string; fileUrl?: string }>
+  }): Promise<ApiResult<DisputeRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/disputes`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+      return { success: true, data: body as DisputeRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getDispute: async (disputeId: string): Promise<ApiResult<DisputeRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/disputes/${disputeId}`)
+      return { success: true, data: body as DisputeRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  submitDisputeEvidence: async (
+    disputeId: string,
+    payload: { description: string; fileUrl?: string },
+  ): Promise<ApiResult<DisputeRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/disputes/${disputeId}/evidence`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+      return { success: true, data: body as DisputeRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  appealDispute: async (disputeId: string, reason: string): Promise<ApiResult<DisputeRecord>> => {
+    try {
+      const body = await authedFetch(`/api/v1/disputes/${disputeId}/appeal`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      })
+      return { success: true, data: body as DisputeRecord }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
   getPerformanceSnapshot: async () => {
     try {
       const data = await getPerformanceSnapshot()
@@ -728,6 +988,72 @@ export const apiClient = {
     try {
       const data = await getCarbonStats(userId)
       return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getSearchHistory: async (): Promise<ApiResult<SearchHistoryEntry[]>> => {
+    try {
+      const data = await getSearchHistory()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  addSearchHistory: async (payload: SearchMemoryQuery): Promise<ApiResult<SearchHistoryEntry>> => {
+    try {
+      const data = await createSearchHistoryEntry(payload)
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  deleteSearchHistory: async (id: string): Promise<ApiResult<null>> => {
+    try {
+      await deleteSearchHistoryEntry(id)
+      return { success: true, data: null }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getSavedSearches: async (): Promise<ApiResult<SavedSearch[]>> => {
+    try {
+      const data = await getSavedSearches()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  createSavedSearch: async (payload: SearchMemoryQuery & { name?: string }): Promise<ApiResult<SavedSearch>> => {
+    try {
+      const data = await createSavedSearch(payload)
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  updateSavedSearch: async (
+    id: string,
+    payload: SearchMemoryQuery & { name?: string },
+  ): Promise<ApiResult<SavedSearch>> => {
+    try {
+      const data = await updateSavedSearch(id, payload)
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  deleteSavedSearch: async (id: string): Promise<ApiResult<null>> => {
+    try {
+      await deleteSavedSearch(id)
+      return { success: true, data: null }
     } catch (error: any) {
       return { success: false, error: { message: error.message } }
     }

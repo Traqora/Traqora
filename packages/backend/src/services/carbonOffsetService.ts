@@ -35,6 +35,35 @@ export interface OffsetCertificate {
   userId: string;
 }
 
+/** Everything the booking flow needs to render the carbon-neutral option. */
+export interface CarbonNeutralQuote {
+  footprint: CarbonFootprint;
+  /** One priced option per active project, cheapest first. */
+  options: OffsetCost[];
+  recommended: OffsetCost | null;
+}
+
+export interface PlatformSustainabilityReport {
+  from: Date | null;
+  to: Date | null;
+  totalCO2OffsetKg: number;
+  totalOffsetCents: number;
+  totalPurchases: number;
+  carbonNeutralBookings: number;
+  uniqueContributors: number;
+  treesEquivalent: number;
+  byProject: Array<{
+    projectId: string;
+    projectName: string;
+    projectType: OffsetProjectType;
+    purchases: number;
+    co2Kg: number;
+    amountCents: number;
+  }>;
+  /** Totals bucketed by calendar month, "YYYY-MM", oldest first. */
+  byMonth: Array<{ month: string; purchases: number; co2Kg: number; amountCents: number }>;
+}
+
 export interface SustainabilityStats {
   totalCO2OffsetKg: number;
   totalOffsetCents: number;
@@ -244,6 +273,147 @@ export class CarbonOffsetService {
       projectType: project.type,
       purchasedAt: saved.createdAt,
       userId: params.userId,
+    };
+  }
+
+  /**
+   * Prices the offset for a flight against every active project so the
+   * booking flow can show the carbon-neutral option before checkout.
+   */
+  async getCarbonNeutralQuote(
+    flightId: string,
+    cabinClass: string = 'economy',
+  ): Promise<CarbonNeutralQuote> {
+    const footprint = await this.calculateFlightFootprint(flightId, cabinClass);
+    const projects = await this.getOffsetProjects();
+
+    const options = projects
+      .map((project) => {
+        const tonsToOffset = Math.ceil(footprint.totalCO2kg / 1000);
+        return {
+          costCents: tonsToOffset * project.pricePerTonCents,
+          tonsToOffset,
+          projectId: project.id,
+          projectName: project.name,
+          pricePerTonCents: project.pricePerTonCents,
+        };
+      })
+      .sort((a, b) => a.costCents - b.costCents);
+
+    return {
+      footprint,
+      options,
+      recommended: options[0] ?? null,
+    };
+  }
+
+  /**
+   * Offsets a booking in one step: prices the flight, then buys the offset
+   * from the chosen project (cheapest active one when unspecified).
+   *
+   * This is what the "make this booking carbon neutral" checkbox calls, so it
+   * never asks the caller to compute the amount itself.
+   */
+  async purchaseCarbonNeutralBooking(params: {
+    userId: string;
+    flightId: string;
+    bookingId: string;
+    projectId?: string;
+    cabinClass?: string;
+  }): Promise<OffsetCertificate> {
+    const quote = await this.getCarbonNeutralQuote(
+      params.flightId,
+      params.cabinClass ?? 'economy',
+    );
+
+    const selected = params.projectId
+      ? quote.options.find((option) => option.projectId === params.projectId)
+      : quote.recommended;
+
+    if (!selected) {
+      throw new NotFoundError('No active offset project available');
+    }
+
+    const existing = await this.offsetRepo.findOne({
+      where: { bookingId: params.bookingId, status: 'completed' },
+    });
+    if (existing) {
+      throw new BadRequestError('This booking has already been offset');
+    }
+
+    return this.purchaseOffset({
+      userId: params.userId,
+      flightId: params.flightId,
+      projectId: selected.projectId,
+      amountCents: selected.costCents,
+      bookingId: params.bookingId,
+    });
+  }
+
+  /**
+   * Platform-wide sustainability reporting: totals, per-project breakdown,
+   * and a monthly series for trend reporting.
+   */
+  async getPlatformSustainabilityReport(range: {
+    from?: Date;
+    to?: Date;
+  } = {}): Promise<PlatformSustainabilityReport> {
+    const query = this.offsetRepo
+      .createQueryBuilder('offset')
+      .leftJoinAndSelect('offset.project', 'project')
+      .where('offset.status = :status', { status: 'completed' });
+
+    if (range.from) query.andWhere('offset.createdAt >= :from', { from: range.from });
+    if (range.to) query.andWhere('offset.createdAt <= :to', { to: range.to });
+
+    const offsets = await query.orderBy('offset.createdAt', 'ASC').getMany();
+
+    const byProjectMap = new Map<string, PlatformSustainabilityReport['byProject'][number]>();
+    const byMonthMap = new Map<string, PlatformSustainabilityReport['byMonth'][number]>();
+
+    for (const offset of offsets) {
+      const projectId = offset.projectId;
+      const projectEntry = byProjectMap.get(projectId) ?? {
+        projectId,
+        projectName: offset.project?.name ?? 'Unknown',
+        projectType: offset.project?.type ?? ('reforestation' as OffsetProjectType),
+        purchases: 0,
+        co2Kg: 0,
+        amountCents: 0,
+      };
+      projectEntry.purchases += 1;
+      projectEntry.co2Kg += offset.co2Kg;
+      projectEntry.amountCents += offset.amountCents;
+      byProjectMap.set(projectId, projectEntry);
+
+      const month = offset.createdAt.toISOString().slice(0, 7);
+      const monthEntry = byMonthMap.get(month) ?? {
+        month,
+        purchases: 0,
+        co2Kg: 0,
+        amountCents: 0,
+      };
+      monthEntry.purchases += 1;
+      monthEntry.co2Kg += offset.co2Kg;
+      monthEntry.amountCents += offset.amountCents;
+      byMonthMap.set(month, monthEntry);
+    }
+
+    const totalCO2OffsetKg = offsets.reduce((sum, o) => sum + o.co2Kg, 0);
+
+    return {
+      from: range.from ?? null,
+      to: range.to ?? null,
+      totalCO2OffsetKg,
+      totalOffsetCents: offsets.reduce((sum, o) => sum + o.amountCents, 0),
+      totalPurchases: offsets.length,
+      carbonNeutralBookings: new Set(
+        offsets.filter((o) => o.bookingId).map((o) => o.bookingId),
+      ).size,
+      uniqueContributors: new Set(offsets.map((o) => o.userId)).size,
+      treesEquivalent: Math.round(totalCO2OffsetKg / 21),
+      byProject: [...byProjectMap.values()].sort((a, b) => b.co2Kg - a.co2Kg),
+      byMonth: [...byMonthMap.values()].sort((a, b) => a.month.localeCompare(b.month)),
     };
   }
 

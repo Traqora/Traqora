@@ -1,107 +1,206 @@
 import { NextFunction, Request, Response } from 'express';
-import { writeAnalyticsAuditLog } from '../database/audit-log';
-import { logger } from '../utils/logger';
+import { AppDataSource, initDataSource } from '../db/dataSource';
+import { SecurityAuditLog, SecurityAction, ActorType } from '../db/entities/SecurityAuditLog';
+import { getLogger } from '../services/logger';
+import '../types/express/index.d';
 
-const CRITICAL_OPERATION_PATTERNS = [
-  /^\/api\/(v1\/)?bookings(\/|$)/i,
-  /^\/api\/(v1\/)?transactions(\/|$)/i,
-  /^\/api\/(v1\/)?refunds(\/|$)/i,
-  /^\/api\/(v1\/)?users(\/|$)/i,
-  /^\/api\/(v1\/)?auth(\/|$)/i,
-  /^\/api\/(v1\/)?insurance(\/|$)/i,
+export interface AuditOptions {
+  action: SecurityAction;
+  resource: string;
+  getResourceId?: (req: Request, res: Response) => string | undefined | null;
+  getDetails?: (req: Request, res: Response) => Record<string, unknown> | undefined | null;
+  includeBody?: boolean;
+  includeQuery?: boolean;
+  maskFields?: string[];
+}
+
+const SENSITIVE_FIELDS = [
+  'password', 'token', 'secret', 'authorization', 'api_key', 'apikey',
+  'jwt', 'refresh_token', 'ssn', 'credit_card', 'cvv', 'pin',
+  'stripe_key', 'private_key',
 ];
 
-const SENSITIVE_KEYS = [
-  'authorization',
-  'cookie',
-  'set-cookie',
-  'password',
-  'token',
-  'secret',
-  'api_key',
-  'apikey',
-  'jwt',
-  'refresh_token',
-];
-
-const redactValue = (value: unknown): unknown => {
-  if (value === undefined || value === null) return value;
-  return '[REDACTED]';
-};
-
-const redactObject = (value: unknown): unknown => {
-  if (value === null || value === undefined) return value;
-  if (Array.isArray(value)) return value.map(redactObject);
-  if (typeof value !== 'object') return value;
-  const record = value as Record<string, unknown>;
-  const sanitized: Record<string, unknown> = {};
-  for (const [key, nestedValue] of Object.entries(record)) {
+function redactFields(data: Record<string, unknown>, fields?: string[]): Record<string, unknown> {
+  const redacted: Record<string, unknown> = {};
+  const maskList = fields || SENSITIVE_FIELDS;
+  for (const [key, value] of Object.entries(data)) {
     const lowerKey = key.toLowerCase();
-    if (SENSITIVE_KEYS.some((sensitive) => lowerKey.includes(sensitive))) {
-      sanitized[key] = redactValue(nestedValue);
+    if (maskList.some((f) => lowerKey.includes(f.toLowerCase()))) {
+      redacted[key] = '[REDACTED]';
+    } else if (Array.isArray(value)) {
+      redacted[key] = value.map((item: unknown) =>
+        typeof item === 'object' && item !== null
+          ? redactFields(item as Record<string, unknown>, fields)
+          : item,
+      );
+    } else if (typeof value === 'object' && value !== null) {
+      redacted[key] = redactFields(value as Record<string, unknown>, fields);
     } else {
-      sanitized[key] = redactObject(nestedValue);
+      redacted[key] = value;
     }
   }
-  return sanitized;
-};
+  return redacted;
+}
 
-const shouldAudit = (path: string): boolean => CRITICAL_OPERATION_PATTERNS.some((pattern) => pattern.test(path));
+function determineActorType(req: Request): ActorType {
+  if (req.admin) return 'admin';
+  if (req.user) return 'user';
+  return 'anonymous';
+}
 
-const classifyAuditAction = (req: Request): string => {
-  if (/^\/api\/(v1\/)?bookings(\/|$)/i.test(req.path)) {
-    return req.method === 'DELETE' ? 'booking_deleted' : req.method === 'PATCH' || req.method === 'POST' ? 'booking_modified' : 'booking_accessed';
-  }
-  if (/^\/api\/(v1\/)?transactions(\/|$)/i.test(req.path)) {
-    return req.method === 'POST' ? 'transaction_retry' : 'transaction_viewed';
-  }
-  if (/^\/api\/(v1\/)?refunds(\/|$)/i.test(req.path)) {
-    return req.method === 'POST' ? 'refund_processed' : 'refund_viewed';
-  }
-  if (/^\/api\/(v1\/)?users(\/|$)/i.test(req.path)) {
-    return req.method === 'PUT' || req.method === 'PATCH' ? 'user_profile_updated' : 'user_accessed';
-  }
-  if (/^\/api\/(v1\/)?auth(\/|$)/i.test(req.path)) {
-    return 'authentication_event';
-  }
-  if (/^\/api\/(v1\/)?insurance(\/|$)/i.test(req.path)) {
-    return req.method === 'POST' ? 'insurance_purchase' : 'insurance_accessed';
-  }
-  return 'api_access';
-};
+function determineActorId(req: Request): string | undefined | null {
+  if (req.admin?.adminId) return req.admin.adminId;
+  if (req.user?.walletAddress) return req.user.walletAddress;
+  if (req.user?.id) return req.user.id;
+  return null;
+}
 
-export const auditLogger = (req: Request, res: Response, next: NextFunction): void => {
-  const start = process.hrtime.bigint();
-  res.on('finish', async () => {
-    try {
-      const path = req.originalUrl?.split('?')[0] || req.path;
-      if (!shouldAudit(path)) return;
+function determineActorEmail(req: Request): string | undefined | null {
+  if (req.admin?.email) return req.admin.email;
+  return null;
+}
 
-      const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
-      const payload = {
-        action: classifyAuditAction(req),
-        route: path,
-        method: req.method,
-        actorId: req.user?.walletAddress ?? req.admin?.adminId ?? null,
-        actorEmail: req.user?.email ?? req.admin?.email ?? null,
-        actorType: req.admin ? 'admin' : req.user ? 'user' : 'anonymous',
-        tenantId: typeof req.query?.tenantId === 'string' ? req.query.tenantId : null,
-        queryParams: redactObject(req.query) as Record<string, unknown>,
-        metadata: redactObject(req.body) as Record<string, unknown>,
-        statusCode: res.statusCode,
-        durationMs,
-        ipAddress: req.ip || req.socket?.remoteAddress || 'unknown',
-        userAgent: req.header('user-agent') ?? null,
-      };
+export function auditLog(options: AuditOptions) {
+  const { action, resource, getResourceId, getDetails, includeBody, includeQuery, maskFields } = options;
+  const logger = getLogger({ component: 'audit-middleware' });
 
-      await writeAnalyticsAuditLog(payload);
-      logger.info('audit_log_recorded', payload);
-    } catch (error) {
-      logger.warn('audit_logger_failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const startedAt = Date.now();
+
+    res.on('finish', () => {
+      const method = req.method.toUpperCase();
+      const mutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+      const success = res.statusCode >= 200 && res.statusCode < 300;
+      if (!mutation || !success) return;
+
+      (async () => {
+        try {
+          await initDataSource();
+          const repo = AppDataSource.getRepository(SecurityAuditLog);
+
+          const previousLog = await repo.findOne({
+            where: {},
+            order: { createdAt: 'DESC' },
+          });
+
+          const previousHash = previousLog?.logHash || null;
+          const resourceId = getResourceId ? getResourceId(req, res) : (res.locals.resourceId as string | undefined) || null;
+          const detailsRaw = getDetails ? getDetails(req, res) : (res.locals.auditDetails as Record<string, unknown> | undefined) || null;
+          const details = detailsRaw ? JSON.stringify(redactFields(detailsRaw, maskFields)) : null;
+
+          const meta: Record<string, unknown> = {};
+          if (includeBody && req.body) meta.body = redactFields(req.body as Record<string, unknown>, maskFields);
+          if (includeQuery && req.query) meta.query = redactFields(req.query as Record<string, unknown>, maskFields);
+
+          const entity = repo.create({
+            userId: determineActorType(req) === 'user' ? determineActorId(req) : null,
+            userEmail: determineActorType(req) === 'user' ? determineActorEmail(req) : null,
+            adminId: determineActorType(req) === 'admin' ? determineActorId(req) : null,
+            adminEmail: determineActorType(req) === 'admin' ? determineActorEmail(req) : null,
+            actorType: determineActorType(req),
+            action,
+            resource,
+            resourceId: resourceId ?? undefined,
+            details,
+            metadata: Object.keys(meta).length > 0 ? meta : undefined,
+            ipAddress: req.ip || (req.socket?.remoteAddress) || 'unknown',
+            userAgent: req.header('user-agent') || null,
+            sessionId: (req as unknown as Record<string, unknown>).sessionID as string || null,
+            previousLogHash: previousHash,
+            logHash: '',
+          });
+
+          entity.logHash = entity.generateLogHash(previousHash);
+          await repo.save(entity);
+
+          logger.info('Audit log recorded', {
+            action,
+            resource,
+            resourceId,
+            actorType: entity.actorType,
+            durationMs: Date.now() - startedAt,
+          });
+        } catch (err) {
+          logger.warn('Failed to write audit log', {
+            action,
+            resource,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })().catch(() => {});
+    });
+
+    next();
+  };
+}
+
+export async function queryAuditLogs(filters: {
+  action?: string;
+  actorType?: ActorType;
+  userId?: string;
+  adminId?: string;
+  resource?: string;
+  resourceId?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  await initDataSource();
+  const repo = AppDataSource.getRepository(SecurityAuditLog);
+  const query = repo.createQueryBuilder('log');
+
+  if (filters.action) query.andWhere('log.action = :action', { action: filters.action });
+  if (filters.actorType) query.andWhere('log.actorType = :actorType', { actorType: filters.actorType });
+  if (filters.userId) query.andWhere('log.userId = :userId', { userId: filters.userId });
+  if (filters.adminId) query.andWhere('log.adminId = :adminId', { adminId: filters.adminId });
+  if (filters.resource) query.andWhere('log.resource = :resource', { resource: filters.resource });
+  if (filters.resourceId) query.andWhere('log.resourceId = :resourceId', { resourceId: filters.resourceId });
+  if (filters.from) query.andWhere('log.createdAt >= :from', { from: new Date(filters.from) });
+  if (filters.to) query.andWhere('log.createdAt <= :to', { to: new Date(filters.to) });
+
+  const limit = Math.min(Math.max(filters.limit || 50, 1), 500);
+  const offset = filters.offset || 0;
+
+  const [logs, total] = await query
+    .orderBy('log.createdAt', 'DESC')
+    .skip(offset)
+    .take(limit)
+    .getManyAndCount();
+
+  return { logs, total };
+}
+
+export async function verifyAuditChain(filters: {
+  userId?: string;
+  adminId?: string;
+}): Promise<{ valid: boolean; brokenAt?: string; error?: string }> {
+  try {
+    await initDataSource();
+    const repo = AppDataSource.getRepository(SecurityAuditLog);
+    const where: Record<string, string> = {};
+    if (filters.userId) where.userId = filters.userId;
+    if (filters.adminId) where.adminId = filters.adminId;
+
+    const logs = await repo.find({
+      where,
+      order: { createdAt: 'ASC' },
+    });
+
+    if (logs.length === 0) return { valid: true };
+
+    let previousHash: string | null = null;
+    for (const log of logs) {
+      if (!log.verifyIntegrity(previousHash)) {
+        return { valid: false, brokenAt: log.id, error: `Hash chain broken at log ${log.id}` };
+      }
+      previousHash = log.logHash;
     }
-  });
 
-  next();
-};
+    return { valid: true };
+  } catch (err) {
+    return { valid: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export { redactFields };

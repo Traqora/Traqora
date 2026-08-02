@@ -1,17 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
-/**
- * Issue #168 — Playwright config for the accessibility (axe) test suite.
- *
- * `webServer` boots `next dev` for the duration of the run so the suite
- * audits the same routes the user sees. Test files live under
- * `tests/a11y/*.spec.ts`.
- */
 export default defineConfig({
-  testDir: "./tests/a11y",
+  testDir: "./tests",
   timeout: 60_000,
   fullyParallel: true,
-  reporter: process.env.CI ? "list" : "html",
+  reporter: process.env.CI
+    ? [["list"], ["html", { outputFolder: "test-results/html" }]]
+    : "html",
   use: {
     baseURL: "http://localhost:3000",
     trace: "on-first-retry",
@@ -26,7 +21,13 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium",
+      name: "a11y",
+      testDir: "./tests/a11y",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "e2e",
+      testDir: "./tests/e2e",
       use: { ...devices["Desktop Chrome"] },
     },
   ],

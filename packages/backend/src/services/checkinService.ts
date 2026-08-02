@@ -7,6 +7,7 @@ import { CheckIn } from '../db/entities/CheckIn';
 import { Flight } from '../db/entities/Flight';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
+import { notificationService } from './NotificationService';
 
 const CHECKIN_WINDOW_HOURS_BEFORE = 24;
 const CHECKIN_WINDOW_MINUTES_BEFORE_CUTOFF = 45;
@@ -15,6 +16,23 @@ export interface CheckInWindow {
   opensAt: Date;
   closesAt: Date;
   isOpen: boolean;
+}
+
+export interface GoogleWalletPassObject {
+  id: string;
+  classId: string;
+  header: {
+    header: string;
+  };
+  primaryFields: Array<{ label: string; value: string }>;
+  secondaryFields: Array<{ label: string; value: string }>;
+  barcode: {
+    type: string;
+    value: string;
+    alternateText: string;
+  };
+  state: string;
+  qrCodeDataUrl: string;
 }
 
 export function getCheckInWindow(flight: Flight): CheckInWindow {
@@ -88,10 +106,24 @@ export class CheckInService {
     await this.checkInRepo.save(checkIn);
     logger.info('Passenger checked in', { bookingId: booking.id, checkInId: checkIn.id });
 
+    // Send check-in confirmation notification
+    try {
+      await notificationService.sendPushNotification(
+        booking.passenger?.id || booking.id,
+        `Check-in successful! Flight ${booking.flight.airlineCode}${booking.flight.flightNumber}, Seat: ${checkIn.seatNumber || 'Assigned'}`,
+        { bookingId: booking.id, checkInId: checkIn.id, seat: checkIn.seatNumber }
+      );
+    } catch (err) {
+      logger.warn('Failed to send check-in notification', err);
+    }
+
     return checkIn;
   }
 
   async reselectSeat(bookingId: string, seatNumber: string): Promise<CheckIn> {
+    if (!seatNumber || seatNumber.trim().length === 0) {
+      throw new BadRequestError('Seat number is required');
+    }
     const checkIn = await this.checkInRepo.findOne({ where: { booking: { id: bookingId } } });
     if (!checkIn) {
       throw new NotFoundError('No check-in found for this booking');
@@ -99,8 +131,9 @@ export class CheckInService {
     if (checkIn.status === 'cancelled') {
       throw new ConflictError('Cannot re-select seat for a cancelled check-in');
     }
-    checkIn.seatNumber = seatNumber;
+    checkIn.seatNumber = seatNumber.trim().toUpperCase();
     await this.checkInRepo.save(checkIn);
+    logger.info('Seat re-selected', { bookingId, seatNumber: checkIn.seatNumber });
     return checkIn;
   }
 
@@ -110,6 +143,10 @@ export class CheckInService {
       throw new NotFoundError('No check-in found for this booking');
     }
     return checkIn;
+  }
+
+  async generateBarcodeDataUrl(code: string): Promise<string> {
+    return QRCode.toDataURL(code, { margin: 1, width: 250 });
   }
 
   async generateBoardingPassPdf(bookingId: string): Promise<Buffer> {
@@ -122,7 +159,7 @@ export class CheckInService {
       throw new ConflictError('Boarding pass is only available after check-in');
     }
 
-    const qrDataUrl = await QRCode.toDataURL(checkIn.boardingPassCode, { margin: 1, width: 200 });
+    const qrDataUrl = await this.generateBarcodeDataUrl(checkIn.boardingPassCode);
     const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
 
     return new Promise((resolve, reject) => {
@@ -164,7 +201,7 @@ export class CheckInService {
       throw new ConflictError('Wallet pass is only available after check-in');
     }
 
-    const qrCode = await QRCode.toDataURL(checkIn.boardingPassCode, { margin: 1, width: 200 });
+    const qrCode = await this.generateBarcodeDataUrl(checkIn.boardingPassCode);
 
     return {
       formatVersion: 1,
@@ -195,6 +232,43 @@ export class CheckInService {
           },
         ],
       },
+      qrCodeDataUrl: qrCode,
+    };
+  }
+
+  async generateGoogleWalletPass(bookingId: string): Promise<GoogleWalletPassObject> {
+    const checkIn = await this.getCheckIn(bookingId);
+    const booking = checkIn.booking;
+    const flight = booking.flight;
+    const passenger = booking.passenger;
+
+    if (checkIn.status !== 'checked_in') {
+      throw new ConflictError('Google Wallet pass is only available after check-in');
+    }
+
+    const qrCode = await this.generateBarcodeDataUrl(checkIn.boardingPassCode);
+
+    return {
+      id: `google-pass-${checkIn.id}`,
+      classId: 'traqora.boardingPassClass',
+      header: {
+        header: `${flight.airlineCode}${flight.flightNumber} ${flight.fromAirport} to ${flight.toAirport}`,
+      },
+      primaryFields: [
+        { label: 'Passenger', value: `${passenger.firstName} ${passenger.lastName}` },
+        { label: 'Seat', value: checkIn.seatNumber || 'Assigned at Gate' },
+      ],
+      secondaryFields: [
+        { label: 'Flight', value: `${flight.airlineCode}${flight.flightNumber}` },
+        { label: 'Gate', value: flight.gate || 'TBD' },
+        { label: 'Terminal', value: flight.terminal || 'TBD' },
+      ],
+      barcode: {
+        type: 'QR_CODE',
+        value: checkIn.boardingPassCode,
+        alternateText: checkIn.boardingPassCode,
+      },
+      state: 'ACTIVE',
       qrCodeDataUrl: qrCode,
     };
   }

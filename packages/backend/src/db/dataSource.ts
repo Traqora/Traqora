@@ -12,6 +12,9 @@ import { AdminUser } from "./entities/AdminUser";
 import { AdminAuditLog } from "./entities/AdminAuditLog";
 import { Refund } from "./entities/Refund";
 import { User } from "./entities/User";
+import { ChatMessage } from "./entities/ChatMessage";
+import { FlightFollower } from "./entities/FlightFollower";
+import { FlightStatusEvent } from "./entities/FlightStatusEvent";
 import { TravelDocument } from "./entities/TravelDocument";
 import { Tenant } from "./entities/Tenant";
 import { DashboardShare } from "./entities/DashboardShare";
@@ -22,6 +25,27 @@ import { InsurancePolicy } from "./entities/InsurancePolicy";
 import { InsuranceClaim } from "./entities/InsuranceClaim";
 import { CheckIn } from "./entities/CheckIn";
 import { BiometricCredential } from "./entities/BiometricCredential";
+import { SearchHistoryEntry } from "./entities/SearchHistoryEntry";
+import { SavedSearch } from "./entities/SavedSearch";
+import { UserProfile } from "./entities/UserProfile";
+import { AccountDeletionRequest } from "./entities/AccountDeletionRequest";
+import { Dispute } from "./entities/Dispute";
+import { DisputeEvidence } from "./entities/DisputeEvidence";
+import { RecommendationEvent } from "./entities/RecommendationEvent";
+import { Review } from "./entities/Review";
+import { Feedback } from "./entities/Feedback";
+import { FeedbackVote } from "./entities/FeedbackVote";
+import { CarbonOffset } from "./entities/CarbonOffset";
+import { OffsetProject } from "./entities/OffsetProject";
+import { TrackedFlight } from "./entities/TrackedFlight";
+import { PriceObservation } from "./entities/PriceObservation";
+import { GroupBooking } from "./entities/GroupBooking";
+import { GroupMember } from "./entities/GroupMember";
+import { CorporateAccount } from "./entities/CorporateAccount";
+import { CorporateUser } from "./entities/CorporateUser";
+import { CorporateBookingPolicy } from "./entities/CorporateBookingPolicy";
+import { BookingApproval } from "./entities/BookingApproval";
+import { AncillaryPurchase } from "./entities/AncillaryPurchase";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -43,6 +67,9 @@ export const AppDataSource = new DataSource(
         AdminAuditLog,
         Refund,
         User,
+        ChatMessage,
+        FlightFollower,
+        FlightStatusEvent,
         TravelDocument,
         Tenant,
         DashboardShare,
@@ -53,6 +80,27 @@ export const AppDataSource = new DataSource(
         InsuranceClaim,
         CheckIn,
         BiometricCredential,
+        SearchHistoryEntry,
+        SavedSearch,
+        UserProfile,
+        AccountDeletionRequest,
+        Dispute,
+        DisputeEvidence,
+        RecommendationEvent,
+        Review,
+        Feedback,
+        FeedbackVote,
+        CarbonOffset,
+        OffsetProject,
+        TrackedFlight,
+        PriceObservation,
+        GroupBooking,
+        GroupMember,
+        CorporateAccount,
+        CorporateUser,
+        CorporateBookingPolicy,
+        BookingApproval,
+        AncillaryPurchase,
       ],
       logging: false,
     }
@@ -72,6 +120,9 @@ export const AppDataSource = new DataSource(
         AdminAuditLog,
         Refund,
         User,
+        ChatMessage,
+        FlightFollower,
+        FlightStatusEvent,
         TravelDocument,
         Tenant,
         DashboardShare,
@@ -82,6 +133,27 @@ export const AppDataSource = new DataSource(
         InsuranceClaim,
         CheckIn,
         BiometricCredential,
+        SearchHistoryEntry,
+        SavedSearch,
+        UserProfile,
+        AccountDeletionRequest,
+        Dispute,
+        DisputeEvidence,
+        RecommendationEvent,
+        Review,
+        Feedback,
+        FeedbackVote,
+        CarbonOffset,
+        OffsetProject,
+        TrackedFlight,
+        PriceObservation,
+        GroupBooking,
+        GroupMember,
+        CorporateAccount,
+        CorporateUser,
+        CorporateBookingPolicy,
+        BookingApproval,
+        AncillaryPurchase,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:
@@ -109,6 +181,7 @@ export const initDataSource = async () => {
   }
 
   await AppDataSource.initialize();
+};
 
   try {
     logger.info("Checking database migrations...");

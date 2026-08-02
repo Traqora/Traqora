@@ -10,7 +10,9 @@
     "typecheck": "rimraf .next && tsc --noEmit",
     "generate:api-types": "ts-node --project tsconfig.json scripts/generate-api-types.ts",
     "test": "jest",
-    "test:e2e": "playwright test tests/e2e",
+    "test:perf": "jest tests/performance/",
+    "test:e2e": "playwright test --project=e2e",
+    "test:e2e:booking": "playwright test tests/e2e/booking",
     "test:a11y": "playwright test tests/a11y"
   },
   "dependencies": {
@@ -28,6 +30,7 @@
     "@radix-ui/react-hover-card": "1.1.4",
     "@radix-ui/react-label": "2.1.1",
     "@radix-ui/react-menubar": "1.1.4",
+    "@sentry/nextjs": "^8.55.0",
     "@radix-ui/react-navigation-menu": "1.2.3",
     "@radix-ui/react-popover": "1.1.4",
     "@radix-ui/react-progress": "1.1.1",
@@ -71,6 +74,8 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.62.0",
     "@tailwindcss/postcss": "^4.1.9",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",

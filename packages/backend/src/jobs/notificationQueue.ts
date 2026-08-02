@@ -1,9 +1,24 @@
 import Queue from "bull";
 import { config } from "../config";
 
+export type NotificationType =
+  | "booking"
+  | "reminder"
+  | "refund"
+  | "promotional"
+  | "flight_delayed"
+  | "flight_delayed_significant"
+  | "flight_cancelled"
+  | "gate_changed"
+  | "boarding_reminder"
+  | "flight_status"
+  | "flight_status_shared"
+  | "refund_initiated";
+
 export interface NotificationPayload {
   userId: string;
-  type: "booking" | "reminder" | "refund" | "promotional";
+  type: NotificationType;
+  type: "booking" | "reminder" | "refund" | "promotional" | "price_alert" | "flight_status";
   data: Record<string, any>; // specific data for the template
   channels?: ("email" | "sms" | "push")[]; // Optional override of which channels to use
 }
