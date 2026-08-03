@@ -3,13 +3,14 @@
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
-import { 
-  Plane, 
-  Clock, 
-  MapPin, 
-  Star, 
-  Wallet, 
+import {
+  Plane,
+  Clock,
+  MapPin,
+  Star,
+  Wallet,
   ArrowRight,
   Users,
   Zap
@@ -40,6 +41,9 @@ interface FlightCardProps {
   flight: Flight
   showXLMPrice?: boolean
   xlmRate?: number // USD to XLM conversion rate
+  compareSelectable?: boolean
+  compareSelected?: boolean
+  onToggleCompare?: (flightId: string) => void
 }
 
 const airlineNames: Record<string, string> = {
@@ -64,7 +68,14 @@ const airlineLogos: Record<string, string> = {
   "NK": "/airlines/spirit.png",
 }
 
-export function FlightCard({ flight, showXLMPrice = true, xlmRate = 0.12 }: FlightCardProps) {
+export function FlightCard({
+  flight,
+  showXLMPrice = true,
+  xlmRate = 0.12,
+  compareSelectable = false,
+  compareSelected = false,
+  onToggleCompare,
+}: FlightCardProps) {
   const formatTime = (dateString: string) => {
     return new Date(dateString).toLocaleTimeString("en-US", {
       hour: "2-digit",
@@ -112,6 +123,14 @@ export function FlightCard({ flight, showXLMPrice = true, xlmRate = 0.12 }: Flig
         <div className="flex flex-col lg:flex-row lg:items-center gap-4">
           {/* Airline Info */}
           <div className="flex items-center gap-3 lg:w-48">
+            {compareSelectable && (
+              <Checkbox
+                id={`compare-${flight.id}`}
+                checked={compareSelected}
+                onCheckedChange={() => onToggleCompare?.(flight.id)}
+                aria-label={`Select ${airlineName} flight for comparison`}
+              />
+            )}
             {airlineLogo && (
               <img 
                 src={airlineLogo} 

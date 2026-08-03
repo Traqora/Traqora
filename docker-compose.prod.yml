@@ -1,71 +1,162 @@
-version: '3.8'
-
 services:
   api:
+    profiles:
+      - staging
+      - production
+    image: ${REGISTRY:-ghcr.io}/${REPO_OWNER:-traqora}/${REPO_NAME:-traqora}/backend:${IMAGE_TAG:-latest}
     build:
       context: ./packages/backend
       target: production
+      args:
+        NODE_VERSION: ${NODE_VERSION:-20}
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+        VERSION: ${VERSION:-latest}
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/traqora
-      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=${DATABASE_URL:-postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/traqora}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - CORS_ORIGIN=${CORS_ORIGIN:-https://app.example.com}
-      - HORIZON_URL=${HORIZON_URL:-https://horizon.example.com}
-      - SOROBAN_RPC_URL=${SOROBAN_RPC_URL:-https://horizon.example.com/soroban/rpc}
-      - STELLAR_NETWORK=public
+      - HORIZON_URL=${HORIZON_URL:-https://horizon.stellar.org}
+      - SOROBAN_RPC_URL=${SOROBAN_RPC_URL:-https://rpc.mainnet.stellar.org}
+      - STELLAR_NETWORK=${STELLAR_NETWORK:-public}
       - JWT_SECRET=${JWT_SECRET}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - ENABLE_TRACING=${ENABLE_TRACING:-false}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     depends_on:
       postgres:
         condition: service_healthy
+        restart: true
       redis:
         condition: service_healthy
+        restart: true
     networks:
       - traqora-network
-    restart: always
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
+    profiles:
+      - staging
+      - production
+    image: ${REGISTRY:-ghcr.io}/${REPO_OWNER:-traqora}/${REPO_NAME:-traqora}/client:${IMAGE_TAG:-latest}
     build:
       context: ./packages/client
       target: production
+      args:
+        NODE_VERSION: ${NODE_VERSION:-20}
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+        VERSION: ${VERSION:-latest}
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.example.com}
-      - NEXT_PUBLIC_STELLAR_NETWORK=public
-      - NEXT_PUBLIC_HORIZON_URL=${NEXT_PUBLIC_HORIZON_URL:-https://horizon.example.com}
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.traqora.com}
+      - NEXT_PUBLIC_STELLAR_NETWORK=${NEXT_PUBLIC_STELLAR_NETWORK:-public}
+      - NEXT_PUBLIC_HORIZON_URL=${NEXT_PUBLIC_HORIZON_URL:-https://horizon.stellar.org}
+      - NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN:-}
+      - NEXT_TELEMETRY_DISABLED=1
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
-      - api
+      api:
+        condition: service_started
     networks:
       - traqora-network
-    restart: always
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   postgres:
     image: postgres:15-alpine
+    profiles:
+      - staging
+      - production
     environment:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=traqora
+      - POSTGRES_USER=postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - traqora-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7-alpine
+    profiles:
+      - staging
+      - production
+    volumes:
+      - redis_data:/data
     networks:
       - traqora-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   traqora-network:
@@ -73,3 +164,6 @@ networks:
 
 volumes:
   postgres_data:
+    name: traqora_postgres_data
+  redis_data:
+    name: traqora_redis_data

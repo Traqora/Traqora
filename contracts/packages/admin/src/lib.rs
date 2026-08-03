@@ -472,6 +472,6 @@ impl AdminMultisig {
         }
     }
     pub fn init_upgrade_owner(env: Env, owner: Address) {
-        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
+        access::UpgradeTimelock::init_upgrade_owner(&env, &owner);
     }
 }

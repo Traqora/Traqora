@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTransactionStatus } from '@/hooks/use-transaction-status';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { CheckCircle, Clock, AlertCircle, Loader2 } from 'lucide-react';
 import { getStellarExpertUrl } from '@/lib/wallet';
+import { announce } from '@/lib/accessibility';
 
 interface TransactionStatusTrackerProps {
   bookingId: string;
@@ -33,13 +34,32 @@ export function TransactionStatusTracker({
   const txStatus = status?.transactionStatus;
   const txHash = txStatus?.txHash;
 
+  const prevStatusRef = useRef(txStatus?.status)
+
   useEffect(() => {
     if (txStatus?.status === 'success') {
       onSuccess?.();
+      announce('Transaction confirmed on blockchain', 'polite');
     } else if (txStatus?.status === 'failed') {
       onError?.(txStatus.error || 'Transaction failed');
+      announce(`Transaction failed: ${txStatus.error || 'Unknown error'}`, 'assertive');
     }
   }, [txStatus?.status, txStatus?.error, onSuccess, onError]);
+
+  useEffect(() => {
+    if (prevStatusRef.current !== txStatus?.status && txStatus?.status) {
+      const messages: Record<string, string> = {
+        pending: 'Waiting for blockchain confirmation',
+        not_found: 'Transaction submitted, waiting for network',
+        success: 'Transaction confirmed on blockchain',
+        failed: 'Transaction failed',
+      };
+      if (messages[txStatus.status]) {
+        announce(messages[txStatus.status], txStatus.status === 'failed' ? 'assertive' : 'polite');
+      }
+    }
+    prevStatusRef.current = txStatus?.status;
+  }, [txStatus?.status]);
 
   const getStatusIcon = () => {
     if (!txStatus) {
@@ -106,9 +126,9 @@ export function TransactionStatusTracker({
   }
 
   return (
-    <Card className="border-2">
+    <Card className="border-2" role="region" aria-label="Transaction status">
       <CardContent className="pt-6">
-        <div className="space-y-4">
+        <div className="space-y-4" role="status" aria-live="polite" aria-atomic="true">
           {/* Status Header */}
           <div className="flex items-center gap-3">
             {getStatusIcon()}

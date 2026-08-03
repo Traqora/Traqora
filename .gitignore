@@ -6,6 +6,10 @@ jspm_packages/
 .next/
 out/
 
+# Sentry
+.sentryclirc
+.env.sentry-build-plugin
+
 # Build outputs
 dist/
 build/

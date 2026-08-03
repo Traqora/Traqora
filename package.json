@@ -17,10 +17,20 @@
   "devDependencies": {
     "@types/node": "^22",
     "eslint": "^8.57.0",
-    "typescript": "^5.4.5",
+    "typescript": "^5.9.3",
     "zod": "^3.25.76"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "bs-logger": "^0.2.6",
+    "buffer-equal-constant-time": "^1.0.1",
+    "ecdsa-sig-formatter": "^1.0.11",
+    "exit": "^0.1.2",
+    "safe-buffer": "^5.2.1",
+    "semver": "^7.8.5",
+    "source-map": "^0.8.0",
+    "source-map-support": "^0.5.21"
   }
 }

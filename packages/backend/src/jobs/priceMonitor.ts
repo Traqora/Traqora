@@ -10,8 +10,8 @@ import { NotificationService } from '../services/NotificationService';
 import { getWebSocketServer } from '../websockets/server';
 import { measureAsync } from '../services/metrics';
 
-// Parse Redis config from URL if available, or use defaults
-const redisUrl = config.redisUrl || process.env.REDIS_URL || 'redis://localhost:6379';
+// Parse Redis config from URL if available
+const redisUrl = config.redisUrl;
 // Simple parsing for Bull (it prefers host/port object usually, but can take redis URL string too in some versions, but let's stick to object for safety if we can parse it, or just pass the URL string if Bull supports it. Bull constructor supports redis connection string as second arg if first is name? No, it supports `new Queue(name, url)`.)
 
 // Define the Queue

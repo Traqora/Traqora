@@ -97,3 +97,17 @@ impl AccessControl {
         }
     }
 }
+
+/// Minimum delay, in seconds, that must elapse between proposing and
+/// executing a contract upgrade.
+pub const UPGRADE_TIMELOCK_SECS: u64 = 48 * 60 * 60;
+
+pub struct UpgradeTimelock;
+
+impl UpgradeTimelock {
+    /// Initialize the upgrade owner for contracts that do not yet have an
+    /// owner role set up (e.g. contracts predating AccessControl adoption).
+    pub fn init_upgrade_owner(env: &Env, owner: &Address) {
+        AccessControl::init_owner(env, owner);
+    }
+}

@@ -108,14 +108,14 @@ impl BookingReceiptContract {
         }
 
         ReceiptStorage::set_admin(&env, &admin);
-        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &admin);
+        access::UpgradeTimelock::init_upgrade_owner(&env, &admin);
 
         let metadata = TokenMetadata { name, symbol };
         ReceiptStorage::set_metadata(&env, &metadata);
     }
 
     pub fn init_upgrade_owner(env: Env, owner: Address) {
-        crate::upgrade_timelock::UpgradeTimelock::init_upgrade_owner(&env, &owner);
+        access::UpgradeTimelock::init_upgrade_owner(&env, &owner);
     }
 
     // --- Custom NFT Functions ---

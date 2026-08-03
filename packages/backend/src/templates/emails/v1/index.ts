@@ -60,3 +60,16 @@ export const analyticsExportTemplate = (data: any) => ({
     </div>
   `,
 });
+
+export const referralInviteTemplate = (data: any) => ({
+  subject: `${data.inviterName} invited you to Traqora`,
+  text: `${data.inviterName} thinks you'd like Traqora. Sign up with their referral code ${data.referralCode} to get started: ${data.inviteUrl}`,
+  html: `
+    <div style="font-family: Arial, sans-serif; padding: 20px;">
+      <h2>You've been invited to Traqora</h2>
+      <p><strong>${data.inviterName}</strong> thinks you'd like Traqora and wants to share their referral code with you.</p>
+      <p>Referral code: <strong>${data.referralCode}</strong></p>
+      <p><a href="${data.inviteUrl}">Accept invitation</a></p>
+    </div>
+  `,
+});

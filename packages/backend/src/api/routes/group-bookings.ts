@@ -2,8 +2,8 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
-import { GroupBookingService } from '../../services/group-booking';
-import { BadRequestError, NotFoundError, ForbiddenError } from '../../utils/errors';
+import { GroupBookingService } from '../../services/groupBooking';
+import { BadRequestError, NotFoundError } from '../../utils/errors';
 import { logger } from '../../utils/logger';
 
 const router = Router();

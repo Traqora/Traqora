@@ -1,208 +1,361 @@
-import { scheduleNotification } from "../jobs/notificationQueue";
-import { AppDataSource } from "../db/dataSource";
-import { UserPreference } from "../db/entities/UserPreference";
+/**
+ * Core Notification Service
+ * Orchestrates multi-channel notification delivery based on user preferences
+ */
+
 import { logger } from "../utils/logger";
+import type {
+  NotificationPreference,
+  UserNotificationSettings,
+  NotificationPayload,
+  Notification,
+  NotificationChannel,
+  NotificationCategory,
+  DeliveryStatus,
+  DeliveryLog,
+  NotificationPreferenceUpdate,
+} from "../types/notification";
 
 export class NotificationService {
-  private static instance: NotificationService;
-
-  public constructor() {}
+  private static _instance: NotificationService;
 
   public static getInstance(): NotificationService {
-    if (!NotificationService.instance) {
-      NotificationService.instance = new NotificationService();
+    if (!NotificationService._instance) {
+      NotificationService._instance = new NotificationService();
     }
-    return NotificationService.instance;
+    return NotificationService._instance;
   }
 
-  // --- New Queue-based Methods ---
+  private preferences: Map<string, NotificationPreference[]> = new Map();
+  private settings: Map<string, UserNotificationSettings> = new Map();
+  private notifications: Map<string, Notification[]> = new Map();
+  private deliveryLogs: Map<string, DeliveryLog[]> = new Map();
 
-  public async sendBookingConfirmation(
-    userId: string,
-    bookingReference: string,
-    flightNumber: string,
-    departureDate: string,
-  ) {
-    const userPrefRepo = AppDataSource.getRepository(UserPreference);
-    const pref = await userPrefRepo.findOne({ where: { userId } });
-    if (!pref) {
-      logger.warn(
-        `User prefs not found for ${userId}, skipping booking confirmation.`,
-      );
-      return;
-    }
-
-    await scheduleNotification(
-      {
-        userId,
-        type: "booking",
-        data: { bookingReference, flightNumber, departureDate },
-      },
-      0,
-      1,
-    ); // High priority
+  async sendEmail(to: string, subject: string, body: string): Promise<boolean> {
+    logger.info('Sending email', { to, subject, bodyLength: body.length });
+    return true;
   }
 
-  public async scheduleFlightReminder(
-    userId: string,
-    flightNumber: string,
-    departureDate: Date,
-  ) {
-    const reminderTime = new Date(departureDate);
-    reminderTime.setHours(reminderTime.getHours() - 24); // 24 hours before
+  /**
+   * Get or create user notification settings
+   */
+  async getUserSettings(userId: string): Promise<UserNotificationSettings> {
+    const cached = this.settings.get(userId);
+    if (cached) return cached;
 
-    const delay = reminderTime.getTime() - Date.now();
-    if (delay > 0) {
-      await scheduleNotification(
-        {
-          userId,
-          type: "reminder",
-          data: { flightNumber, departureDate: departureDate.toISOString() },
-        },
-        delay,
-        2,
-      ); // Default priority
-    } else {
-      logger.warn(
-        "Flight departs in less than 24 hours. Sending immediate reminder.",
-      );
-      await scheduleNotification(
-        {
-          userId,
-          type: "reminder",
-          data: { flightNumber, departureDate: departureDate.toISOString() },
-        },
-        0,
-        2,
-      );
-    }
+    const settings: UserNotificationSettings = {
+      userId,
+      emailAddress: `user${userId}@example.com`,
+      preferences: await this.getPreferences(userId),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    this.settings.set(userId, settings);
+    return settings;
   }
 
-  public async sendRefundUpdate(
+  /**
+   * Get user preferences for a channel
+   */
+  async getPreferences(
     userId: string,
-    bookingReference: string,
-    refundAmount: string,
-  ) {
-    await scheduleNotification(
-      {
-        userId,
-        type: "refund",
-        data: { bookingReference, refundAmount },
-      },
-      0,
-      2,
+    channel?: NotificationChannel,
+    category?: NotificationCategory,
+  ): Promise<NotificationPreference[]> {
+    const prefs = this.preferences.get(userId) || [];
+
+    return prefs.filter((p) => {
+      if (channel && p.channel !== channel) return false;
+      if (category && p.category !== category) return false;
+      return true;
+    });
+  }
+
+  /**
+   * Update notification preference
+   */
+  async updatePreference(
+    userId: string,
+    update: NotificationPreferenceUpdate,
+  ): Promise<NotificationPreference> {
+    let prefs = this.preferences.get(userId) || [];
+
+    // Find or create preference
+    let pref = prefs.find(
+      (p) => p.channel === update.channel && p.category === update.category,
     );
-  }
 
-  // --- Legacy Methods for backwards compatibility (e.g. priceMonitor) ---
-
-  /**
-   * Send an email notification
-   * @param to - Recipient email address
-   * @param subject - Email subject
-   * @param body - Email body content
-   * @returns Promise<boolean> - True if sent successfully
-   */
-  public async sendEmail(
-    to: string,
-    subject: string,
-    body: string,
-  ): Promise<boolean> {
-    try {
-      logger.info(`[Email Notification] To: ${to}, Subject: ${subject}`);
-      // In production, this would send via SendGrid, SES, or SMTP
-      // For now, we log and return success
-      return true;
-    } catch (error) {
-      logger.error("Failed to send email", error);
-      return false;
+    if (!pref) {
+      pref = {
+        id: `pref-${Date.now()}-${Math.random()}`,
+        userId,
+        channel: update.channel,
+        category: update.category,
+        frequency: update.frequency,
+        enabled: update.enabled,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      prefs.push(pref);
+    } else {
+      pref.frequency = update.frequency;
+      pref.enabled = update.enabled;
+      pref.updatedAt = new Date();
     }
+
+    this.preferences.set(userId, prefs);
+    logger.info("Preference updated", {
+      userId,
+      channel: update.channel,
+      category: update.category,
+    });
+
+    return pref;
   }
 
   /**
-   * Send a push notification to a user
-   * @param userId - User ID to send notification to
-   * @param message - Notification message content
-   * @param data - Optional additional data payload
-   * @returns Promise<boolean> - True if sent successfully
+   * Check if notification should be delivered via channel
    */
-  public async sendPushNotification(
+  async shouldDeliver(
     userId: string,
-    message: string,
-    data?: Record<string, unknown>,
+    channel: NotificationChannel,
+    category: NotificationCategory,
   ): Promise<boolean> {
-    try {
-      logger.info(`[Push Notification] User: ${userId}, Message: ${message}`);
-      
-      // In production, this would send via Firebase Cloud Messaging, Web Push API, etc.
-      // TODO: Implement actual push notification delivery
-      // const result = await sendFcmNotification(userId, message, data);
-      // return result.success;
-      
+    const prefs = await this.getPreferences(userId, channel, category);
+
+    if (prefs.length === 0) {
+      // Default to enabled if no preference set
       return true;
-    } catch (error) {
-      logger.error("Failed to send push notification", error);
-      return false;
     }
+
+    const pref = prefs[0];
+    return pref.enabled && pref.frequency !== "never";
   }
 
   /**
-   * Send a price alert notification
-   * @param userId - User ID to send notification to
-   * @param flightId - Flight ID
-   * @param currentPrice - Current price of the flight
-   * @param targetPrice - Target price the user set
-   * @param currency - Currency code
-   * @returns Promise<boolean> - True if sent successfully
+   * Queue notification for delivery
    */
-  public async sendPriceAlert(
+  async queueNotification(
     userId: string,
-    flightId: string,
-    currentPrice: number,
-    targetPrice: number,
-    currency: string = 'USD',
-  ): Promise<boolean> {
-    try {
-      const message = `Price Drop Alert! Flight ${flightId} is now ${currentPrice} ${currency}. Target price was ${targetPrice}.`;
-      logger.info(`[Price Alert] User: ${userId}, Flight: ${flightId}, Price: ${currentPrice}`);
-      
-      // Send via queue for better reliability
-      await scheduleNotification(
-        {
-          userId,
-          type: "price_alert",
-          data: {
-            flightId,
-            currentPrice,
-            targetPrice,
-            currency,
-          },
-        },
-        0,
-        1, // High priority
+    payload: NotificationPayload,
+    channels: NotificationChannel[],
+  ): Promise<Notification> {
+    const notification: Notification = {
+      id: payload.id,
+      userId,
+      category: payload.category,
+      title: payload.title,
+      body: payload.body,
+      data: payload.data,
+      actionUrl: payload.actionUrl,
+      read: false,
+      deliveries: [],
+      createdAt: new Date(),
+    };
+
+    // Check preferences and prepare deliveries
+    for (const channel of channels) {
+      const shouldDeliver = await this.shouldDeliver(
+        userId,
+        channel,
+        payload.category,
       );
-      
-      return true;
-    } catch (error) {
-      logger.error("Failed to send price alert", error);
-      return false;
+
+      if (shouldDeliver) {
+        notification.deliveries.push({
+          channel,
+          status: "pending",
+          retryCount: 0,
+        });
+      }
     }
+
+    // Store notification
+    const userNotifs = this.notifications.get(userId) || [];
+    userNotifs.push(notification);
+    this.notifications.set(userId, userNotifs);
+
+    logger.info("Notification queued", {
+      userId,
+      category: payload.category,
+      channels: notification.deliveries.map((d) => d.channel),
+    });
+
+    return notification;
   }
 
   /**
-   * Send a test notification to verify notification delivery
-   * @param userId - User ID to send test notification to
-   * @returns Promise<boolean> - True if sent successfully
+   * Get in-app notifications for user
    */
-  public async sendTestNotification(userId: string): Promise<boolean> {
-    try {
-      logger.info(`[Test Notification] Sending test notification to user: ${userId}`);
-      return true;
-    } catch (error) {
-      logger.error("Failed to send test notification", error);
-      return false;
+  async getInAppNotifications(
+    userId: string,
+    limit: number = 50,
+  ): Promise<Notification[]> {
+    const notifs = this.notifications.get(userId) || [];
+
+    return notifs
+      .filter((n) => !n.expiresAt || n.expiresAt > new Date())
+      .slice(-limit);
+  }
+
+  /**
+   * Mark notification as read
+   */
+  async markAsRead(userId: string, notificationId: string): Promise<void> {
+    const notifs = this.notifications.get(userId) || [];
+    const notif = notifs.find((n) => n.id === notificationId);
+
+    if (notif) {
+      notif.read = true;
+      notif.readAt = new Date();
     }
+
+    logger.info("Notification marked as read", { userId, notificationId });
+  }
+
+  /**
+   * Clear all notifications
+   */
+  async clearNotifications(userId: string): Promise<number> {
+    const notifs = this.notifications.get(userId) || [];
+    const count = notifs.length;
+
+    this.notifications.set(userId, []);
+
+    logger.info("Notifications cleared", { userId, count });
+
+    return count;
+  }
+
+  /**
+   * Log delivery attempt
+   */
+  async logDelivery(
+    notificationId: string,
+    userId: string,
+    channel: NotificationChannel,
+    status: DeliveryStatus,
+    message?: string,
+  ): Promise<DeliveryLog> {
+    const log: DeliveryLog = {
+      id: `log-${Date.now()}-${Math.random()}`,
+      notificationId,
+      userId,
+      channel,
+      status,
+      message,
+      timestamp: new Date(),
+    };
+
+    const logs = this.deliveryLogs.get(userId) || [];
+    logs.push(log);
+    this.deliveryLogs.set(userId, logs);
+
+    return log;
+  }
+
+  /**
+   * Get delivery logs
+   */
+  async getDeliveryLogs(
+    userId: string,
+    limit: number = 100,
+  ): Promise<DeliveryLog[]> {
+    const logs = this.deliveryLogs.get(userId) || [];
+    return logs.slice(-limit);
+  }
+
+  /**
+   * Get notification statistics
+   */
+  async getStatistics(userId: string): Promise<{
+    total: number;
+    read: number;
+    unread: number;
+    byCategory: Record<NotificationCategory, number>;
+  }> {
+    const notifs = this.notifications.get(userId) || [];
+
+    return {
+      total: notifs.length,
+      read: notifs.filter((n) => n.read).length,
+      unread: notifs.filter((n) => !n.read).length,
+      byCategory: notifs.reduce(
+        (acc, n) => {
+          acc[n.category] = (acc[n.category] || 0) + 1;
+          return acc;
+        },
+        {} as Record<NotificationCategory, number>,
+      ),
+    };
+  }
+
+  /**
+   * Update delivery status
+   */
+  async updateDeliveryStatus(
+    userId: string,
+    notificationId: string,
+    channel: NotificationChannel,
+    status: DeliveryStatus,
+  ): Promise<void> {
+    const notifs = this.notifications.get(userId) || [];
+    const notif = notifs.find((n) => n.id === notificationId);
+
+    if (notif) {
+      const delivery = notif.deliveries.find((d) => d.channel === channel);
+      if (delivery) {
+        delivery.status = status;
+        if (status === "delivered") {
+          delivery.deliveredAt = new Date();
+        } else if (status === "sent") {
+          delivery.sentAt = new Date();
+        }
+      }
+    }
+
+    await this.logDelivery(notificationId, userId, channel, status);
+  }
+
+  /**
+   * Get failed deliveries for retry
+   */
+  async getFailedDeliveries(
+    maxAge: number = 3600000,
+  ): Promise<
+    Array<{
+      userId: string;
+      notificationId: string;
+      channel: NotificationChannel;
+    }>
+  > {
+    const failed: Array<{
+      userId: string;
+      notificationId: string;
+      channel: NotificationChannel;
+    }> = [];
+    const now = Date.now();
+
+    for (const [userId, notifs] of this.notifications) {
+      for (const notif of notifs) {
+        for (const delivery of notif.deliveries) {
+          if (delivery.status === "failed" && delivery.retryCount < 3) {
+            const age = now - notif.createdAt.getTime();
+            if (age < maxAge) {
+              failed.push({
+                userId,
+                notificationId: notif.id,
+                channel: delivery.channel,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return failed;
   }
 }
 
-export const notificationService = NotificationService.getInstance();
+export const notificationService = new NotificationService();

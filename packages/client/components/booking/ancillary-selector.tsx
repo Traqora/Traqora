@@ -1,154 +1,141 @@
-"use client"
+'use client';
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { Armchair, Plane, Crown, Users, IndianRupee } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { useEffect, useMemo, useState } from 'react';
+import { Armchair, Check, Crown, DoorOpen, Sparkles } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  AncillaryCatalogItem,
+  AncillaryServiceType,
+  fetchAncillaryCatalog,
+} from '@/lib/ancillary-api';
+import { CurrencyCode, formatCurrency } from '@/lib/currency';
+import { cn } from '@/lib/utils';
 
-interface AncillaryProduct {
-  id: string
-  name: string
-  description: string
-  priceCents: number
-  currency: string
-  category: "seat" | "boarding" | "lounge" | "legroom"
-}
+const serviceIcons: Record<AncillaryServiceType, typeof Armchair> = {
+  seat_upgrade: Crown,
+  priority_boarding: Sparkles,
+  lounge_access: DoorOpen,
+  extra_legroom: Armchair,
+};
 
 interface AncillarySelectorProps {
-  bookingId: string
-  onAncillariesChange?: (totalCents: number, items: Array<{ productId: string; quantity: number }>) => void
+  cabinClass: string;
+  airport?: string;
+  selectedCodes: string[];
+  onSelectionChange: (items: AncillaryCatalogItem[]) => void;
+  displayCurrency?: CurrencyCode;
+  rates?: Record<string, number>;
 }
 
-const CATEGORY_ICONS: Record<string, React.ElementType> = {
-  seat: Armchair,
-  boarding: Plane,
-  lounge: Crown,
-  legroom: Users,
-}
-
-export function AncillarySelector({ bookingId, onAncillariesChange }: AncillarySelectorProps) {
-  const [catalog, setCatalog] = useState<AncillaryProduct[]>([])
-  const [selected, setSelected] = useState<Record<string, number>>({})
-  const [loading, setLoading] = useState(false)
+export function AncillarySelector({
+  cabinClass,
+  airport,
+  selectedCodes,
+  onSelectionChange,
+  displayCurrency = 'USD',
+  rates,
+}: AncillarySelectorProps) {
+  const [catalog, setCatalog] = useState<AncillaryCatalogItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/v1/ancillaries")
-      .then((res) => res.json())
-      .then((data) => setCatalog(data.ancillaries || []))
-      .catch(() => setCatalog([]))
-  }, [])
-
-  const toggle = (productId: string) => {
-    setSelected((prev) => {
-      const next = { ...prev }
-      if (next[productId]) {
-        delete next[productId]
-      } else {
-        next[productId] = 1
-      }
-      return next
-    })
-  }
-
-  const handleSave = async () => {
-    setLoading(true)
-    try {
-      const items = Object.entries(selected).map(([productId, quantity]) => ({
-        productId,
-        quantity,
-      }))
-
-      const res = await fetch("/api/v1/ancillaries", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId, items }),
+    let active = true;
+    setIsLoading(true);
+    setError(null);
+    fetchAncillaryCatalog(cabinClass, airport)
+      .then((items) => {
+        if (active) setCatalog(items);
       })
+      .catch(() => {
+        if (active) setError('Extras are temporarily unavailable. You can continue without them.');
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [airport, cabinClass]);
 
-      if (!res.ok) throw new Error("Failed to save ancillaries")
+  const selected = useMemo(
+    () => catalog.filter((item) => selectedCodes.includes(item.code)),
+    [catalog, selectedCodes],
+  );
+  const totalCents = selected.reduce((sum, item) => sum + item.priceCents, 0);
 
-      const data = await res.json()
-      onAncillariesChange?.(data.totalCents, items)
-    } catch (error) {
-      console.error(error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const formatPrice = (priceCents: number) => {
+    const rate = displayCurrency === 'USD' ? 1 : rates?.[displayCurrency] || 1;
+    return formatCurrency((priceCents / 100) * rate, displayCurrency);
+  };
 
-  const selectedItems = catalog.filter((p) => selected[p.id])
-  const totalCents = selectedItems.reduce((sum, p) => sum + p.priceCents * (selected[p.id] || 0), 0)
+  const toggle = (item: AncillaryCatalogItem) => {
+    const next = selectedCodes.includes(item.code)
+      ? selected.filter((candidate) => candidate.code !== item.code)
+      : [...selected, item];
+    onSelectionChange(next);
+  };
 
   return (
-    <Card className="w-full max-w-2xl mx-auto">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <IndianRupee className="h-5 w-5 text-primary" />
-          Ancillary Services
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {catalog.map((product) => {
-            const Icon = CATEGORY_ICONS[product.category] || Armchair
-            const isSelected = !!selected[product.id]
+    <section aria-labelledby="ancillary-heading" className="space-y-5">
+      <div>
+        <h2 id="ancillary-heading" className="text-2xl font-bold">Make the trip yours</h2>
+        <p className="text-muted-foreground">
+          Add optional comfort and airport services. You can skip this step.
+        </p>
+      </div>
 
+      {error && <p role="status" className="rounded-lg bg-muted p-4 text-sm">{error}</p>}
+      {isLoading && <p role="status" className="text-sm text-muted-foreground">Loading available extras…</p>}
+
+      {!isLoading && !error && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {catalog.map((item) => {
+            const Icon = serviceIcons[item.type];
+            const isSelected = selectedCodes.includes(item.code);
             return (
-              <button
-                key={product.id}
-                onClick={() => toggle(product.id)}
+              <Card
+                key={item.code}
                 className={cn(
-                  "flex flex-col items-start gap-3 p-4 rounded-xl border-2 text-left transition-all",
-                  isSelected
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50"
+                  'cursor-pointer transition-colors',
+                  isSelected && 'border-primary bg-primary/5',
                 )}
+                onClick={() => toggle(item)}
               >
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-3">
-                    <div className={cn("p-2 rounded-lg", isSelected ? "bg-primary text-primary-foreground" : "bg-muted")}>
-                      <Icon className="h-4 w-4" />
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                      <Icon className="h-5 w-5" aria-hidden="true" />
                     </div>
-                    <div>
-                      <p className="font-medium">{product.name}</p>
-                      <p className="text-xs text-muted-foreground line-clamp-2">{product.description}</p>
-                    </div>
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => toggle(item)}
+                      onClick={(event) => event.stopPropagation()}
+                      aria-label={`Select ${item.name}`}
+                    />
                   </div>
-                  <Badge variant={isSelected ? "default" : "outline"}>
-                    ${(product.priceCents / 100).toFixed(2)}
-                  </Badge>
-                </div>
-              </button>
-            )
+                  <CardTitle>{item.name}</CardTitle>
+                  <CardDescription>{item.description}</CardDescription>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between">
+                  <span className="font-semibold text-primary">{formatPrice(item.priceCents)}</span>
+                  {item.availableAtGate && <Badge variant="outline">Also at gate</Badge>}
+                  {isSelected && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
+                </CardContent>
+              </Card>
+            );
           })}
         </div>
+      )}
 
-        {selectedItems.length > 0 && (
-          <>
-            <Separator />
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Selected Ancillaries</span>
-                <span className="font-medium">${(totalCents / 100).toFixed(2)}</span>
-              </div>
-              {selectedItems.map((item) => (
-                <div key={item.id} className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    {item.name} {selected[item.id] > 1 ? `× ${selected[item.id]}` : ""}
-                  </span>
-                  <span className="font-medium">${((item.priceCents * (selected[item.id] || 1)) / 100).toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        <Button onClick={handleSave} disabled={loading || selectedItems.length === 0} className="w-full">
-          {loading ? "Saving..." : "Add Selected Services"}
-        </Button>
-      </CardContent>
-    </Card>
-  )
+      <div className="flex items-center justify-between rounded-xl border bg-card p-4">
+        <span className="text-sm text-muted-foreground">
+          {selected.length} {selected.length === 1 ? 'extra' : 'extras'} selected
+        </span>
+        <span className="font-bold">+{formatPrice(totalCents)}</span>
+      </div>
+    </section>
+  );
 }
