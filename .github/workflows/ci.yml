@@ -1,0 +1,458 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".vscode/**"
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".vscode/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  RUST_TOOLCHAIN: "1.94.1"
+  SOROBAN_CLI_VERSION: "26.1.0"
+
+jobs:
+  detect:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      client: ${{ steps.filter.outputs.client }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'packages/backend/**'
+              - 'package.json'
+              - 'package-lock.json'
+            client:
+              - 'packages/client/**'
+              - 'package.json'
+              - 'package-lock.json'
+            contracts:
+              - 'contracts/**'
+
+  quality-backend:
+    name: Quality - Backend
+    needs: [detect]
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm run typecheck --workspace=packages/backend
+
+      - run: npm run lint --workspace=packages/backend
+
+  quality-client:
+    name: Quality - Client
+    needs: [detect]
+    if: needs.detect.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm run typecheck --workspace=packages/client
+
+      - run: npm run lint --workspace=packages/client
+
+  quality-contracts:
+    name: Quality - Contracts
+    needs: [detect]
+    if: needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+
+      - name: Format check
+        working-directory: contracts
+        run: cargo fmt -- --check
+
+      - name: Clippy
+        working-directory: contracts
+        run: cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
+
+  test-backend:
+    name: Tests - Backend
+    needs: [detect, quality-backend]
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm test --workspace=packages/backend -- --coverage
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          directory: packages/backend/coverage
+          flags: backend
+          fail_ci_if_error: false
+
+  test-client:
+    name: Tests - Client
+    needs: [detect, quality-client]
+    if: needs.detect.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm test --workspace=packages/client -- --coverage
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          directory: packages/client/coverage
+          flags: client
+          fail_ci_if_error: false
+
+  test-contracts:
+    name: Tests - Contracts
+    needs: [detect, quality-contracts]
+    if: needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+
+      - name: Run tests
+        working-directory: contracts
+        run: cargo test --locked
+
+      - name: Coverage
+        working-directory: contracts
+        run: |
+          cargo install cargo-llvm-cov
+          cargo llvm-cov --summary-only --fail-under-lines 90
+
+  integration-backend:
+    name: Integration - Backend
+    needs: [detect, test-backend]
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: traqora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Run integration tests
+        env:
+          NODE_ENV: test
+          REDIS_URL: redis://localhost:6379
+          DATABASE_URL: postgres://postgres:password@localhost:5432/traqora_test
+          JWT_SECRET: test-secret
+          STELLAR_NETWORK: testnet
+        run: npm run test:integration --workspace=packages/backend
+
+  security-snyk:
+    name: Security - Snyk
+    needs: [detect]
+    if: needs.detect.outputs.backend == 'true' || needs.detect.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Snyk
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --all-projects --severity-threshold=high
+        continue-on-error: true
+
+  security-gitleaks:
+    name: Security - Gitleaks
+    needs: [detect]
+    if: needs.detect.outputs.backend == 'true' || needs.detect.outputs.client == 'true' || needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  security-dependency-review:
+    name: Security - Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  build-backend:
+    name: Build - Backend
+    needs: [detect, test-backend]
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm run build --workspace=packages/backend
+
+  build-client:
+    name: Build - Client
+    needs: [detect, test-client]
+    if: needs.detect.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm run build --workspace=packages/client
+
+  build-contracts:
+    name: Build - Contracts
+    needs: [detect, test-contracts]
+    if: needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+
+      - name: Install Soroban CLI
+        run: cargo install --locked --version ${{ env.SOROBAN_CLI_VERSION }} soroban-cli
+
+      - name: Build release WASM
+        working-directory: contracts
+        run: cargo build --locked --target wasm32-unknown-unknown --release
+
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contracts-wasm
+          path: contracts/target/wasm32-unknown-unknown/release/*.wasm
+          retention-days: 7
+
+  docker-security:
+    name: Docker Security Scan
+    needs: [detect]
+    if: needs.detect.outputs.backend == 'true' || needs.detect.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: backend
+            context: packages/backend
+          - name: client
+            context: packages/client
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          target: production
+          push: false
+          load: true
+          tags: traqora-${{ matrix.service.name }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: traqora-${{ matrix.service.name }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: traqora-${{ matrix.service.name }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-${{ matrix.service.name }}.sarif
+          exit-code: "0"
+          ignore-unfixed: true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-${{ matrix.service.name }}-sarif
+          path: trivy-${{ matrix.service.name }}.sarif
+          retention-days: 14
+
+  ci-status:
+    name: CI Status
+    if: always()
+    needs:
+      - build-backend
+      - build-client
+      - build-contracts
+      - integration-backend
+      - security-snyk
+      - security-gitleaks
+      - security-dependency-review
+      - docker-security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail on critical failure
+        if: |
+          always() && (
+            needs.build-backend.result == 'failure' ||
+            needs.build-client.result == 'failure' ||
+            needs.build-contracts.result == 'failure' ||
+            needs.integration-backend.result == 'failure'
+          )
+        run: exit 1

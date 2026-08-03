@@ -281,3 +281,61 @@ groups:
           summary: "Unusually low request volume"
           description: "Request rate is {{ $value }}/sec during business hours"
           runbook: "https://github.com/traqora/runbooks/low-traffic.md"
+
+  - name: traqora_audit_alerts
+    interval: 1m
+    rules:
+      - alert: AuditLogWriteFailure
+        expr: rate(traqora_log_entries_total{level="warn",component="audit-middleware"}[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: audit
+        annotations:
+          summary: "Audit log write failures detected"
+          description: "Audit log writes are failing at {{ $value }}/sec"
+          runbook: "https://github.com/traqora/runbooks/audit-log-failures.md"
+
+      - alert: AuditChainIntegrityFailure
+        expr: rate(traqora_log_entries_total{level="error",component=~".*audit.*chain.*"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: audit
+        annotations:
+          summary: "Audit log chain integrity failure"
+          description: "Audit log hash chain verification failed"
+          runbook: "https://github.com/traqora/runbooks/audit-chain-failure.md"
+
+      - alert: ExcessiveAuditFailures
+        expr: rate(traqora_log_entries_total{level="error",component="audit-middleware"}[15m]) > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: audit
+        annotations:
+          summary: "Excessive audit log failures"
+          description: "More than 10 audit errors in 15 minutes"
+          runbook: "https://github.com/traqora/runbooks/audit-log-failures.md"
+
+      - alert: SuspiciousActivitySpike
+        expr: rate(traqora_log_entries_total{action=~".*suspicious.*|.*failed_login.*|.*mfa_failure.*"}[5m]) > 5
+        for: 3m
+        labels:
+          severity: critical
+          component: security
+        annotations:
+          summary: "Suspicious activity spike detected"
+          description: "Rate of {{ $value }}/sec suspicious events detected"
+          runbook: "https://github.com/traqora/runbooks/suspicious-activity.md"
+
+      - alert: HighAuditVolume
+        expr: rate(traqora_log_entries_total{level="info",component~="audit.*"}[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: audit
+        annotations:
+          summary: "Unusually high audit log volume"
+          description: "Audit log rate is {{ $value }}/sec (threshold: 100/sec)"
+          runbook: "https://github.com/traqora/runbooks/high-audit-volume.md"

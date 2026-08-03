@@ -1,7 +1,7 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/tests'],
+  roots: ['<rootDir>/tests', '<rootDir>/src'],
   testMatch: ['**/*.test.ts'],
   clearMocks: true,
   testEnvironmentOptions: {
@@ -14,12 +14,12 @@ module.exports = {
     '^.*/src/index$': '<rootDir>/tests/mock-index.ts',
   },
   setupFiles: ['<rootDir>/tests/setup.ts'],
-  moduleDirectories: ['node_modules', '../../node_modules'],
+  moduleDirectories: ['node_modules', '../../node_modules', '../../node_modules/ts-jest'],
   transform: {
     '^.+\\.ts$': [
       'ts-jest',
       {
-        tsconfig: 'tsconfig.test.json',
+        tsconfig: '<rootDir>/tsconfig.test.json',
         diagnostics: false,
       },
     ],

@@ -6,9 +6,10 @@
  *  - Pro:        500 req/min,  5 000 req/hr
  *  - Enterprise: 2 000 req/min, 20 000 req/hr
  *
- * Values are read from environment variables so they can be overridden per
- * deployment without a code change.
+ * Values are loaded from the validated configuration object.
  */
+
+import { config } from '../config';
 
 export type TierName = 'free' | 'pro' | 'enterprise';
 
@@ -18,34 +19,26 @@ export interface TierQuota {
   burstAllowance: number;
 }
 
-const env = (key: string, fallback: number): number => {
-  const val = process.env[key];
-  if (!val) return fallback;
-  const n = parseInt(val, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-};
-
-export const TIER_QUOTAS: Record<TierName, TierQuota> = {
+export const buildTierQuotas = (): Record<TierName, TierQuota> => ({
   free: {
-    perMinute: env('RATE_LIMIT_FREE_PER_MIN', 100),
-    perHour: env('RATE_LIMIT_FREE_PER_HR', 1_000),
-    burstAllowance: env('RATE_LIMIT_FREE_BURST', 20),
+    perMinute: config.rateLimitFreePerMin,
+    perHour: config.rateLimitFreePerHr,
+    burstAllowance: config.rateLimitFreeBurst,
   },
   pro: {
-    perMinute: env('RATE_LIMIT_PRO_PER_MIN', 500),
-    perHour: env('RATE_LIMIT_PRO_PER_HR', 5_000),
-    burstAllowance: env('RATE_LIMIT_PRO_BURST', 100),
+    perMinute: config.rateLimitProPerMin,
+    perHour: config.rateLimitProPerHr,
+    burstAllowance: config.rateLimitProBurst,
   },
   enterprise: {
-    perMinute: env('RATE_LIMIT_ENT_PER_MIN', 2_000),
-    perHour: env('RATE_LIMIT_ENT_PER_HR', 20_000),
-    burstAllowance: env('RATE_LIMIT_ENT_BURST', 400),
+    perMinute: config.rateLimitEntPerMin,
+    perHour: config.rateLimitEntPerHr,
+    burstAllowance: config.rateLimitEntBurst,
   },
-};
+});
 
 export const DEFAULT_TIER: TierName = 'free';
 
-/** Map a request's x-user-tier header value to a canonical TierName. */
 export function resolveTierName(raw: string | undefined): TierName {
   const lower = (raw ?? '').toLowerCase();
   if (lower === 'pro') return 'pro';

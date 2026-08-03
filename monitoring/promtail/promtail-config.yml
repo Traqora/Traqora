@@ -22,7 +22,89 @@ scrape_configs:
             level: level
             timestamp: timestamp
             message: message
+            service: service
             component: component
+            correlationId: correlationId
+            requestId: requestId
+            userId: userId
+            adminId: adminId
+            sessionId: sessionId
+            durationMs: durationMs
+            error: error
+            statusCode: statusCode
+            method: method
+            path: path
+      - labels:
+          level:
+          service:
+          component:
+          statusCode:
+          method:
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+      - metrics:
+          loki_log_entries_total:
+            type: Counter
+            description: "Total log entries by level and component"
+            prefix: traqora_
+            max_idle_duration: 24h
+            match:
+              - level: error
+              - level: warn
+            config:
+              action: inc
+              labels:
+                - level
+                - component
+
+  - job_name: traqora-audit
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: traqora-audit
+          __path__: /var/log/traqora/audit*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            timestamp: timestamp
+            message: message
+            action: action
+            resource: resource
+            resourceId: resourceId
+            actorType: actorType
+            actorId: actorId
+            component: component
+            correlationId: correlationId
+            ipAddress: ipAddress
+            logId: logId
+      - labels:
+          level:
+          action:
+          resource:
+          actorType:
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+  - job_name: traqora-client
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: traqora-client
+          __path__: /var/log/traqora/client*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            timestamp: timestamp
+            message: message
+            component: component
+            action: action
+            resource: resource
       - labels:
           level:
           component:

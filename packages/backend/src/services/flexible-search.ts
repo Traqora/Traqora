@@ -187,7 +187,7 @@ export class FlexibleDateSearchService {
       priceMin: criteria.priceMin,
       priceMax: criteria.priceMax,
       airlines: criteria.airlines,
-      stops: criteria.stops,
+      stops: criteria.stops !== undefined ? [criteria.stops] : undefined,
       durationMax: criteria.durationMax,
       sortBy: "price",
       pageSize: 100, // Get more flights to calculate accurate average
@@ -261,7 +261,7 @@ export class FlexibleDateSearchService {
       priceMin: criteria.priceMin,
       priceMax: criteria.priceMax,
       airlines: criteria.airlines,
-      stops: criteria.stops,
+      stops: criteria.stops !== undefined ? [criteria.stops] : undefined,
       durationMax: criteria.durationMax,
       sortBy: "price",
       pageSize: 50,

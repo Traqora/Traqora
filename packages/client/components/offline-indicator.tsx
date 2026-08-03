@@ -22,6 +22,9 @@ export function OfflineIndicator() {
 
   return (
     <div
+      role="status"
+      aria-live="polite"
+      aria-label={isOnline ? "Syncing offline changes" : "You are offline"}
       className={`fixed bottom-4 right-4 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all duration-300 z-40 ${
         isOnline
           ? "bg-yellow-50 text-yellow-800 border border-yellow-200"
@@ -30,12 +33,12 @@ export function OfflineIndicator() {
     >
       {isOnline ? (
         <>
-          <AlertCircle className="w-4 h-4" />
+          <AlertCircle className="w-4 h-4" aria-hidden="true" />
           <span>Syncing offline changes...</span>
         </>
       ) : (
         <>
-          <WifiOff className="w-4 h-4" />
+          <WifiOff className="w-4 h-4" aria-hidden="true" />
           <span>You are offline. Changes will sync when online.</span>
         </>
       )}

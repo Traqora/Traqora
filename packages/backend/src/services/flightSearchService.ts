@@ -1,4 +1,5 @@
 import { createSearchCache, SearchCache } from '../cache/searchCache';
+import { parseRedisClusterNodes } from '../cache/redisClusterConfig';
 import { config } from '../config';
 import { getPostgresPool } from '../db/postgres';
 import {
@@ -83,7 +84,7 @@ export class FlightSearchService {
     cacheTtlSeconds = 300,
     provider?: OffchainFlightDataProvider,
     registryService?: FlightRegistryService,
-    xlmUsdRate = Number.parseFloat(process.env.XLM_USD_RATE || '0.12')
+    xlmUsdRate = config.xlmUsdRate
   ) {
     this.provider = provider || new RepositoryOffchainFlightDataProvider(repository);
     this.registryService = registryService || createFlightRegistryService();
@@ -162,7 +163,11 @@ export const createDefaultFlightSearchService = (): FlightSearchService => {
     ? new PostgresFlightRepository(getPostgresPool())
     : new InMemoryFlightRepository();
 
-  const cache = createSearchCache(config.redisUrl || undefined, 'flight-search');
+  const cache = createSearchCache(
+    config.redisUrl || undefined,
+    'flight-search',
+    parseRedisClusterNodes(config.redisClusterNodes),
+  );
 
   return new FlightSearchService(repository, cache, config.flightSearchCacheTtlSeconds);
 };
