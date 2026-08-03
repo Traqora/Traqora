@@ -1,0 +1,572 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      deploy-contracts:
+        description: "Deploy smart contracts"
+        required: true
+        default: true
+        type: boolean
+      run-migrations:
+        description: "Run database migrations"
+        required: true
+        default: true
+        type: boolean
+      skip-verify:
+        description: "Skip post-deploy verification"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: cd-${{ github.event.inputs.environment || (startsWith(github.ref, 'refs/tags/') && 'production' || 'staging') }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "20"
+  RUST_TOOLCHAIN: "1.94.1"
+  SOROBAN_CLI_VERSION: "26.1.0"
+  REGISTRY: ghcr.io
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  # ─── Determine Environment ─────────────────────────────────────────
+  environment:
+    name: Environment
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.env.outputs.name }}
+      is_production: ${{ steps.env.outputs.is_production }}
+      deploy_contracts: ${{ steps.env.outputs.deploy_contracts }}
+      run_migrations: ${{ steps.env.outputs.run_migrations }}
+      skip_verify: ${{ steps.env.outputs.skip_verify }}
+    steps:
+      - id: env
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            NAME="${{ github.event.inputs.environment }}"
+            DEPLOY_CONTRACTS="${{ github.event.inputs.deploy-contracts }}"
+            RUN_MIGRATIONS="${{ github.event.inputs.run-migrations }}"
+            SKIP_VERIFY="${{ github.event.inputs.skip-verify }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            NAME="production"
+            DEPLOY_CONTRACTS="true"
+            RUN_MIGRATIONS="true"
+            SKIP_VERIFY="false"
+          else
+            NAME="staging"
+            DEPLOY_CONTRACTS="false"
+            RUN_MIGRATIONS="true"
+            SKIP_VERIFY="false"
+          fi
+
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "is_production=$([[ "$NAME" == "production" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "deploy_contracts=$DEPLOY_CONTRACTS" >> "$GITHUB_OUTPUT"
+          echo "run_migrations=$RUN_MIGRATIONS" >> "$GITHUB_OUTPUT"
+          echo "skip_verify=$SKIP_VERIFY" >> "$GITHUB_OUTPUT"
+
+  # ─── Docker Images ─────────────────────────────────────────────────
+  docker-build:
+    name: Docker Build & Push
+    needs: [environment]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: backend
+            context: packages/backend
+          - name: client
+            context: packages/client
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service.name }}
+          tags: |
+            type=sha,prefix=,suffix=,format=long
+            type=raw,value=latest,enable=${{ needs.environment.outputs.name == 'staging' }}
+            type=raw,value=staging,enable=${{ needs.environment.outputs.name == 'staging' }}
+            type=semver,pattern={{version}},enable=${{ needs.environment.outputs.is_production == 'true' }}
+            type=raw,value=production,enable=${{ needs.environment.outputs.is_production == 'true' }}
+            type=ref,event=branch
+          labels:
+            org.opencontainers.image.title: Traqora ${{ matrix.service.name }}
+            org.opencontainers.image.description: Traqora ${{ matrix.service.name }} service
+            org.opencontainers.image.vendor: Traqora
+            org.opencontainers.image.version: ${{ github.sha }}
+            org.opencontainers.image.revision: ${{ github.sha }}
+            org.opencontainers.image.source: ${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created: ${{ github.event.repository.updated_at }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          target: production
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Run Trivy scan on pushed image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service.name }}:${{ env.IMAGE_TAG }}
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          format: table
+
+  # ─── Deploy Contracts ──────────────────────────────────────────────
+  deploy-contracts:
+    name: Deploy Contracts
+    needs: [environment, docker-build]
+    if: needs.environment.outputs.deploy_contracts == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.environment.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev binaryen jq
+
+      - name: Install Stellar CLI
+        run: cargo install --locked --version ${{ env.SOROBAN_CLI_VERSION }} stellar-cli
+
+      - name: Deploy contracts
+        env:
+          STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+          NETWORK: ${{ needs.environment.outputs.is_production == 'true' && 'mainnet' || 'testnet' }}
+        run: |
+          chmod +x scripts/deploy-contracts.sh
+          ./scripts/deploy-contracts.sh "$NETWORK" "${{ github.sha }}" "true"
+
+      - name: Verify contracts
+        env:
+          NETWORK: ${{ needs.environment.outputs.is_production == 'true' && 'mainnet' || 'testnet' }}
+        run: |
+          chmod +x scripts/verify-contracts.sh
+          ./scripts/verify-contracts.sh "$NETWORK" "${{ github.sha }}"
+
+      - name: Upload deployment artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ needs.environment.outputs.name }}
+          path: .deployments/
+          retention-days: 30
+
+  # ─── Database Migrations ───────────────────────────────────────────
+  run-migrations:
+    name: Run Migrations
+    needs: [environment, docker-build]
+    if: needs.environment.outputs.run_migrations == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.environment.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Run migrations
+        env:
+          NODE_ENV: ${{ needs.environment.outputs.name }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        working-directory: packages/backend
+        run: npm run migration:run
+
+      - name: Log migration status
+        run: |
+          echo "## Database Migration Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: ${{ needs.environment.outputs.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: Completed" >> $GITHUB_STEP_SUMMARY
+          echo "- SHA: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  # ─── Deploy Application ────────────────────────────────────────────
+  deploy-app:
+    name: Deploy Application
+    needs: [environment, docker-build, run-migrations]
+    if: always() && needs.docker-build.result == 'success'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.environment.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure deployment
+        id: config
+        env:
+          ENV_NAME: ${{ needs.environment.outputs.name }}
+          COMPOSE_FILE: docker-compose.prod.yml
+          REGISTRY: ${{ env.REGISTRY }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          echo "Deploying to: $ENV_NAME"
+          echo "Image: $REGISTRY/$REPO/backend:$TAG"
+          echo "Image: $REGISTRY/$REPO/client:$TAG"
+          echo "deploy_target=$ENV_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy with Docker Compose
+        env:
+          ENVIRONMENT: ${{ needs.environment.outputs.name }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+          REGISTRY: ${{ env.REGISTRY }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          echo "Deploying ${{ needs.environment.outputs.name }} stack..."
+          docker compose -f docker-compose.prod.yml \
+            --profile ${{ needs.environment.outputs.name }} \
+            up -d --wait --wait-timeout 120
+
+      - name: Verify deployment
+        if: needs.environment.outputs.skip_verify != 'true'
+        env:
+          ENVIRONMENT: ${{ needs.environment.outputs.name }}
+        run: |
+          echo "### Deployment Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          for svc in api frontend; do
+            echo "Checking $svc..."
+            CONTAINER_ID=$(docker ps -q -f name=$svc)
+            if [ -z "$CONTAINER_ID" ]; then
+              echo "❌ $svc container not running" >> $GITHUB_STEP_SUMMARY
+              echo "$svc: FAIL" >> $GITHUB_STEP_SUMMARY
+              exit 1
+            fi
+            echo "✅ $svc is running (container: $CONTAINER_ID)" >> $GITHUB_STEP_SUMMARY
+          done
+
+      - name: Run health check
+        if: needs.environment.outputs.skip_verify != 'true'
+        env:
+          ENVIRONMENT: ${{ needs.environment.outputs.name }}
+          API_URL: ${{ secrets.API_URL || 'http://localhost:3001' }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL || 'http://localhost:3000' }}
+        run: |
+          echo "### Health Checks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Backend health check
+          if curl -sf --max-time 10 "$API_URL/health"; then
+            echo "✅ Backend API health check passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Backend API health check failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          # Frontend health check
+          if curl -sf --max-time 10 "$FRONTEND_URL/"; then
+            echo "✅ Frontend health check passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Frontend health check failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+      - name: Clear stale deployments
+        run: |
+          docker system prune -f --filter "until=168h" || true
+
+  # ─── Smoke Tests ───────────────────────────────────────────────────
+  smoke-tests:
+    name: Smoke Tests
+    needs: [environment, deploy-app]
+    if: needs.environment.outputs.skip_verify != 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.environment.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Run smoke tests
+        env:
+          NODE_ENV: ${{ needs.environment.outputs.name }}
+          API_URL: ${{ secrets.API_URL || 'http://localhost:3001' }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL || 'http://localhost:3000' }}
+        run: |
+          echo "### Smoke Tests" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Health endpoint
+          API_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$API_URL/health" 2>/dev/null || echo "000")
+          if [ "$API_HEALTH" = "200" ] || [ "$API_HEALTH" = "204" ]; then
+            echo "✅ API health: $API_HEALTH" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ API health: $API_HEALTH" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          # API metrics (if available)
+          API_METRICS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$API_URL/metrics" 2>/dev/null || echo "000")
+          echo "📊 API metrics: $API_METRICS" >> $GITHUB_STEP_SUMMARY
+
+          # Frontend
+          FE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$FRONTEND_URL/" 2>/dev/null || echo "000")
+          if [ "$FE_STATUS" = "200" ]; then
+            echo "✅ Frontend: $FE_STATUS" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Frontend: $FE_STATUS" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All smoke tests passed!" >> $GITHUB_STEP_SUMMARY
+
+  # ─── Automated Rollback ────────────────────────────────────────────
+  rollback:
+    name: Rollback
+    needs:
+      - environment
+      - docker-build
+      - deploy-contracts
+      - run-migrations
+      - deploy-app
+      - smoke-tests
+    if: |
+      always() &&
+      (needs.deploy-app.result == 'failure' || needs.smoke-tests.result == 'failure')
+    runs-on: ubuntu-latest
+    environment: ${{ needs.environment.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine previous image tag
+        id: previous
+        run: |
+          PREVIOUS_SHA=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs?per_page=2&status=success&branch=main" \
+            | jq -r '.workflow_runs[1].head_sha // empty')
+
+          if [ -n "$PREVIOUS_SHA" ]; then
+            echo "tag=${PREVIOUS_SHA}" >> "$GITHUB_OUTPUT"
+            echo "Rolling back to: $PREVIOUS_SHA"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "No previous successful run found, using 'latest' tag"
+          fi
+
+      - name: Rollback stack
+        env:
+          ENVIRONMENT: ${{ needs.environment.outputs.name }}
+          IMAGE_TAG: ${{ steps.previous.outputs.tag }}
+          REGISTRY: ${{ env.REGISTRY }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+        run: |
+          echo "## ⚠️ Rolling Back ${{ needs.environment.outputs.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Redeploying with previous image tag: ${{ steps.previous.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+
+          docker compose -f docker-compose.prod.yml \
+            --profile ${{ needs.environment.outputs.name }} \
+            up -d --wait --wait-timeout 120
+
+      - name: Verify rollback
+        run: |
+          echo "### Rollback Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if curl -sf --max-time 10 "http://localhost:3001/health"; then
+            echo "✅ Rollback health check passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Rollback health check failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "Rollback completed successfully" >> $GITHUB_STEP_SUMMARY
+
+      - name: Execute rollback script
+        env:
+          NETWORK: ${{ needs.environment.outputs.is_production == 'true' && 'mainnet' || 'testnet' }}
+          STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+        if: needs.environment.outputs.deploy_contracts == 'true' && needs.deploy-contracts.result == 'success'
+        run: |
+          if [ -x scripts/rollback.sh ]; then
+            ./scripts/rollback.sh "$NETWORK" "latest"
+          fi
+
+  # ─── Notifications ─────────────────────────────────────────────────
+  notify:
+    name: Notify
+    needs:
+      - environment
+      - docker-build
+      - deploy-contracts
+      - run-migrations
+      - deploy-app
+      - smoke-tests
+      - rollback
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Determine deployment status
+        id: status
+        run: |
+          if [ "${{ needs.deploy-app.result }}" == "success" ] && \
+             [ "${{ needs.smoke-tests.result }}" != "failure" ]; then
+            echo "result=success" >> "$GITHUB_OUTPUT"
+            echo "message=✅ Traqora ${{ needs.environment.outputs.name }} deployment succeeded" >> "$GITHUB_OUTPUT"
+            echo "color=good" >> "$GITHUB_OUTPUT"
+          elif [ "${{ needs.rollback.result }}" == "success" ]; then
+            echo "result=rollback" >> "$GITHUB_OUTPUT"
+            echo "message=⚠️ Traqora ${{ needs.environment.outputs.name }} deployment failed, rolled back" >> "$GITHUB_OUTPUT"
+            echo "color=warning" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=failure" >> "$GITHUB_OUTPUT"
+            echo "message=❌ Traqora ${{ needs.environment.outputs.name }} deployment failed" >> "$GITHUB_OUTPUT"
+            echo "color=danger" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create deployment status
+        uses: bobheadxi/deployments@v1
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: ${{ needs.environment.outputs.name }}
+          ref: ${{ github.sha }}
+          status: ${{ steps.status.outputs.result == 'success' && 'success' || 'failure' }}
+          description: ${{ steps.status.outputs.message }}
+
+      - name: Build summary
+        run: |
+          echo "## Deployment Summary: ${{ needs.environment.outputs.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Build | ${{ needs.docker-build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Contract Deploy | ${{ needs.deploy-contracts.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| DB Migrations | ${{ needs.run-migrations.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| App Deploy | ${{ needs.deploy-app.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Smoke Tests | ${{ needs.smoke-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Rollback | ${{ needs.rollback.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.status.outputs.message }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Send Slack notification
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          MESSAGE: ${{ steps.status.outputs.message }}
+          COLOR: ${{ steps.status.outputs.color }}
+          ENV_NAME: ${{ needs.environment.outputs.name }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+          STATUS: ${{ steps.status.outputs.result }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            PAYLOAD=$(jq -n \
+              --arg text "$MESSAGE" \
+              --arg color "$COLOR" \
+              --arg env "$ENV_NAME" \
+              --arg commit "${COMMIT_SHA:0:7}" \
+              --arg commit_url "$COMMIT_URL" \
+              --arg run_id "$RUN_ID" \
+              --arg run_url "$RUN_URL" \
+              --arg status "$STATUS" \
+              '{
+                text: $text,
+                attachments: [{
+                  color: $color,
+                  fields: [
+                    {title: "Environment", value: $env, short: true},
+                    {title: "Commit", value: "<\($commit_url)|\($commit)>", short: true},
+                    {title: "Build", value: "<\($run_url)|#\($run_id)>", short: true},
+                    {title: "Status", value: $status, short: true}
+                  ],
+                  footer: "Traqora CI/CD"
+                }]
+              }')
+            curl -sf -X POST "$SLACK_WEBHOOK_URL" \
+              -H 'Content-Type: application/json' \
+              -d "$PAYLOAD" || true
+          fi
+
+      - name: Fail on deployment failure
+        if: needs.deploy-app.result == 'failure' && needs.rollback.result != 'success'
+        run: exit 1

@@ -6,6 +6,12 @@ declare global {
             user?: {
                 walletAddress: string;
                 walletType: string;
+                id?: string;
+                userId?: string;
+            };
+            admin?: {
+                adminId: string;
+                email: string;
             };
             tenantId?: string;
             tenantRole?: 'owner' | 'admin' | 'member' | 'viewer';

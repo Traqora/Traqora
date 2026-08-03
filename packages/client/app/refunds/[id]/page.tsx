@@ -131,7 +131,6 @@ export default function RefundDetailPage() {
             Cancel
           </Button>
           <AppealForm
-            disputeId={refund.id}
             onSuccess={(appealId) => {
               setShowAppealForm(false);
               router.push(`/refunds/appeal/${appealId}`);

@@ -293,6 +293,17 @@ export const uptimeSeconds = new Gauge({
 });
 
 // ============================================================================
+// Rate Limiting Metrics (issue #371)
+// ============================================================================
+
+export const rateLimitDecisions = new Counter({
+  name: 'traqora_rate_limit_decisions_total',
+  help: 'Total number of rate limit decisions, labeled by outcome',
+  labelNames: ['endpoint', 'tier', 'outcome'],
+  registers: [register],
+});
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -418,6 +429,54 @@ export const recordCacheOperation = (
   cacheOperationsTotal.inc(labels);
   cacheOperationDuration.observe(labels, durationSeconds);
   performanceMonitor.recordCache(cache, result, durationSeconds);
+};
+
+/**
+ * In-memory snapshot of rate-limit decisions, keyed by `${endpoint}:${tier}`.
+ * The Prometheus counter above is the source of truth for scraping/alerting;
+ * this snapshot exists so the admin dashboard (issue #371) can return a
+ * structured JSON summary without parsing Prometheus text exposition format.
+ */
+interface RateLimitSnapshotEntry {
+  endpoint: string;
+  tier: string;
+  allowed: number;
+  blocked: number;
+  lastBlockedAt: string | null;
+}
+
+const rateLimitSnapshots = new Map<string, RateLimitSnapshotEntry>();
+
+export const recordRateLimitDecision = (
+  endpoint: string,
+  tier: string,
+  outcome: 'allowed' | 'blocked'
+) => {
+  rateLimitDecisions.inc({ endpoint, tier, outcome });
+
+  const key = `${endpoint}:${tier}`;
+  const entry = rateLimitSnapshots.get(key) ?? {
+    endpoint,
+    tier,
+    allowed: 0,
+    blocked: 0,
+    lastBlockedAt: null,
+  };
+  if (outcome === 'allowed') {
+    entry.allowed += 1;
+  } else {
+    entry.blocked += 1;
+    entry.lastBlockedAt = new Date().toISOString();
+  }
+  rateLimitSnapshots.set(key, entry);
+};
+
+export const getRateLimitSnapshot = (): RateLimitSnapshotEntry[] =>
+  Array.from(rateLimitSnapshots.values());
+
+/** Test hook: reset the in-memory snapshot between test cases. */
+export const __resetRateLimitSnapshot = () => {
+  rateLimitSnapshots.clear();
 };
 
 // Update uptime every 10 seconds

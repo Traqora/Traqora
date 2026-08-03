@@ -1,152 +1,320 @@
-import { AppDataSource } from "../db/dataSource";
-import { Booking } from "../db/entities/Booking";
-import { logger } from "../utils/logger";
+import { Between, Repository } from 'typeorm';
+import { AppDataSource } from '../db/dataSource';
+import { Booking } from '../db/entities/Booking';
+import {
+  AncillaryPurchase,
+  AncillaryPurchaseStatus,
+  AncillaryServiceType,
+} from '../db/entities/AncillaryPurchase';
+import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors';
 
-export interface AncillaryProduct {
-  id: string;
+export type CabinClass = 'economy' | 'premium' | 'business' | 'first';
+
+export interface AncillaryCatalogItem {
+  code: string;
   name: string;
   description: string;
+  type: AncillaryServiceType;
   priceCents: number;
-  currency: string;
-  category: "seat" | "boarding" | "lounge" | "legroom";
+  availableCabins: CabinClass[];
+  requiresAirport?: boolean;
+  availableAtGate?: boolean;
 }
 
-export interface AncillarySelection {
-  productId: string;
-  quantity: number;
-}
-
-export interface BookingAncillaries {
+export interface PurchaseAncillaryInput {
   bookingId: string;
-  items: Array<{
-    productId: string;
-    name: string;
-    priceCents: number;
-    quantity: number;
-    addedAt: string;
-  }>;
-  totalCents: number;
+  serviceCode: string;
+  quantity?: number;
+  details?: Record<string, string | number | boolean>;
 }
 
-const ANCILIARY_CATALOG: AncillaryProduct[] = [
+export interface UpgradeBidInput {
+  bookingId: string;
+  targetClass: Exclude<CabinClass, 'economy'>;
+  bidCents: number;
+}
+
+export interface GateUpgradeInput {
+  bookingId: string;
+  targetClass: Exclude<CabinClass, 'economy'>;
+  seatNumber?: string;
+}
+
+export interface AncillaryRevenueReport {
+  totalCents: number;
+  purchaseCount: number;
+  byType: Record<AncillaryServiceType, { totalCents: number; purchaseCount: number }>;
+}
+
+export interface AncillaryRepositories {
+  bookings: Repository<Booking>;
+  purchases: Repository<AncillaryPurchase>;
+}
+
+const ALL_CABINS: CabinClass[] = ['economy', 'premium', 'business', 'first'];
+const CABIN_RANK: Record<CabinClass, number> = {
+  economy: 0,
+  premium: 1,
+  business: 2,
+  first: 3,
+};
+
+export const ANCILLARY_CATALOG: AncillaryCatalogItem[] = [
   {
-    id: "seat-upgrade",
-    name: "Seat Upgrade",
-    description: "Upgrade to a better seat in Economy Plus or Business.",
-    priceCents: 4500,
-    currency: "USD",
-    category: "seat",
+    code: 'SEAT_UPGRADE_PREMIUM',
+    name: 'Premium cabin upgrade',
+    description: 'Upgrade to premium seating with more space and priority service.',
+    type: 'seat_upgrade',
+    priceCents: 12500,
+    availableCabins: ['economy'],
   },
   {
-    id: "priority-boarding",
-    name: "Priority Boarding",
-    description: "Board the aircraft first with priority access.",
-    priceCents: 1500,
-    currency: "USD",
-    category: "boarding",
+    code: 'SEAT_UPGRADE_BUSINESS',
+    name: 'Business cabin upgrade',
+    description: 'Move to business class when inventory is available.',
+    type: 'seat_upgrade',
+    priceCents: 45000,
+    availableCabins: ['economy', 'premium'],
   },
   {
-    id: "lounge-access",
-    name: "Lounge Access",
-    description: "Enjoy airport lounge access before your flight.",
-    priceCents: 3500,
-    currency: "USD",
-    category: "lounge",
-  },
-  {
-    id: "extra-legroom",
-    name: "Extra Legroom Seat",
-    description: "Select a seat with additional legroom for extra comfort.",
+    code: 'PRIORITY_BOARDING',
+    name: 'Priority boarding',
+    description: 'Board in an earlier group and settle in before general boarding.',
+    type: 'priority_boarding',
     priceCents: 2500,
-    currency: "USD",
-    category: "legroom",
+    availableCabins: ALL_CABINS,
+  },
+  {
+    code: 'LOUNGE_STANDARD',
+    name: 'Airport lounge access',
+    description: 'One-time lounge admission before departure.',
+    type: 'lounge_access',
+    priceCents: 4500,
+    availableCabins: ALL_CABINS,
+    requiresAirport: true,
+  },
+  {
+    code: 'EXTRA_LEGROOM',
+    name: 'Extra legroom seat',
+    description: 'Reserve a seat with additional pitch, subject to availability.',
+    type: 'extra_legroom',
+    priceCents: 3500,
+    availableCabins: ['economy', 'premium'],
+    availableAtGate: true,
   },
 ];
 
+const MINIMUM_UPGRADE_BIDS: Record<Exclude<CabinClass, 'economy'>, number> = {
+  premium: 7500,
+  business: 25000,
+  first: 50000,
+};
+
+const GATE_UPGRADE_PRICES: Record<Exclude<CabinClass, 'economy'>, number> = {
+  premium: 20000,
+  business: 50000,
+  first: 80000,
+};
+
+const REVENUE_STATUSES = new Set<AncillaryPurchaseStatus>([
+  'purchased',
+  'fulfilled',
+  'bid_accepted',
+]);
+
+export function normalizeCabinClass(value?: string): CabinClass {
+  const normalized = value?.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (normalized === 'premium_economy' || normalized === 'premium') return 'premium';
+  if (normalized === 'business') return 'business';
+  if (normalized === 'first') return 'first';
+  return 'economy';
+}
+
+export function getAncillaryCatalog(
+  cabinClass?: string,
+  airport?: string,
+): AncillaryCatalogItem[] {
+  const cabin = normalizeCabinClass(cabinClass);
+  return ANCILLARY_CATALOG.filter(
+    (item) =>
+      item.availableCabins.includes(cabin) &&
+      (!item.requiresAirport || Boolean(airport?.trim())),
+  );
+}
+
+export function recommendAncillaryServices(
+  cabinClass: string | undefined,
+  purchasedCodes: string[],
+  airport?: string,
+): AncillaryCatalogItem[] {
+  const purchased = new Set(purchasedCodes);
+  return getAncillaryCatalog(cabinClass, airport).filter(
+    (item) => !purchased.has(item.code),
+  );
+}
+
+export function summarizeAncillaryRevenue(
+  purchases: AncillaryPurchase[],
+): AncillaryRevenueReport {
+  const byType: AncillaryRevenueReport['byType'] = {
+    seat_upgrade: { totalCents: 0, purchaseCount: 0 },
+    priority_boarding: { totalCents: 0, purchaseCount: 0 },
+    lounge_access: { totalCents: 0, purchaseCount: 0 },
+    extra_legroom: { totalCents: 0, purchaseCount: 0 },
+  };
+
+  let totalCents = 0;
+  let purchaseCount = 0;
+  for (const purchase of purchases) {
+    if (!REVENUE_STATUSES.has(purchase.status)) continue;
+    const lineTotal = purchase.amountCents * purchase.quantity;
+    totalCents += lineTotal;
+    purchaseCount += 1;
+    byType[purchase.serviceType].totalCents += lineTotal;
+    byType[purchase.serviceType].purchaseCount += 1;
+  }
+
+  return { totalCents, purchaseCount, byType };
+}
+
+function defaultRepositories(): AncillaryRepositories {
+  return {
+    bookings: AppDataSource.getRepository(Booking),
+    purchases: AppDataSource.getRepository(AncillaryPurchase),
+  };
+}
+
 export class AncillaryService {
-  public static getInstance(): AncillaryService {
-    if (!AncillaryService.instance) {
-      AncillaryService.instance = new AncillaryService();
+  constructor(private readonly repositories: () => AncillaryRepositories = defaultRepositories) {}
+
+  private async getBooking(bookingId: string, walletAddress?: string): Promise<Booking> {
+    const booking = await this.repositories().bookings.findOne({
+      where: { id: bookingId },
+      relations: ['flight'],
+    });
+    if (!booking) throw new NotFoundError('Booking not found');
+    if (walletAddress && booking.walletAddress && booking.walletAddress !== walletAddress) {
+      throw new ForbiddenError('This booking belongs to a different wallet');
     }
-    return AncillaryService.instance;
+    return booking;
   }
 
-  private static instance: AncillaryService | null = null;
+  async purchase(input: PurchaseAncillaryInput, walletAddress?: string): Promise<AncillaryPurchase> {
+    const booking = await this.getBooking(input.bookingId, walletAddress);
+    const item = ANCILLARY_CATALOG.find((candidate) => candidate.code === input.serviceCode);
+    if (!item) throw new BadRequestError('Unknown ancillary service code');
 
-  public getCatalog(): AncillaryProduct[] {
-    return ANCILIARY_CATALOG;
+    const cabin = normalizeCabinClass(booking.flight?.rawData?.cabinClass as string | undefined);
+    if (!item.availableCabins.includes(cabin)) {
+      throw new BadRequestError(`${item.name} is not available for ${cabin} cabin`);
+    }
+    if (item.requiresAirport && typeof input.details?.airport !== 'string') {
+      throw new BadRequestError('An airport is required for lounge access');
+    }
+
+    const quantity = input.quantity ?? 1;
+    const repository = this.repositories().purchases;
+    return repository.save(
+      repository.create({
+        bookingId: input.bookingId,
+        serviceCode: item.code,
+        serviceType: item.type,
+        amountCents: item.priceCents,
+        quantity,
+        status: 'purchased',
+        details: input.details,
+      }),
+    );
   }
 
-  public async addAncillaries(bookingId: string, items: AncillarySelection[]): Promise<BookingAncillaries> {
-    const bookingRepo = AppDataSource.getRepository(Booking);
-    const booking = await bookingRepo.findOne({ where: { id: bookingId } });
-
-    if (!booking) {
-      throw new Error("Booking not found");
+  async placeUpgradeBid(input: UpgradeBidInput, walletAddress?: string): Promise<AncillaryPurchase> {
+    const booking = await this.getBooking(input.bookingId, walletAddress);
+    const currentCabin = normalizeCabinClass(
+      booking.flight?.rawData?.cabinClass as string | undefined,
+    );
+    if (CABIN_RANK[input.targetClass] <= CABIN_RANK[currentCabin]) {
+      throw new BadRequestError('Target cabin must be higher than the current cabin');
+    }
+    const minimumBid = MINIMUM_UPGRADE_BIDS[input.targetClass];
+    if (input.bidCents < minimumBid) {
+      throw new BadRequestError(`Minimum ${input.targetClass} upgrade bid is ${minimumBid} cents`);
     }
 
-    const meta: Record<string, unknown> = (booking as any).metadata ?? {};
-    const existing: BookingAncillaries["items"] = Array.isArray(meta.ancillaries)
-      ? (meta.ancillaries as BookingAncillaries["items"])
-      : [];
-
-    const now = new Date().toISOString();
-    const updatedItems = [...existing];
-
-    for (const item of items) {
-      const product = ANCILIARY_CATALOG.find((p) => p.id === item.productId);
-      if (!product) {
-        throw new Error(`Unknown ancillary product: ${item.productId}`);
-      }
-
-      const existingIndex = updatedItems.findIndex((i) => i.productId === item.productId);
-      if (existingIndex >= 0) {
-        updatedItems[existingIndex].quantity += item.quantity;
-      } else {
-        updatedItems.push({
-          productId: item.productId,
-          name: product.name,
-          priceCents: product.priceCents,
-          quantity: item.quantity,
-          addedAt: now,
-        });
-      }
-    }
-
-    const totalCents = updatedItems.reduce((sum, i) => sum + i.priceCents * i.quantity, 0);
-
-    meta.ancillaries = updatedItems;
-    (booking as any).metadata = meta;
-    await bookingRepo.save(booking);
-
-    logger.info("Ancillaries added", { bookingId, items: updatedItems.length, totalCents });
-
-    return {
-      bookingId,
-      items: updatedItems,
-      totalCents,
-    };
+    const repository = this.repositories().purchases;
+    return repository.save(
+      repository.create({
+        bookingId: input.bookingId,
+        serviceCode: `UPGRADE_BID_${input.targetClass.toUpperCase()}`,
+        serviceType: 'seat_upgrade',
+        amountCents: input.bidCents,
+        quantity: 1,
+        status: 'bid_pending',
+        details: { targetClass: input.targetClass },
+      }),
+    );
   }
 
-  public async getAncillaries(bookingId: string): Promise<BookingAncillaries | null> {
-    const bookingRepo = AppDataSource.getRepository(Booking);
-    const booking = await bookingRepo.findOne({ where: { id: bookingId } });
+  async resolveUpgradeBid(id: string, accepted: boolean): Promise<AncillaryPurchase> {
+    const repository = this.repositories().purchases;
+    const bid = await repository.findOne({ where: { id, status: 'bid_pending' } });
+    if (!bid) throw new NotFoundError('Pending upgrade bid not found');
+    bid.status = accepted ? 'bid_accepted' : 'bid_rejected';
+    return repository.save(bid);
+  }
 
-    if (!booking) {
-      return null;
+  async purchaseGateUpgrade(input: GateUpgradeInput): Promise<AncillaryPurchase> {
+    const booking = await this.getBooking(input.bookingId);
+    if (!['paid', 'onchain_submitted', 'confirmed'].includes(booking.status)) {
+      throw new BadRequestError('Gate upgrades require a paid or confirmed booking');
+    }
+    const currentCabin = normalizeCabinClass(
+      booking.flight?.rawData?.cabinClass as string | undefined,
+    );
+    if (CABIN_RANK[input.targetClass] <= CABIN_RANK[currentCabin]) {
+      throw new BadRequestError('Target cabin must be higher than the current cabin');
     }
 
-    const meta: Record<string, unknown> = (booking as any).metadata ?? {};
-    const items: BookingAncillaries["items"] = Array.isArray(meta.ancillaries)
-      ? (meta.ancillaries as BookingAncillaries["items"])
-      : [];
+    const repository = this.repositories().purchases;
+    return repository.save(
+      repository.create({
+        bookingId: input.bookingId,
+        serviceCode: `GATE_UPGRADE_${input.targetClass.toUpperCase()}`,
+        serviceType: 'seat_upgrade',
+        amountCents: GATE_UPGRADE_PRICES[input.targetClass],
+        quantity: 1,
+        status: 'fulfilled',
+        details: {
+          targetClass: input.targetClass,
+          ...(input.seatNumber ? { seatNumber: input.seatNumber } : {}),
+          purchasedAtGate: true,
+        },
+      }),
+    );
+  }
 
-    const totalCents = items.reduce((sum, i) => sum + i.priceCents * i.quantity, 0);
+  async recommendations(
+    bookingId: string,
+    walletAddress?: string,
+  ): Promise<AncillaryCatalogItem[]> {
+    const booking = await this.getBooking(bookingId, walletAddress);
+    const purchases = await this.repositories().purchases.find({ where: { bookingId } });
+    const cabin = booking.flight?.rawData?.cabinClass as string | undefined;
+    return recommendAncillaryServices(
+      cabin,
+      purchases
+        .filter((purchase) => purchase.status !== 'bid_rejected')
+        .map((purchase) => purchase.serviceCode),
+      booking.flight?.fromAirport,
+    );
+  }
 
-    return {
-      bookingId,
-      items,
-      totalCents,
-    };
+  async revenueReport(from: Date, to: Date): Promise<AncillaryRevenueReport> {
+    if (from > to) throw new BadRequestError('"from" must be before "to"');
+    const purchases = await this.repositories().purchases.find({
+      where: { createdAt: Between(from, to) },
+    });
+    return summarizeAncillaryRevenue(purchases);
   }
 }
+
+export const ancillaryService = new AncillaryService();
