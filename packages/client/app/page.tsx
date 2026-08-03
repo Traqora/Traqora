@@ -54,8 +54,8 @@ export default function HomePage() {
         </nav>
       </header>
 
-      {/* Primary content — landmark: main; id target for skip-nav */}
-      <main id="main-content" tabIndex={-1} className="outline-none">
+      {/* Primary content — main landmark is provided once by the root layout */}
+      <div>
         {/* Hero Section */}
         <section
           aria-labelledby="hero-heading"
@@ -149,7 +149,7 @@ export default function HomePage() {
 
           <HomeRecommendations />
         </section>
-      </main>
+      </div>
 
       {/* Footer — landmark: contentinfo */}
       <footer role="contentinfo" className="sr-only">

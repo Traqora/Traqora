@@ -7,7 +7,7 @@ This document describes the offline mode implementation for the Traqora client, 
 The offline mode consists of four main components:
 
 1. **Service Worker (`public/sw.js`)** - Handles caching and offline request interception
-2. **Offline Storage (`lib/offline-storage.ts`)** - Manages local storage of bookings and itineraries
+2. **Offline Storage (`lib/offline-storage.ts`)** - Manages local storage of bookings, itineraries, and flight search results
 3. **Offline Provider (`components/offline-provider.tsx`)** - Registers service worker and provides offline context
 4. **Sync Hook (`lib/use-offline-sync.ts`)** - Handles syncing pending data when reconnected
 
@@ -44,6 +44,16 @@ Bookings and itineraries are cached locally with the following features:
 - **Automatic expiry**: Data expires after 7 days
 - **Size management**: Automatically removes oldest data when storage quota is exceeded
 - **Pending syncs**: Tracks changes made while offline for later sync
+
+### Offline Search
+
+`useFlightSearch()` (`hooks/use-flight-search.ts`) caches the results of every
+successful search via `cacheSearchResults()`, keyed by route, date, passenger
+count, and cabin class. If a search is issued while offline, or a search
+request fails, it falls back to `getCachedSearchResults()` for that same
+query and sets `isFromCache: true` on the hook's return value so the UI can
+warn the user the results may be stale. Cached search results expire after 1
+hour (much shorter than bookings, since prices/availability change quickly).
 
 ### Offline Status Monitoring
 

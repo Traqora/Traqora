@@ -13,7 +13,7 @@
 import { NextFunction, Request, Response } from 'express';
 import Redis from 'ioredis';
 import { RateLimiterMemory, RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible';
-import { TIER_QUOTAS, resolveTierName, TierName } from '../config/tiers';
+import { buildTierQuotas, resolveTierName, TierName } from '../config/tiers';
 import { logger } from '../utils/logger';
 
 // ── Limiter registry (one pair per tier × window) ───────────────────────────
@@ -49,7 +49,7 @@ function getLimiters(tier: TierName): LimiterPair {
   const cached = limiterCache.get(tier);
   if (cached) return cached;
 
-  const quota = TIER_QUOTAS[tier];
+  const quota = buildTierQuotas()[tier];
   const pair: LimiterPair = {
     minute: buildLimiter(`analytics-rl:${tier}:min`, quota.perMinute + quota.burstAllowance, 60),
     hour: buildLimiter(`analytics-rl:${tier}:hr`, quota.perHour, 3600),
@@ -88,7 +88,7 @@ function setExhaustedHeaders(res: Response, limit: number, retryAfterSec: number
 export function analyticsRateLimit() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const tier = resolveTierName(req.header('x-user-tier'));
-    const quota = TIER_QUOTAS[tier];
+    const quota = buildTierQuotas()[tier];
     const key = clientKey(req);
     const endpoint = `${req.method}:${req.baseUrl}${req.path}`;
     const { minute, hour } = getLimiters(tier);

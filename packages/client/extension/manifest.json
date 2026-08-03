@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Traqora Flight Price Tracker",
+  "version": "0.1.0",
+  "description": "Track flight prices across travel sites, keep a price history, and get alerted when fares drop.",
+  "minimum_chrome_version": "102",
+  "permissions": ["storage", "notifications", "alarms", "activeTab"],
+  "host_permissions": [
+    "https://www.kayak.com/*",
+    "https://www.skyscanner.net/*",
+    "https://www.expedia.com/*"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Traqora Flight Price Tracker",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.kayak.com/*",
+        "https://www.skyscanner.net/*",
+        "https://www.expedia.com/*"
+      ],
+      "js": ["dist/content-script.js"],
+      "type": "module",
+      "run_at": "document_idle"
+    }
+  ]
+}

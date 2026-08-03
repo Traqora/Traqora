@@ -1,7 +1,7 @@
 // Comprehensive tests for the upgrade mechanism with timelock
 #[cfg(test)]
 mod upgrade_mechanism_tests {
-    use soroban_sdk::{Address, BytesN, Env};
+    use soroban_sdk::{testutils::{Address as _, Ledger}, Address, BytesN, Env};
     use upgrade::{UpgradeContract, UpgradeStorage, ScheduledUpgrade};
     use access::{AccessControl, Role};
 

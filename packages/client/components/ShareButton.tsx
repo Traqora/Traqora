@@ -191,11 +191,12 @@ export function ShareButton({ dashboardId, className }: ShareButtonProps) {
                     size="icon"
                     className="h-7 w-7"
                     onClick={() => copyLink(share.shareToken)}
+                    aria-label={copiedToken === share.shareToken ? "Link copied" : "Copy share link"}
                   >
                     {copiedToken === share.shareToken ? (
-                      <Check className="h-3 w-3 text-green-500" />
+                      <Check className="h-3 w-3 text-green-500" aria-hidden="true" />
                     ) : (
-                      <Copy className="h-3 w-3" />
+                      <Copy className="h-3 w-3" aria-hidden="true" />
                     )}
                   </Button>
                   <Button
@@ -203,8 +204,9 @@ export function ShareButton({ dashboardId, className }: ShareButtonProps) {
                     size="icon"
                     className="h-7 w-7 text-destructive"
                     onClick={() => revokeShare(share.id)}
+                    aria-label="Revoke share link"
                   >
-                    <Trash2 className="h-3 w-3" />
+                    <Trash2 className="h-3 w-3" aria-hidden="true" />
                   </Button>
                 </div>
               </div>

@@ -2,6 +2,7 @@ import { config } from '../config';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import { logger } from '../utils/logger';
 import crypto from 'crypto';
+import PDFDocument from 'pdfkit';
 import {
   AppError,
   CircuitBreaker,
@@ -9,6 +10,15 @@ import {
   isTransientError,
 } from './ErrorHandlingService';
 import { measureAsync } from './metrics';
+
+/** Blockchain explorer URL for a Stellar/Soroban transaction hash, network-aware. */
+export const explorerUrlForTx = (txHash: string): string => {
+  const isTestnet = config.stellarNetwork === 'testnet' || config.stellarNetwork === 'standalone';
+  const base = isTestnet
+    ? 'https://stellar.expert/explorer/testnet/tx'
+    : 'https://stellar.expert/explorer/public/tx';
+  return `${base}/${txHash}`;
+};
 
 export type UnsignedSorobanTx = {
   xdr: string;
@@ -395,4 +405,50 @@ export const getTransactionStatus = async (txHash: string): Promise<TransactionS
       error: error.message,
     };
   }
+};
+
+export interface TransactionReceiptData {
+  bookingId: string;
+  bookingStatus: string;
+  amountCents: number;
+  passengerName: string;
+  flightNumber: string;
+  airlineCode: string;
+  fromAirport: string;
+  toAirport: string;
+  departureTime: Date;
+  txHash: string;
+  explorerUrl: string;
+  createdAt: Date;
+}
+
+/** Renders a printable PDF receipt for an on-chain booking transaction. */
+export const generateTransactionReceiptPdf = async (data: TransactionReceiptData): Promise<Buffer> => {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: [400, 600], margin: 24 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    doc.fontSize(20).text('Transaction Receipt', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(12).text(`${data.fromAirport}  ->  ${data.toAirport}`, { align: 'center' });
+    doc.moveDown();
+
+    doc.fontSize(10);
+    doc.text(`Booking ID: ${data.bookingId}`);
+    doc.text(`Status: ${data.bookingStatus}`);
+    doc.text(`Passenger: ${data.passengerName}`);
+    doc.text(`Flight: ${data.airlineCode}${data.flightNumber}`);
+    doc.text(`Departure: ${data.departureTime.toISOString()}`);
+    doc.text(`Amount: $${(data.amountCents / 100).toFixed(2)}`);
+    doc.moveDown();
+    doc.text(`Transaction Hash: ${data.txHash}`);
+    doc.text(`Explorer: ${data.explorerUrl}`, { link: data.explorerUrl, underline: true });
+    doc.moveDown();
+    doc.fontSize(8).fillColor('gray').text(`Issued ${data.createdAt.toISOString()}`, { align: 'center' });
+
+    doc.end();
+  });
 };
