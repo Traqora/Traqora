@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Plane, Zap, Shield, Globe } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { HomeRecommendations } from "@/app/home/recommendations"
 
 export default function HomePage() {
   const router = useRouter()
@@ -145,6 +146,8 @@ export default function HomePage() {
               ))}
             </div>
           </section>
+
+          <HomeRecommendations />
         </section>
       </div>
 
