@@ -1,7 +1,7 @@
 import { AppDataSource } from '../db/dataSource';
 import { Refund, RefundReason, RefundStatus } from '../db/entities/Refund';
 import { Booking } from '../db/entities/Booking';
-import { executeStripeOperation, stripe } from './stripe';
+import { executeStripeOperation, getStripe } from './stripe';
 import { buildBatchBookingActionUnsignedXdr, submitSignedSorobanXdr, getTransactionStatus } from './soroban';
 import { NotificationService } from './NotificationService';
 import { RefundAuditService } from './refundAuditService';
@@ -244,7 +244,7 @@ export class RefundService {
         const stripeRefund = await executeStripeOperation(
           'stripe_create_refund',
           () =>
-            stripe.refunds.create({
+            getStripe().refunds.create({
               payment_intent: refund.booking.stripePaymentIntentId!,
               amount: refund.approvedAmountCents!,
               reason: 'requested_by_customer',

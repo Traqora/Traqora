@@ -96,7 +96,7 @@ export class WebSocketServer {
 
   private async setupRedisAdapter() {
     try {
-      const redisUrl = config.redisUrl || process.env.REDIS_URL || 'redis://172.20.145.159:6379';
+      const redisUrl = config.redisUrl;
       logger.info(`Attempting to connect to Redis at: ${redisUrl}`);
 
       this.pubClient = createClient({ url: redisUrl });
