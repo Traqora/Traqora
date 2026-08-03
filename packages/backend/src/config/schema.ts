@@ -26,6 +26,10 @@ export const configSchema = z.object({
 
   databaseUrl: z.string().min(1, "Database URL is required"),
   redisUrl: z.string().min(1, "Redis URL is required"),
+  // Comma-separated host:port list (e.g. "localhost:7000,localhost:7001").
+  // When set, cache clients connect in Redis Cluster mode instead of to the
+  // single-node redisUrl (issue #335).
+  redisClusterNodes: z.string().optional(),
   mongoUrl: z.string().optional(),
 
   jwtSecret: z.string().min(32, "JWT secret must be at least 32 characters"),
@@ -46,6 +50,10 @@ export const configSchema = z.object({
   otlpTraceUrl: z.string().url().default('http://localhost:4318/v1/traces'),
   otlpTraceHeaders: z.string().optional(),
   tracingSampleRate: z.number().min(0).max(1).default(1),
+
+  sentryDsn: z.string().optional(),
+  sentryTracesSampleRate: z.number().min(0).max(1).default(0.1),
+  sentryProfilesSampleRate: z.number().min(0).max(1).default(0.1),
 
   rateLimitMax: z.number().int().positive().default(1000),
   rateLimitWindowSec: z.number().int().positive().default(60),
@@ -71,6 +79,7 @@ export const configSchema = z.object({
 
   flightSearchCacheTtlSeconds: z.number().int().positive().default(300),
   flightRegistryCacheTtlSeconds: z.number().int().nonnegative().default(60),
+  apiResponseCacheTtlSeconds: z.number().int().positive().default(60),
 
   sendgridApiKey: z.string().optional(),
   firebaseServiceAccount: z.string().optional(),

@@ -62,6 +62,25 @@ export const userPreferencesSchema = z.object({
   pushEnabled: z.boolean(),
 });
 
+export const travelPreferencesSchema = z.object({
+  seatPreference: z.enum(['aisle', 'window', 'middle']).optional(),
+  mealPreference: z.string().max(100).optional(),
+  preferredCabinClass: z.enum(['economy', 'premium_economy', 'business', 'first']).optional(),
+  frequentFlyerNumbers: z.record(z.string(), z.string()).optional(),
+});
+
+export const userProfileSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(80).nullable(),
+    bio: z.string().trim().max(500).nullable(),
+    avatarUrl: z.string().trim().url().max(2048).nullable(),
+    travelPreferences: travelPreferencesSchema.nullable(),
+  })
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'At least one field must be provided',
+  });
+
 export const createAirlineSchema = z.object({
   airlineCode: z.string().min(2).max(10),
   airlineName: z.string().min(1),

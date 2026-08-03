@@ -1,4 +1,5 @@
 import { createSearchCache, SearchCache } from '../cache/searchCache';
+import { parseRedisClusterNodes } from '../cache/redisClusterConfig';
 import { config } from '../config';
 import { getPostgresPool } from '../db/postgres';
 import {
@@ -162,7 +163,11 @@ export const createDefaultFlightSearchService = (): FlightSearchService => {
     ? new PostgresFlightRepository(getPostgresPool())
     : new InMemoryFlightRepository();
 
-  const cache = createSearchCache(config.redisUrl || undefined, 'flight-search');
+  const cache = createSearchCache(
+    config.redisUrl || undefined,
+    'flight-search',
+    parseRedisClusterNodes(config.redisClusterNodes),
+  );
 
   return new FlightSearchService(repository, cache, config.flightSearchCacheTtlSeconds);
 };
