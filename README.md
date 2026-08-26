@@ -60,6 +60,66 @@ Monitoring & Analytics:
 - Stellar Expert for on-chain data tracking
 - Dune Analytics for advanced analytics dashboards
 
+## Architecture
+
+Traqora is organized as a monorepo with four main areas: Soroban smart contracts, a Node/Express backend, a React client, and supporting infrastructure (monitoring and Terraform).
+
+```mermaid
+flowchart TB
+    subgraph Client["Client (packages/client)"]
+        UI["React + Next.js UI<br/>Wallet integration (Freighter, Albedo, Rabet)"]
+    end
+
+    subgraph Backend["Backend (packages/backend)"]
+        API["Express REST API<br/>(auth, flights, bookings, refunds, disputes)"]
+        Jobs["Background jobs<br/>(flight status polling, refunds,<br/>notifications, loyalty)"]
+        DB[("PostgreSQL")]
+        Cache[("Redis")]
+    end
+
+    subgraph Contracts["Smart Contracts (contracts/)"]
+        SC["Soroban contracts on Stellar<br/>(booking, refunds, disputes, loyalty,<br/>upgrade timelock)"]
+    end
+
+    subgraph Infra["Infrastructure"]
+        Mon["Monitoring (monitoring/)<br/>Prometheus, Grafana, Loki, Alertmanager"]
+        TF["Terraform (terraform/)<br/>Cloud provisioning"]
+    end
+
+    Stellar(("Stellar Network"))
+
+    UI -->|"REST / OpenAPI"| API
+    UI -->|"sign & submit transactions"| Stellar
+    API --> Jobs
+    API --> DB
+    API --> Cache
+    API -->|"invoke contract"| Stellar
+    Jobs -->|"invoke contract"| Stellar
+    SC --- Stellar
+    API -.->|metrics/logs| Mon
+    TF -.->|provisions cloud resources for| Backend
+```
+
+- **`contracts/`** — Soroban (Rust) smart contracts handling booking, refunds, disputes, loyalty and upgrade governance on Stellar.
+- **`packages/backend/`** — Node/Express REST API plus background jobs; persists to PostgreSQL and Redis.
+- **`packages/client/`** — React/Next.js frontend with wallet integrations.
+- **`monitoring/`** — Prometheus, Grafana, Loki and Alertmanager configuration (see [docs/monitoring.md](./docs/monitoring.md)).
+- **`terraform/`** — Infrastructure as code for cloud environments.
+
+For deployment procedures see [docs/deployment-guide.md](./docs/deployment-guide.md) and the [Contract Deployment Runbook](./docs/operations/CONTRACT_DEPLOYMENT_RUNBOOK.md).
+
+## Glossary
+
+| Term | Definition |
+|---|---|
+| **Booking** | A reservation of a flight recorded off-chain in the backend and anchored on-chain via the booking Soroban contract. |
+| **Refund** | The return of funds to a passenger after cancellation or service failure. Refunds can be automatic (policy-eligible) or manual (admin-reviewed). |
+| **Dispute** | A formal disagreement raised by a passenger or operator over a booking or refund. Disputes are tracked off-chain and resolved via admin review or on-chain resolution. |
+| **Soroban** | The native smart contracts platform of the Stellar network, used by Traqora for booking, refund, dispute and loyalty logic. |
+| **Timelock** | The mandatory 48-hour delay between scheduling and executing a contract upgrade (see [Upgrade Procedure](./contracts/UPGRADE_PROCEDURE.md)). |
+| **XLM** | The native asset of the Stellar network, used to pay transaction fees. |
+| **Flight sync** | Background process that polls flight status/inventory providers and keeps local flight data up to date (see [Flight Sync Runbook](./docs/operations/FLIGHT_SYNC_RUNBOOK.md)). |
+
 ## Local Development with Docker
 
 For a quick and easy setup of the entire development environment (including PostgreSQL, Redis, and a local Stellar node), we recommend using Docker Compose.
