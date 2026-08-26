@@ -328,12 +328,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Full history so gitleaks can scan every commit, not just HEAD
           fetch-depth: 0
 
-      - name: Gitleaks Scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks (pinned)
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sSLo gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz
+          sudo mv gitleaks /usr/local/bin/gitleaks
+
+      - name: Gitleaks Scan (repo config)
+        # Uses the committed .gitleaks.toml so allowlists/baselines are
+        # versioned and reviewed like code. Output is always redacted.
+        # To update the baseline after a false positive, see
+        # "Updating the gitleaks baseline" in docs/security/secrets-management.md
+        run: gitleaks detect --source . --config .gitleaks.toml --verbose --redact
 
   security-sonarcloud:
     name: Security - SonarCloud
