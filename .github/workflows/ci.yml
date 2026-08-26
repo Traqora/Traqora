@@ -419,9 +419,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Install Trivy (retry)
+        run: |
+          for i in 1 2 3; do
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.65.0 && break
+            echo "trivy install attempt $i failed, retrying..."
+            sleep 10
+          done
+          trivy --version
+
       - name: Trivy scan
         uses: aquasecurity/trivy-action@v0.33.1
         with:
+          skip-setup-trivy: true
           image-ref: traqora-${{ matrix.service.name }}:${{ github.sha }}
           severity: HIGH,CRITICAL
           exit-code: "1"
@@ -432,6 +442,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@v0.33.1
         with:
+          skip-setup-trivy: true
           image-ref: traqora-${{ matrix.service.name }}:${{ github.sha }}
           severity: HIGH,CRITICAL
           format: sarif
