@@ -1,11 +1,7 @@
 #![cfg(test)]
 
 use dispute_resolution::{DisputeResolutionContract, DisputeResolutionContractClient};
-use soroban_sdk::{
-    testutils::Address as _,
-    token,
-    Address, BytesN, Env, Symbol, Vec,
-};
+use soroban_sdk::{testutils::Address as _, token, Address, BytesN, Env, Symbol, Vec};
 
 #[test]
 fn test_assigned_arbiter_rotates_across_disputes() {

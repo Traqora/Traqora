@@ -70,7 +70,7 @@ export class ReviewService {
     }
 
     // Verify the booking belongs to the user
-    if (booking.passenger?.walletAddress !== params.userId) {
+    if (booking.walletAddress !== params.userId) {
       throw new ForbiddenError('You can only review flights you have booked');
     }
 
@@ -333,7 +333,7 @@ export class ReviewService {
       return false;
     }
 
-    if (booking.passenger?.walletAddress !== userId) {
+    if (booking.walletAddress !== userId) {
       return false;
     }
 

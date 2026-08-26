@@ -1,4 +1,4 @@
-import { SelectQueryBuilder } from 'typeorm';
+import { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 
 /**
  * Applies a tenant filter to a TypeORM query builder.
@@ -8,7 +8,7 @@ import { SelectQueryBuilder } from 'typeorm';
  * @param alias    - The entity alias used in the query builder
  * @param tenantId - The tenant ID to filter by (undefined = no filter / admin cross-tenant)
  */
-export function scopeToTenant<T>(
+export function scopeToTenant<T extends ObjectLiteral>(
   qb: SelectQueryBuilder<T>,
   alias: string,
   tenantId: string | undefined
@@ -21,7 +21,7 @@ export function scopeToTenant<T>(
  * Builds a tenant-aware summary across multiple tenants (admin use).
  * Returns a SELECT clause fragment that groups by tenantId.
  */
-export function crossTenantGroupBy<T>(
+export function crossTenantGroupBy<T extends ObjectLiteral>(
   qb: SelectQueryBuilder<T>,
   alias: string
 ): SelectQueryBuilder<T> {

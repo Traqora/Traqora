@@ -37,8 +37,6 @@ import { carbonRoutes } from './api/routes/carbon';
 import { trackingRoutes } from './api/routes/tracking';
 import { feedbackRoutes } from './api/routes/feedback';
 import { createCurrencyRoutes } from './api/routes/currencies';
-import { alertRoutes } from './api/routes/alerts';
-import { reviewRoutes } from './api/routes/reviews';
 import { referralRoutes } from './api/routes/referrals';
 import { recommendationRoutes } from './api/routes/recommendations';
 import { flightStatusRoutes } from './api/routes/flightStatus';
@@ -76,7 +74,7 @@ import { NotFoundError } from './utils/errors';
 import { AppError } from './services/ErrorHandlingService';
 import { requestLogger } from './middleware/requestLogger';
 import { analyticsAuditLogger } from './middleware/audit-logger';
-import { auditLogger } from './middleware/audit';
+import { auditLog as auditLogger } from './middleware/audit';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;

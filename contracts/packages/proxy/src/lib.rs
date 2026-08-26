@@ -1,9 +1,9 @@
 #![no_std]
+use access::{AccessControl, Role};
 use soroban_sdk::{
     contract, contractimpl, contractmeta, contracttype, symbol_short, Address, BytesN, Env, Symbol,
     Vec,
 };
-use access::{AccessControl, Role};
 
 // Contract meta for version tracking
 contractmeta!(key = "version", val = "1.0.0");
@@ -153,10 +153,7 @@ impl ContractProxy {
             ProxyStorage::get_config(&env).is_none(),
             "Already initialized"
         );
-        assert!(
-            signers.len() >= threshold as u32,
-            "Threshold exceeds signer count"
-        );
+        assert!(signers.len() >= threshold, "Threshold exceeds signer count");
         assert!(threshold > 0, "Threshold must be > 0");
 
         // Initialize shared access control owner
@@ -382,7 +379,7 @@ impl ContractProxy {
         }
 
         assert!(
-            new_signers.len() >= new_threshold as u32,
+            new_signers.len() >= new_threshold,
             "Threshold exceeds signer count"
         );
         assert!(new_threshold > 0, "Threshold must be > 0");

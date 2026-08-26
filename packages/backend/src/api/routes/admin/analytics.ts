@@ -64,7 +64,7 @@ const distributionAnalyticsQuerySchema = z.object({
 });
 
 function checkExportRateLimit(req: Request) {
-    const key = req.admin?.adminId || req.ip;
+    const key = req.admin?.adminId || req.ip || 'unknown';
     const day = new Date().toISOString().slice(0, 10);
     const current = exportUsage.get(key);
 
@@ -519,7 +519,7 @@ async function processExportJob(
         if (params.notifyEmail) {
             job.notification = { email: params.notifyEmail, status: 'pending' };
             try {
-                await emailService.send(params.notifyEmail, 'analytics-export', {
+                await emailService.sendTemplate(params.notifyEmail, 'analytics-export', {
                     dataset: job.dataset,
                     format: job.format,
                     rowCount: job.rowCount,

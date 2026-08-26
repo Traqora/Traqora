@@ -1,8 +1,6 @@
 use soroban_sdk::{symbol_short, testutils::Address as _, Address, Env};
 
-use storage_version::{
-    VersionedStorage, AIRLINE_CONTRACT, BOOKING_CONTRACT, TOKEN_CONTRACT,
-};
+use storage_version::{VersionedStorage, AIRLINE_CONTRACT, BOOKING_CONTRACT, TOKEN_CONTRACT};
 
 use token::TRQTokenContract;
 

@@ -87,6 +87,16 @@ export const configSchema = z.object({
   twilioAuthToken: z.string().optional(),
   twilioPhoneNumber: z.string().optional(),
 
+  // Email (SMTP) and SMS provider configuration
+  emailProvider: z.enum(['smtp', 'sendgrid', 'none']).default('none'),
+  smtpHost: z.string().optional(),
+  smtpPort: z.number().int().positive().default(587),
+  smtpSecure: z.boolean().default(false),
+  smtpUser: z.string().optional(),
+  smtpPassword: z.string().optional(),
+  emailFrom: z.string().optional(),
+  smsProvider: z.enum(['twilio', 'none']).default('none'),
+
   stripeSecretKey: z.string().optional(),
   stripeWebhookSecret: z.string().optional(),
 

@@ -458,10 +458,8 @@ export class PriceTrackingService {
       const notifier = NotificationService.getInstance();
       return await notifier.sendPriceAlert(
         tracker.userId,
-        `${tracker.origin}-${tracker.destination} ${tracker.departureDate}`,
-        priceCents / 100,
-        (tracker.targetPriceCents ?? assessment.previousPriceCents ?? priceCents) / 100,
-        tracker.currency,
+        `${tracker.origin}-${tracker.destination} ${tracker.departureDate}: $${priceCents / 100} (target $${(tracker.targetPriceCents ?? assessment.previousPriceCents ?? priceCents) / 100})`,
+        { currency: tracker.currency },
       );
     } catch (error) {
       logger.error('Failed to send price drop alert', error as Error);

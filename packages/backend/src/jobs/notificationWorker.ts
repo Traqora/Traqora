@@ -31,7 +31,7 @@ export const setupNotificationWorker = () => {
       userPref.email
     ) {
       try {
-        await emailService.send(userPref.email, type, data);
+        await emailService.sendTemplate(userPref.email, type, data);
         const log = logRepo.create({
           userId,
           channel: "email",
@@ -68,7 +68,7 @@ export const setupNotificationWorker = () => {
       userPref.phoneNumber
     ) {
       try {
-        await smsService.send(userPref.phoneNumber, type, data);
+        await smsService.sendSMS(userPref.phoneNumber, `${type}: ${JSON.stringify(data)}`, userId);
         const log = logRepo.create({
           userId,
           channel: "sms",
@@ -101,7 +101,7 @@ export const setupNotificationWorker = () => {
       userPref.fcmToken
     ) {
       try {
-        await pushNotificationService.send(userPref.fcmToken, type, data);
+        await pushNotificationService.sendPush(userId, type, { data });
         const log = logRepo.create({
           userId,
           channel: "push",

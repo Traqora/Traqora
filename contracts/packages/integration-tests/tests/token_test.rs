@@ -1,7 +1,6 @@
 use soroban_sdk::{String, Symbol};
 use token::TRQTokenContract;
 
-
 use integration_tests::{generate_actors, initialize_token, new_env, register_contracts};
 
 #[test]

@@ -4,12 +4,9 @@ import { asyncHandler } from '../../utils/errorHandler';
 import { RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
 import { logger } from '../../utils/logger';
-<<<<<<< HEAD
 import { config } from '../../config';
-=======
 import { requireAdmin } from '../../middleware/adminAuth';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../../utils/errors';
->>>>>>> upstream/main
 
 const router = Router();
 const refundService = RefundService.getInstance();

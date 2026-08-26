@@ -196,9 +196,8 @@ export class TwoFAService {
 
     // Verify TOTP code
     const secret = this.decrypt(settings.secret!);
-    const isValid = authenticator.check(request.code, secret, {
-      window: TOTP_WINDOW,
-    });
+    authenticator.options = { window: TOTP_WINDOW };
+    const isValid = authenticator.check(request.code, secret);
 
     if (!isValid) {
       await this.logAudit(

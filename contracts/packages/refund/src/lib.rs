@@ -1,6 +1,8 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, contractclient, symbol_short, Address, Env, Symbol};
 use access::{AccessControl, Role};
+use soroban_sdk::{
+    contract, contractclient, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
+};
 
 #[contracttype]
 #[derive(Clone)]
@@ -52,8 +54,14 @@ impl RefundStorageKey {
     }
 
     pub fn next_id(env: &Env) -> u64 {
-        let id: u64 = env.storage().instance().get(&symbol_short!("next_id")).unwrap_or(1);
-        env.storage().instance().set(&symbol_short!("next_id"), &(id + 1));
+        let id: u64 = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("next_id"))
+            .unwrap_or(1);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("next_id"), &(id + 1));
         id
     }
 }
@@ -61,12 +69,31 @@ impl RefundStorageKey {
 #[contractclient(name = "RefundClient")]
 pub trait RefundContractTrait {
     fn initialize(env: Env, owner: Address);
-    fn request_refund(env: Env, passenger: Address, booking_id: u64, amount: i128, currency: Symbol, reason: Symbol) -> u64;
+    fn request_refund(
+        env: Env,
+        passenger: Address,
+        booking_id: u64,
+        amount: i128,
+        currency: Symbol,
+        reason: Symbol,
+    ) -> u64;
     fn process_refund(env: Env, admin: Address, request_id: u64);
-    fn calculate_refund(env: Env, airline: Address, original_price: i128, departure_time: u64) -> i128;
+    fn calculate_refund(
+        env: Env,
+        airline: Address,
+        original_price: i128,
+        departure_time: u64,
+    ) -> i128;
     fn approve_refund(env: Env, admin: Address, request_id: u64, approved_amount: i128);
     fn reject_refund(env: Env, admin: Address, request_id: u64, reason: Symbol);
-    fn set_refund_policy(env: Env, airline: Address, cancellation_window: u64, full_refund_percentage: u32, partial_refund_percentage: u32, no_refund_window: u64);
+    fn set_refund_policy(
+        env: Env,
+        airline: Address,
+        cancellation_window: u64,
+        full_refund_percentage: u32,
+        partial_refund_percentage: u32,
+        no_refund_window: u64,
+    );
     fn get_refund_request(env: Env, request_id: u64) -> Option<RefundRequest>;
     fn get_refund_policy(env: Env, airline: Address) -> Option<RefundPolicy>;
     fn calculate_refund_amount(env: Env, request_id: u64) -> i128;
@@ -102,7 +129,12 @@ impl RefundContract {
 
         env.events().publish(
             (symbol_short!("policy"), symbol_short!("set")),
-            (airline, env.ledger().timestamp(), cancellation_window, full_refund_percentage),
+            (
+                airline,
+                env.ledger().timestamp(),
+                cancellation_window,
+                full_refund_percentage,
+            ),
         );
     }
 
@@ -134,7 +166,13 @@ impl RefundContract {
 
         env.events().publish(
             (symbol_short!("refund"), symbol_short!("requested")),
-            (passenger, env.ledger().timestamp(), request_id, booking_id, amount),
+            (
+                passenger,
+                env.ledger().timestamp(),
+                request_id,
+                booking_id,
+                amount,
+            ),
         );
 
         request_id
@@ -158,7 +196,13 @@ impl RefundContract {
 
         env.events().publish(
             (symbol_short!("refund"), symbol_short!("approved")),
-            (request.passenger, env.ledger().timestamp(), request_id, request.booking_id, request.amount),
+            (
+                request.passenger,
+                env.ledger().timestamp(),
+                request_id,
+                request.booking_id,
+                request.amount,
+            ),
         );
     }
 
@@ -180,7 +224,13 @@ impl RefundContract {
 
         env.events().publish(
             (symbol_short!("refund"), symbol_short!("approved")),
-            (request.passenger, env.ledger().timestamp(), request_id, approved_amount, request.amount),
+            (
+                request.passenger,
+                env.ledger().timestamp(),
+                request_id,
+                approved_amount,
+                request.amount,
+            ),
         );
     }
 
@@ -202,7 +252,13 @@ impl RefundContract {
 
         env.events().publish(
             (symbol_short!("refund"), symbol_short!("rejected")),
-            (request.passenger, env.ledger().timestamp(), request_id, request.booking_id, reason),
+            (
+                request.passenger,
+                env.ledger().timestamp(),
+                request_id,
+                request.booking_id,
+                reason,
+            ),
         );
     }
 

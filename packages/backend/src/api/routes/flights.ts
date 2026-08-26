@@ -376,7 +376,7 @@ export const createFlightRoutes = (
       savedSearch.passengers = payload.passengers;
       savedSearch.cabinClass = payload.class;
       const updated = await savedSearchRepo.save(savedSearch);
-      res.json({ success: true, data: updated });
+      return res.json({ success: true, data: updated });
     }),
   );
 
