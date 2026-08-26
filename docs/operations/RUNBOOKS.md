@@ -15,6 +15,10 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 9. External API Outage
 10. Deployment/Release Failure
 
+## Specialized Runbooks
+- [Flight Sync On-Call Runbook](./FLIGHT_SYNC_RUNBOOK.md) — what to do when flight sync falls behind.
+- [Contract Deployment Runbook](./CONTRACT_DEPLOYMENT_RUNBOOK.md) — deploying and upgrading Soroban contracts on testnet/mainnet.
+
 ---
 
 ## 1. Database Down
