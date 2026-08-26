@@ -539,7 +539,7 @@ router.post('/:id/resolve-dispute', requireAdmin, asyncHandler(async (req: Reque
  * GET /api/v1/refunds/stats
  * Get refund analytics and statistics
  */
-router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
+router.get('/stats', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const stats = await refundService.getRefundStats();
 

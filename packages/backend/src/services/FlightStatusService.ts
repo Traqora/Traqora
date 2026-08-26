@@ -5,7 +5,7 @@ import { FlightStatusEvent, FlightEventType } from '../db/entities/FlightStatusE
 import { flightsNamespace } from '../websockets/server';
 import { scheduleNotification, NotificationPayload } from '../jobs/notificationQueue';
 import { logger } from '../utils/logger';
-import { LessThan, MoreThanOrEqual } from 'typeorm';
+import { MoreThanOrEqual } from 'typeorm';
 import { FlightStatusValue } from '../models/FlightStatusAlert';
 
 export interface FlightStatusUpdate {

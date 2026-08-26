@@ -48,9 +48,9 @@ export class SeatAvailabilityService {
    */
   async getSeatAvailability(
     flightId: string,
-    cabinClass?: SeatType,
+    _cabinClass?: SeatType,
   ): Promise<SeatAvailability> {
-    const flight = await this.getFlightOrThrow(flightId);
+    await this.getFlightOrThrow(flightId);
     const config = AIRCRAFT_CONFIG.DEFAULT;
 
     // Get all booked seats for this flight

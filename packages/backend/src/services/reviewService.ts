@@ -2,7 +2,6 @@ import { AppDataSource } from '../db/dataSource';
 import { Review, ReviewStatus } from '../db/entities/Review';
 import { Booking } from '../db/entities/Booking';
 import { User } from '../db/entities/User';
-import { Flight } from '../db/entities/Flight';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors';
 import { logger } from '../utils/logger';
 

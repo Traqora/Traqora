@@ -293,7 +293,7 @@ router.get(
 router.get(
   "/push/stats",
   requireAuth,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (_req: Request, res: Response) => {
     const stats = await pushNotificationService.getSubscriptionStats();
 
     return res.json(stats);

@@ -18,7 +18,6 @@ import type {
   TwoFAAuditLog,
   TwoFAStats,
   TwoFAMethod,
-  TwoFAStatus,
 } from "../types/twofa";
 
 const RECOVERY_CODES_COUNT = 10;
@@ -258,7 +257,7 @@ export class TwoFAService {
   /**
    * Disable 2FA
    */
-  async disable(userId: string, password?: string): Promise<void> {
+  async disable(userId: string, _password?: string): Promise<void> {
     const settings = this.settings.get(userId);
 
     if (!settings) {

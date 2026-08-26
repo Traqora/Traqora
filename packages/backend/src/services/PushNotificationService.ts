@@ -4,7 +4,6 @@
  */
 
 import { logger } from "../utils/logger";
-import { BadRequestError, NotFoundError } from "../utils/errors";
 import type { PushSubscription } from "../types/notification";
 
 export class PushNotificationService {
@@ -238,8 +237,8 @@ export class PushNotificationService {
    * Helper: Simulate push send (replace with actual provider integration)
    */
   private async simulateSend(
-    sub: PushSubscription,
-    payload: string,
+    _sub: PushSubscription,
+    _payload: string,
   ): Promise<void> {
     // Simulate network call
     return new Promise((resolve, reject) => {

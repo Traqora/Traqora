@@ -119,6 +119,8 @@ class SocketManager {
 
   onBoardingReminder(fn: (data: BoardingReminder) => void) {
     this.socket?.on('boarding-reminder', fn);
+  }
+
   onFlightAlert(fn: (data: FlightAlert) => void) {
     // server emits "alert" (flight status changes: delays, cancellations, gate changes)
     this.socket?.on('alert', fn);

@@ -167,7 +167,6 @@ export const createFlightRoutes = (
             const xlmPrice = flight.pricing.xlm;
             try {
               const conversion = await currencyService.convert(usdPrice, "USD", targetCurrency);
-              const xlmConversion = await currencyService.convert(xlmPrice, "USD", targetCurrency);
               return {
                 ...flight,
                 price: conversion.total,
