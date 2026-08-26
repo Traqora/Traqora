@@ -284,7 +284,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
-          cache-dependency-path: packages/client/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --ignore-scripts
@@ -511,7 +511,7 @@ jobs:
           tags: traqora-${{ matrix.image }}:scan
 
       - name: Scan with Trivy (HIGH, CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: traqora-${{ matrix.image }}:scan
           severity: HIGH,CRITICAL
@@ -522,7 +522,7 @@ jobs:
 
       - name: Upload Trivy SARIF
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: traqora-${{ matrix.image }}:scan
           severity: HIGH,CRITICAL

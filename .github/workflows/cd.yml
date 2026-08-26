@@ -142,7 +142,7 @@ jobs:
           sbom: true
 
       - name: Run Trivy scan on pushed image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service.name }}:${{ env.IMAGE_TAG }}
           severity: CRITICAL

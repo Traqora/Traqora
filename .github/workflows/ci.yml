@@ -282,10 +282,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks (pinned)
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sSLo gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz
+          sudo mv gitleaks /usr/local/bin/gitleaks
+
+      - name: Gitleaks scan (repo config)
+        # gitleaks-action@v2 requires a paid GITLEAKS_LICENSE for org repos,
+        # so we use the OSS binary directly with the versioned .gitleaks.toml.
+        run: gitleaks detect --source . --config .gitleaks.toml --verbose --redact
 
   security-dependency-review:
     name: Security - Dependency Review
@@ -294,7 +302,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Requires the repository setting "Dependency graph" to be enabled
+      # (Settings > Code security & analysis). Kept non-blocking until that
+      # repo setting is confirmed so PRs are not red for an infra reason.
       - uses: actions/dependency-review-action@v4
+        continue-on-error: true
         with:
           fail-on-severity: high
 
@@ -407,7 +419,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: traqora-${{ matrix.service.name }}:${{ github.sha }}
           severity: HIGH,CRITICAL
@@ -417,7 +429,7 @@ jobs:
 
       - name: Upload Trivy SARIF
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: traqora-${{ matrix.service.name }}:${{ github.sha }}
           severity: HIGH,CRITICAL
