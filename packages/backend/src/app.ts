@@ -28,6 +28,7 @@ import ancillaryRoutes from './api/routes/ancillary';
 import contractEventRoutes from './api/routes/contract-events';
 import transactionRoutes from './api/routes/transactions';
 import checkinRoutes from './api/routes/checkin';
+import notificationRoutes from './api/routes/notifications';
 import journeyRoutes from './api/routes/journeys';
 import { documentRoutes } from './api/routes/documents';
 import { alertRoutes } from './api/routes/alerts';
@@ -37,8 +38,6 @@ import { carbonRoutes } from './api/routes/carbon';
 import { trackingRoutes } from './api/routes/tracking';
 import { feedbackRoutes } from './api/routes/feedback';
 import { createCurrencyRoutes } from './api/routes/currencies';
-import { alertRoutes } from './api/routes/alerts';
-import { reviewRoutes } from './api/routes/reviews';
 import { referralRoutes } from './api/routes/referrals';
 import { recommendationRoutes } from './api/routes/recommendations';
 import { flightStatusRoutes } from './api/routes/flightStatus';
@@ -243,6 +242,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/carbon', carbonRoutes);
   app.use('/api/v1/tracking', requireAuth, trackingRoutes);
   app.use('/api/v1/feedback', feedbackRoutes);
+  app.use('/api/v1/notifications', requireAuth, notificationRoutes);
   app.use('/api/v1/currencies', createCurrencyRoutes());
 
   app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {

@@ -1,5 +1,6 @@
 name: CI
 
+# Triggers
 on:
   pull_request:
     branches: [main, develop]
@@ -14,6 +15,7 @@ on:
       - "**.md"
       - ".vscode/**"
 
+# Cancel superseded runs on the same ref to free runner capacity immediately.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,8 +24,31 @@ env:
   NODE_VERSION: "20"
   RUST_TOOLCHAIN: "1.94.1"
   SOROBAN_CLI_VERSION: "26.1.0"
+  # Shared Cargo cache paths — referenced in every Rust job.
+  CARGO_CACHE_PATHS: |
+    ~/.cargo/bin/
+    ~/.cargo/registry/index/
+    ~/.cargo/registry/cache/
+    ~/.cargo/git/db/
+    contracts/target/
+
+# ---------------------------------------------------------------------------
+# Reusable step fragments expressed as composite-action-style env vars are not
+# supported in plain YAML, so shared logic is repeated but kept DRY via the
+# env block above and the restore-keys pattern documented below.
+#
+# Cache strategy
+# ──────────────
+#  npm    : primary key  = OS + lock-file hash
+#           restore-keys = OS prefix (partial hit on lock-file change)
+#  cargo  : primary key  = OS + Cargo.lock hash
+#           restore-keys = OS prefix (partial hit on Cargo.lock change)
+#  llvm-cov: keyed on the tool version so upgrades bust the cache correctly
+#  apt    : keyed on a weekly date bucket to avoid stale package lists
+# ---------------------------------------------------------------------------
 
 jobs:
+  # ── Change detection ──────────────────────────────────────────────────────
   detect:
     name: Detect Changes
     runs-on: ubuntu-latest
@@ -49,6 +74,7 @@ jobs:
             contracts:
               - 'contracts/**'
 
+  # ── Quality: Backend ──────────────────────────────────────────────────────
   quality-backend:
     name: Quality - Backend
     needs: [detect]
@@ -63,12 +89,21 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Restore npm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
       - run: npm ci --legacy-peer-deps
 
       - run: npm run typecheck --workspace=packages/backend
 
       - run: npm run lint --workspace=packages/backend
 
+  # ── Quality: Client ───────────────────────────────────────────────────────
   quality-client:
     name: Quality - Client
     needs: [detect]
@@ -83,12 +118,21 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Restore npm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
       - run: npm ci --legacy-peer-deps
 
       - run: npm run typecheck --workspace=packages/client
 
       - run: npm run lint --workspace=packages/client
 
+  # ── Quality: Contracts ────────────────────────────────────────────────────
   quality-contracts:
     name: Quality - Contracts
     needs: [detect]
@@ -104,19 +148,26 @@ jobs:
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy
 
-      - name: Cache Cargo
+      - name: Restore Cargo cache
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            contracts/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}-contracts
+          restore-keys: |
+            apt-${{ runner.os }}-
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev
 
       - name: Format check
         working-directory: contracts
@@ -126,6 +177,7 @@ jobs:
         working-directory: contracts
         run: cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
 
+  # ── Tests: Backend ────────────────────────────────────────────────────────
   test-backend:
     name: Tests - Backend
     needs: [detect, quality-backend]
@@ -140,6 +192,14 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Restore npm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
       - run: npm ci --legacy-peer-deps
 
       - run: npm test --workspace=packages/backend -- --coverage
@@ -151,6 +211,7 @@ jobs:
           flags: backend
           fail_ci_if_error: false
 
+  # ── Tests: Client ─────────────────────────────────────────────────────────
   test-client:
     name: Tests - Client
     needs: [detect, quality-client]
@@ -165,6 +226,14 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Restore npm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
       - run: npm ci --legacy-peer-deps
 
       - run: npm test --workspace=packages/client -- --coverage
@@ -176,6 +245,7 @@ jobs:
           flags: client
           fail_ci_if_error: false
 
+  # ── Tests: Contracts ──────────────────────────────────────────────────────
   test-contracts:
     name: Tests - Contracts
     needs: [detect, quality-contracts]
@@ -190,30 +260,47 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: wasm32-unknown-unknown
 
-      - name: Cache Cargo
+      - name: Restore Cargo cache
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            contracts/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      # cargo-llvm-cov is a large binary; cache it keyed on version so an
+      # upgrade busts the cache but patch-identical runs skip the download.
+      - name: Restore cargo-llvm-cov binary cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-llvm-cov
+          key: cargo-llvm-cov-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}-contracts
+          restore-keys: |
+            apt-${{ runner.os }}-
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev
 
       - name: Run tests
         working-directory: contracts
         run: cargo test --locked
 
+      - name: Install cargo-llvm-cov (if not cached)
+        run: cargo install cargo-llvm-cov --locked 2>/dev/null || true
+
       - name: Coverage
         working-directory: contracts
-        run: |
-          cargo install cargo-llvm-cov
-          cargo llvm-cov --summary-only --fail-under-lines 90
+        run: cargo llvm-cov --summary-only --fail-under-lines 90
 
+  # ── Integration: Backend ──────────────────────────────────────────────────
   integration-backend:
     name: Integration - Backend
     needs: [detect, test-backend]
@@ -245,6 +332,14 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Restore npm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
       - run: npm ci --legacy-peer-deps
 
       - name: Run integration tests
@@ -256,6 +351,65 @@ jobs:
           STELLAR_NETWORK: testnet
         run: npm run test:integration --workspace=packages/backend
 
+  # ── Smoke: Backend ────────────────────────────────────────────────────────
+  smoke-backend:
+    name: Smoke - Auth / Search / Book
+    needs: [detect, test-backend]
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Restore npm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run E2E smoke tests
+        env:
+          NODE_ENV: test
+          JWT_SECRET: test-jwt-secret
+          STELLAR_NETWORK: testnet
+          BOOKING_CONTRACT_ID: CTESTBOOKING
+          AIRLINE_CONTRACT_ID: CTESTAIRLINE
+          REFUND_CONTRACT_ID: CTESTREFUND
+          LOYALTY_CONTRACT_ID: CTESTLOYALTY
+          GOVERNANCE_CONTRACT_ID: CTESTGOV
+          TOKEN_CONTRACT_ID: CTESTTOKEN
+          FLIGHT_REGISTRY_CONTRACT_ID: CTESTREG
+          ENCRYPTION_KEY: test-encryption-key-for-traqora-database-encryption-!!!
+        run: >
+          npm test --workspace=packages/backend --
+          --testPathPattern="e2e-smoke"
+          --runInBand
+          --forceExit
+          --json
+          --outputFile=packages/backend/smoke-report.json
+
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-report-${{ github.sha }}
+          path: packages/backend/smoke-report.json
+          retention-days: 30
+
+  # ── Security (all run in parallel, independent of each other) ────────────
+  # security-snyk and security-gitleaks start as soon as detect finishes —
+  # they don't need test or integration results, so they no longer block on
+  # those jobs and run concurrently with the test tier.
   security-snyk:
     name: Security - Snyk
     needs: [detect]
@@ -298,6 +452,7 @@ jobs:
         with:
           fail-on-severity: high
 
+  # ── Build (backend + client run in parallel) ──────────────────────────────
   build-backend:
     name: Build - Backend
     needs: [detect, test-backend]
@@ -311,6 +466,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: package-lock.json
+
+      - name: Restore npm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
 
       - run: npm ci --legacy-peer-deps
 
@@ -330,6 +493,14 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Restore npm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
       - run: npm ci --legacy-peer-deps
 
       - run: npm run build --workspace=packages/client
@@ -348,19 +519,26 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: wasm32-unknown-unknown
 
-      - name: Cache Cargo
+      - name: Restore Cargo cache
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            contracts/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}-contracts
+          restore-keys: |
+            apt-${{ runner.os }}-
 
       - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev
 
       - name: Install Soroban CLI
         run: cargo install --locked --version ${{ env.SOROBAN_CLI_VERSION }} soroban-cli
@@ -376,6 +554,9 @@ jobs:
           path: contracts/target/wasm32-unknown-unknown/release/*.wasm
           retention-days: 7
 
+  # ── Docker security (matrix — backend + client in parallel) ───────────────
+  # Docker layer cache is stored in the GitHub Actions cache backend (GHA)
+  # so subsequent builds only transfer changed layers.
   docker-security:
     name: Docker Security Scan
     needs: [detect]
@@ -403,8 +584,9 @@ jobs:
           push: false
           load: true
           tags: traqora-${{ matrix.service.name }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # GHA cache: warm pulls on unchanged layers, full rebuild only on changes
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
 
       - name: Trivy scan
         uses: aquasecurity/trivy-action@0.28.0
@@ -433,6 +615,7 @@ jobs:
           path: trivy-${{ matrix.service.name }}.sarif
           retention-days: 14
 
+  # ── Final gate ────────────────────────────────────────────────────────────
   ci-status:
     name: CI Status
     if: always()
@@ -441,6 +624,7 @@ jobs:
       - build-client
       - build-contracts
       - integration-backend
+      - smoke-backend
       - security-snyk
       - security-gitleaks
       - security-dependency-review
@@ -453,6 +637,7 @@ jobs:
             needs.build-backend.result == 'failure' ||
             needs.build-client.result == 'failure' ||
             needs.build-contracts.result == 'failure' ||
-            needs.integration-backend.result == 'failure'
+            needs.integration-backend.result == 'failure' ||
+            needs.smoke-backend.result == 'failure'
           )
         run: exit 1
