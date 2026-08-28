@@ -22,8 +22,9 @@ env:
 # ---------------------------------------------------------------------------
 # Cache strategy
 # ──────────────
-#  npm        : primary key  = OS + lock-file hash
-#               restore-keys = OS prefix   (partial hit on lock-file change)
+#  npm        : actions/setup-node handles ~/.npm internally when cache: npm
+#               is set; cache-dependency-path uses **/package.json because
+#               no root package-lock.json is committed to this repo.
 #  cargo      : primary key  = OS + Cargo.lock hash
 #               restore-keys = OS prefix   (partial hit on Cargo.lock change)
 #  llvm-cov   : keyed on tool version so upgrades bust the cache correctly
@@ -56,18 +57,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Restore npm cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+          cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
       - name: Typecheck
         run: npm run typecheck --workspace=packages/backend
@@ -86,18 +79,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Restore npm cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+          cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
       - name: Lint
         run: npm run lint --workspace=packages/client || true
@@ -160,18 +145,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Restore npm cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+          cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
       - name: Run tests
         run: npm test --workspace=packages/backend
@@ -188,18 +165,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Restore npm cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+          cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
       - name: Run tests
         run: npm test --workspace=packages/client
@@ -290,18 +259,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Restore npm cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+          cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
       - name: Run integration tests (Auth)
         env:
@@ -375,26 +336,17 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: packages/client/package-lock.json
-
-      - name: Restore npm cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-client-${{ runner.os }}-${{ hashFiles('packages/client/package-lock.json') }}
-          restore-keys: |
-            npm-client-${{ runner.os }}-
-            npm-${{ runner.os }}-
+          cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts
+        run: npm install --legacy-peer-deps --ignore-scripts
 
       # Playwright browser binaries are cached by the built-in store path.
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('packages/client/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('packages/client/**/package.json') }}
           restore-keys: |
             playwright-${{ runner.os }}-
 
@@ -474,24 +426,16 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Restore npm cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+          cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts
+        run: npm install --legacy-peer-deps --ignore-scripts
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('packages/client/package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('packages/client/**/package.json') }}
           restore-keys: |
             playwright-${{ runner.os }}-
 
@@ -572,18 +516,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Restore npm cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+          cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
       - name: Build backend
         run: npm run build --workspace=packages/backend
@@ -600,18 +536,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Restore npm cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+          cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
       - name: Build client
         run: npm run build --workspace=packages/client
@@ -651,7 +579,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
       - name: Scan with Trivy (HIGH, CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.27.0
         with:
           image-ref: traqora-${{ matrix.image }}:scan
           severity: HIGH,CRITICAL
@@ -662,7 +590,7 @@ jobs:
 
       - name: Upload Trivy SARIF
         if: always()
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.27.0
         with:
           image-ref: traqora-${{ matrix.image }}:scan
           severity: HIGH,CRITICAL
