@@ -540,6 +540,7 @@ router.post('/:id/resolve-dispute', requireAdmin, asyncHandler(async (req: Reque
       resolvedBy: parsed.data.resolvedBy,
       notes: parsed.data.notes,
       customRefundPercentage: parsed.data.customRefundPercentage,
+      adminOverrideJustification: parsed.data.adminOverrideJustification,
     });
 
     logger.info(`Dispute for refund ${req.params.id} resolved as ${parsed.data.resolution} by ${parsed.data.resolvedBy}`);
