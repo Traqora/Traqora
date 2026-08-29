@@ -1,14 +1,11 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Symbol};
 use airline::{AirlineContract, AirlineContractClient};
 use booking::{BookingContract, BookingContractClient};
 use booking_receipt::{BookingReceiptContract, BookingReceiptContractClient};
 use governance::{GovernanceContract, GovernanceContractClient};
 use loyalty::{LoyaltyContract, LoyaltyContractClient};
 use refund::{RefundContract, RefundContractClient};
-use refund_automation::{
-    RefundAutomationContract,
-    RefundAutomationContractClient,
-};
+use refund_automation::{RefundAutomationContract, RefundAutomationContractClient};
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Symbol};
 use token::{TRQTokenContract, TRQTokenContractClient};
 
 pub struct Contracts<'a> {

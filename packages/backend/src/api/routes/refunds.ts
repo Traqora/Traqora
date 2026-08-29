@@ -4,12 +4,9 @@ import { asyncHandler } from '../../utils/errorHandler';
 import { RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
 import { logger } from '../../utils/logger';
-<<<<<<< HEAD
 import { config } from '../../config';
-=======
 import { requireAdmin } from '../../middleware/adminAuth';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../../utils/errors';
->>>>>>> upstream/main
 
 const router = Router();
 const refundService = RefundService.getInstance();
@@ -36,6 +33,15 @@ const manualReviewSchema = z.object({
   reviewedBy: z.string().min(1),
   reviewNotes: z.string().min(1),
   customRefundPercentage: z.number().min(0).max(100).optional(),
+  adminOverrideJustification: z.string().min(10).optional(),
+}).superRefine((data, ctx) => {
+  if (data.customRefundPercentage !== undefined && !data.adminOverrideJustification) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['adminOverrideJustification'],
+      message: 'Admin override justification is required when custom refund percentage is used',
+    });
+  }
 });
 
 // Submit on-chain refund schema
@@ -66,6 +72,15 @@ const disputeResolutionSchema = z.object({
   resolvedBy: z.string().min(1),
   notes: z.string().min(1),
   customRefundPercentage: z.number().min(0).max(100).optional(),
+  adminOverrideJustification: z.string().min(10).optional(),
+}).superRefine((data, ctx) => {
+  if (data.customRefundPercentage !== undefined && !data.adminOverrideJustification) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['adminOverrideJustification'],
+      message: 'Admin override justification is required when custom refund percentage is used',
+    });
+  }
 });
 
 /**
@@ -256,7 +271,8 @@ router.post('/:id/review', asyncHandler(async (req: Request, res: Response) => {
       parsed.data.approved,
       parsed.data.reviewedBy,
       parsed.data.reviewNotes,
-      parsed.data.customRefundPercentage
+      parsed.data.customRefundPercentage,
+      parsed.data.adminOverrideJustification
     );
 
     logger.info(`Refund ${req.params.id} reviewed by ${parsed.data.reviewedBy}`);
@@ -524,6 +540,7 @@ router.post('/:id/resolve-dispute', requireAdmin, asyncHandler(async (req: Reque
       resolvedBy: parsed.data.resolvedBy,
       notes: parsed.data.notes,
       customRefundPercentage: parsed.data.customRefundPercentage,
+      adminOverrideJustification: parsed.data.adminOverrideJustification,
     });
 
     logger.info(`Dispute for refund ${req.params.id} resolved as ${parsed.data.resolution} by ${parsed.data.resolvedBy}`);
@@ -542,7 +559,7 @@ router.post('/:id/resolve-dispute', requireAdmin, asyncHandler(async (req: Reque
  * GET /api/v1/refunds/stats
  * Get refund analytics and statistics
  */
-router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
+router.get('/stats', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const stats = await refundService.getRefundStats();
 

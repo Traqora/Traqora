@@ -158,7 +158,12 @@ impl LoyaltyContract {
 
         env.events().publish(
             (symbol_short!("points"), symbol_short!("earned")),
-            (user.clone(), env.ledger().timestamp(), earned_points, booking_id),
+            (
+                user.clone(),
+                env.ledger().timestamp(),
+                earned_points,
+                booking_id,
+            ),
         );
 
         earned_points
@@ -175,7 +180,12 @@ impl LoyaltyContract {
 
         env.events().publish(
             (symbol_short!("points"), symbol_short!("accrued")),
-            (passenger.clone(), env.ledger().timestamp(), amount, flight_id),
+            (
+                passenger.clone(),
+                env.ledger().timestamp(),
+                amount,
+                flight_id,
+            ),
         );
 
         amount

@@ -5,13 +5,7 @@ import { FlightStatusEvent, FlightEventType } from '../db/entities/FlightStatusE
 import { flightsNamespace } from '../websockets/server';
 import { scheduleNotification, NotificationPayload } from '../jobs/notificationQueue';
 import { logger } from '../utils/logger';
-import { LessThan, MoreThanOrEqual } from 'typeorm';
-
-export class FlightStatusService {
-  private static instance: FlightStatusService;
-
-  public constructor() {}
-import { logger } from '../utils/logger';
+import { MoreThanOrEqual } from 'typeorm';
 import { FlightStatusValue } from '../models/FlightStatusAlert';
 
 export interface FlightStatusUpdate {
@@ -540,9 +534,8 @@ export class FlightStatusService {
       logger.info(`Auto-refund initiated for user ${follower.userId} on flight ${flightId}`);
     }
   }
-}
 
-export const flightStatusService = FlightStatusService.getInstance();
+  /**
    * Fetches the current status for a list of flights, with retry + backoff
    * mirroring PriceOracleService.fetchPrices.
    */
@@ -635,3 +628,5 @@ export const flightStatusService = FlightStatusService.getInstance();
     });
   }
 }
+
+export const flightStatusService = FlightStatusService.getInstance();

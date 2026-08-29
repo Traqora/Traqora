@@ -363,9 +363,9 @@ export class PushNotificationService {
    * Deliver payload to a single subscription.
    * In production, replace simulateSend with Firebase Admin SDK or web-push.
    */
-  private async deliverToSubscription(
-    sub: PushSubscription,
-    payload: string,
+  private async simulateSend(
+    _sub: PushSubscription,
+    _payload: string,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       setTimeout(() => {

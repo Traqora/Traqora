@@ -4,7 +4,6 @@ import { Flight } from "../db/entities/Flight";
 import { Passenger } from "../db/entities/Passenger";
 import { TravelDocument, DocumentType } from "../db/entities/TravelDocument";
 import { GroupBooking } from "../db/entities/GroupBooking";
-import { CheckIn } from "../db/entities/CheckIn";
 
 import { getTransactionStatus, signAndSubmitCreateBooking } from "./soroban";
 import { GroupBookingService } from "./groupBooking";
@@ -23,9 +22,6 @@ import type {
   SeasonalFareOverride,
 } from "./fareRulesService";
 import { getWebSocketServer } from "../websockets/server";
-import { inflightServicesService } from "./inflightServicesService";
-import { seatAvailabilityService } from "./seatAvailabilityService";
-import crypto from 'crypto';
 
 export interface StructuredName {
   title?: string;

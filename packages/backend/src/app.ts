@@ -75,7 +75,7 @@ import { NotFoundError } from './utils/errors';
 import { AppError } from './services/ErrorHandlingService';
 import { requestLogger } from './middleware/requestLogger';
 import { analyticsAuditLogger } from './middleware/audit-logger';
-import { auditLogger } from './middleware/audit';
+import { auditLog as auditLogger } from './middleware/audit';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;

@@ -4,7 +4,6 @@ import { requireAuth } from "../../middleware/authMiddleware";
 import { asyncHandler } from "../../utils/errorHandler";
 import { AppDataSource } from "../../db/dataSource";
 import { Booking } from "../../db/entities/Booking";
-import { Flight } from "../../db/entities/Flight";
 import { logger } from "../../utils/logger";
 import { seatAvailabilityService } from "../../services/seatAvailabilityService";
 import { inflightServicesService } from "../../services/inflightServicesService";

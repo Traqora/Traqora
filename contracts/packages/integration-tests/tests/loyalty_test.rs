@@ -1,6 +1,5 @@
-use soroban_sdk::Symbol;
 use loyalty::LoyaltyContract;
-
+use soroban_sdk::Symbol;
 
 use integration_tests::{generate_actors, new_env, register_contracts};
 

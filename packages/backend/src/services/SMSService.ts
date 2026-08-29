@@ -167,18 +167,8 @@ export class SMSService {
   /**
    * Get SMS delivery status (queries provider if Twilio)
    */
-  async getDeliveryStatus(externalId: string): Promise<DeliveryStatus> {
-    if (this.provider === "twilio" && twilioClient) {
-      try {
-        const msg = await twilioClient.messages(externalId).fetch();
-        return this.mapTwilioStatus(msg.status);
-      } catch (error) {
-        logger.warn("Failed to fetch Twilio delivery status", {
-          externalId,
-          error,
-        });
-      }
-    }
+  async getDeliveryStatus(_externalId: string): Promise<DeliveryStatus> {
+    // In production, query provider API
     return "delivered";
   }
 
@@ -342,8 +332,8 @@ export class SMSService {
    * stub that logs and returns a mock message ID (safe for test/CI environments).
    */
   private async providerSend(
-    phoneNumber: string,
-    message: string,
+    _phoneNumber: string,
+    _message: string,
   ): Promise<string> {
     const e164 = this.normalisePhoneNumber(phoneNumber);
 

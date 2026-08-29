@@ -183,6 +183,11 @@ export const initDataSource = async () => {
   await AppDataSource.initialize();
 };
 
+// Startup migration check, wrapped in an async IIFE instead of using
+// top-level await so the module stays valid CommonJS under ts-jest.
+// Skipped in test mode: no DB connection exists at import time there.
+(async () => {
+  if (isTest) return;
   try {
     logger.info("Checking database migrations...");
     const hasPending = await AppDataSource.showMigrations();
@@ -197,4 +202,4 @@ export const initDataSource = async () => {
     logger.error("Failed to run database migrations on startup:", error as Error);
     throw error;
   }
-};
+})();

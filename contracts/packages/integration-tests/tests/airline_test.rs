@@ -1,16 +1,12 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, Vec};
 use airline::{
-    AirlineContract,
-    AirlineContractClient,
-    BatchCreateFlightsResult,
-    BatchUpdateFlightStatusResult,
-    Flight,
-    FlightInput,
-    FlightStatusUpdate,
+    AirlineContract, AirlineContractClient, BatchCreateFlightsResult,
+    BatchUpdateFlightStatusResult, Flight, FlightInput, FlightStatusUpdate,
 };
+use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, Vec};
 
-
-use integration_tests::{new_env, generate_actors, register_contracts, register_and_verify_airline};
+use integration_tests::{
+    generate_actors, new_env, register_and_verify_airline, register_contracts,
+};
 
 #[test]
 fn test_register_and_verify_airline() {
@@ -125,10 +121,15 @@ fn test_batch_create_flights_partial_failure() {
         currency: Symbol::new(&env, "USDC"),
     });
 
-    let result = contracts.airline.batch_create_flights(&actors.airline, &batch);
+    let result = contracts
+        .airline
+        .batch_create_flights(&actors.airline, &batch);
     assert_eq!(result.created_flight_ids.len(), 2);
     assert_eq!(result.failures.len(), 1);
-    assert_eq!(result.failures.get(0).unwrap().reason, Symbol::new(&env, "bad_data"));
+    assert_eq!(
+        result.failures.get(0).unwrap().reason,
+        Symbol::new(&env, "bad_data")
+    );
 
     let first_id = result.created_flight_ids.get(0).unwrap();
     let second_id = result.created_flight_ids.get(1).unwrap();
@@ -221,5 +222,7 @@ fn test_batch_create_flights_enforces_max_batch_size() {
         i += 1;
     }
 
-    contracts.airline.batch_create_flights(&actors.airline, &batch);
+    contracts
+        .airline
+        .batch_create_flights(&actors.airline, &batch);
 }

@@ -141,9 +141,19 @@ jobs:
           provenance: true
           sbom: true
 
+      - name: Install Trivy (retry)
+        run: |
+          for i in 1 2 3; do
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.65.0 && break
+            echo "trivy install attempt $i failed, retrying..."
+            sleep 10
+          done
+          trivy --version
+
       - name: Run Trivy scan on pushed image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
+          skip-setup-trivy: true
           image-ref: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service.name }}:${{ env.IMAGE_TAG }}
           severity: CRITICAL
           exit-code: "1"

@@ -1,15 +1,15 @@
 #![no_std]
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol, contractclient
-};
 use access::{AccessControl, Role};
+use soroban_sdk::{
+    contract, contractclient, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN,
+    Env, Symbol,
+};
 
 #[contractclient(name = "BookingClient")]
 pub trait BookingInterface {
     fn oracle_release_payment(env: Env, oracle: Address, booking_id: u64);
     fn oracle_refund_airline_cancel(env: Env, oracle: Address, booking_id: u64);
 }
-
 
 #[contracttype]
 #[derive(Clone)]
@@ -124,7 +124,7 @@ impl FlightOracle {
             OracleStorage::get_config(&env).is_none(),
             "Already initialized"
         );
-        
+
         AccessControl::init_owner(&env, &owner);
 
         assert!(min_stake > 0, "Invalid min_stake");
@@ -212,8 +212,7 @@ impl FlightOracle {
         let count = OracleStorage::status_count(&env, &flight_number, booking_id, &status);
         assert!(count >= cfg.consensus_threshold, "Insufficient consensus");
 
-        let booking_client =
-            BookingClient::new(&env, &cfg.booking_contract);
+        let booking_client = BookingClient::new(&env, &cfg.booking_contract);
         let self_addr = env.current_contract_address();
         booking_client.oracle_release_payment(&self_addr, &booking_id);
 
@@ -229,8 +228,7 @@ impl FlightOracle {
         let count = OracleStorage::status_count(&env, &flight_number, booking_id, &status);
         assert!(count >= cfg.consensus_threshold, "Insufficient consensus");
 
-        let booking_client =
-            BookingClient::new(&env, &cfg.booking_contract);
+        let booking_client = BookingClient::new(&env, &cfg.booking_contract);
         let self_addr = env.current_contract_address();
         booking_client.oracle_refund_airline_cancel(&self_addr, &booking_id);
 
