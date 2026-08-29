@@ -496,12 +496,126 @@ jobs:
         working-directory: contracts
         run: cargo build --locked --target wasm32-unknown-unknown --release
 
+      - name: Compute WASM checksums
+        run: |
+          chmod +x scripts/compute-wasm-hashes.sh
+          ./scripts/compute-wasm-hashes.sh contracts/target/wasm32-unknown-unknown/release .artifacts/wasm-checksums
+
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@v4
         with:
           name: contracts-wasm
-          path: contracts/target/wasm32-unknown-unknown/release/*.wasm
+          path: |
+            contracts/target/wasm32-unknown-unknown/release/*.wasm
+            .artifacts/wasm-checksums/*
           retention-days: 7
+
+  # ── Verify: Build checksums (issue #592) ────────────────────────────────
+  # Rebuilds the contracts and fails if the freshly built WASM hashes do not
+  # match the checksums published by build-contracts, guarding against
+  # non-reproducible builds / drift between the recorded and the actual code.
+  verify-build-checksums:
+    name: Verify - Contract Build Checksums
+    needs: [detect, build-contracts]
+    if: needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Restore Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}-contracts
+          restore-keys: |
+            apt-${{ runner.os }}-
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev jq
+
+      - name: Build release WASM
+        working-directory: contracts
+        run: cargo build --locked --target wasm32-unknown-unknown --release
+
+      - name: Download WASM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contracts-wasm
+          path: .artifacts
+
+      - name: Verify build checksums
+        run: |
+          FAILED=0
+          echo "### Contract Build Checksum Verification" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Contract | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          # 1. Recorded checksums must match the uploaded WASM binaries.
+          if [ ! -f .artifacts/wasm-checksums.sha256 ]; then
+            echo "❌ wasm-checksums.sha256 missing from artifacts" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          while read -r expected name; do
+            [ -n "$expected" ] || continue
+            if [ ! -f ".artifacts/$name" ]; then
+              echo "  ✗ $name: uploaded WASM missing"
+              echo "| $name | ❌ FAIL (missing from artifacts) |" >> "$GITHUB_STEP_SUMMARY"
+              FAILED=1
+              continue
+            fi
+            actual=$(sha256sum ".artifacts/$name" | cut -d' ' -f1)
+            if [ "$actual" != "$expected" ]; then
+              echo "  ✗ $name: uploaded WASM hash $actual != recorded $expected"
+              echo "| $name | ❌ FAIL (upload drift) |" >> "$GITHUB_STEP_SUMMARY"
+              FAILED=1
+            fi
+          done < .artifacts/wasm-checksums.sha256
+
+          # 2. A fresh local build must reproduce the recorded checksums.
+          ./scripts/compute-wasm-hashes.sh contracts/target/wasm32-unknown-unknown/release .artifacts/local-build
+          for wasm in contracts/target/wasm32-unknown-unknown/release/*.wasm; do
+            [ -e "$wasm" ] || continue
+            name=$(basename "$wasm")
+            local_hash=$(sha256sum "$wasm" | cut -d' ' -f1)
+            recorded_hash=$(jq -r ".\"$name\" // empty" .artifacts/wasm-hashes.json)
+            if [ -z "$recorded_hash" ]; then
+              echo "  ✗ $name: not present in recorded checksums"
+              echo "| $name | ❌ FAIL (unrecorded build output) |" >> "$GITHUB_STEP_SUMMARY"
+              FAILED=1
+            elif [ "$local_hash" != "$recorded_hash" ]; then
+              echo "  ✗ $name: local build $local_hash != recorded $recorded_hash"
+              echo "| $name | ❌ FAIL (non-reproducible build) |" >> "$GITHUB_STEP_SUMMARY"
+              FAILED=1
+            else
+              echo "  ✓ $name: checksums match"
+              echo "| $name | ✅ PASS |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo ""
+            echo "=== Contract build checksum verification FAILED ==="
+            exit 1
+          fi
+          echo ""
+          echo "=== Contract build checksum verification PASSED ==="
 
   # ── Docker security (matrix — backend + client in parallel) ───────────────
   # Docker layer cache is stored in the GitHub Actions cache backend (GHA)
@@ -583,6 +697,7 @@ jobs:
       - build-backend
       - build-client
       - build-contracts
+      - verify-build-checksums
       - integration-backend
       - smoke-backend
       - security-snyk
@@ -597,6 +712,7 @@ jobs:
             needs.build-backend.result == 'failure' ||
             needs.build-client.result == 'failure' ||
             needs.build-contracts.result == 'failure' ||
+            needs.verify-build-checksums.result == 'failure' ||
             needs.integration-backend.result == 'failure' ||
             needs.smoke-backend.result == 'failure'
           )

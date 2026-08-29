@@ -26,8 +26,16 @@ Deployment artifacts are the backbone of all four: each run writes
 ```
 .deployments/<network>/<tag>/
 ├── contracts.json          # { "<contract_name>": "<contract_id>", ... }
+├── wasm-checksums.sha256   # sha256 of each deployed binary (sha256sum format)
+├── wasm-hashes.json        # { "<contract_name>": "<sha256>", ... }
 └── <contract_name>/*.wasm  # the exact binary that was deployed
 ```
+
+The two checksum files are written by `scripts/compute-wasm-hashes.sh` and are
+the basis for the `verify-build-checksums` CI job (issue #592): every build
+uploads them with the WASM artifacts, and a job that rebuilds the contracts
+fails if the recorded hashes no longer match the freshly built binaries — so
+deployment targets cannot drift from what the repository actually builds.
 
 and moves the `.deployments/<network>/latest` symlink to the new tag. Verification,
 health checks, and rollback all read from there, so **never hand-edit or delete
@@ -103,8 +111,8 @@ updated to match, or the rollback has no user-visible effect.
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `deploy-automated.yml` | manual dispatch / push | Full pipeline: deploy → verify → health check → notify, plus a migration compatibility check |
-| `cd-testnet.yml` | push to `main` | Continuous testnet deployment |
-| `cd-mainnet.yml` | release/manual | Guarded mainnet release |
+| `cd-testnet.yml` | push to `main` | Continuous testnet deployment with automatic canary → promote (issue #591) and build-checksum verification (issue #592) |
+| `cd-mainnet.yml` | release/manual | Guarded mainnet release: canary deploy → verify → manual approval → promote (issue #591), plus build-checksum verification (issue #592) |
 
 `deploy-automated.yml` jobs, in order:
 
@@ -117,6 +125,40 @@ updated to match, or the rollback has no user-visible effect.
 
 Because deploy uploads `.deployments/**` and `*.wasm` as workflow artifacts, a run
 can be audited after the fact even though the runner is ephemeral.
+
+---
+
+## Canary promotion in the app CD pipelines (issue #591)
+
+`cd-testnet.yml` and `cd-mainnet.yml` deploy the application through a canary
+stage before any full rollout. The flow is identical in shape — **deploy one
+instance → verify health + smoke checks → roll out the rest only if the canary
+is healthy** — and differs only in the promotion gate:
+
+| Environment | Canary behaviour | Promotion gate |
+| --- | --- | --- |
+| **Testnet** (`cd-testnet.yml`, ephemeral/dev) | Fully automatic. Canary deploys on push to `main`, `verify-canary` runs `scripts/health-check.sh --api-url <canary> --skip-contracts` plus a readiness wait, then `promote-canary` rolls out to the full fleet. | None — promotion happens automatically when the canary is healthy. |
+| **Mainnet** (`cd-mainnet.yml`, production) | Canary deploys only after the existing manual deployment approval. `verify-canary` must pass, then `promote-approval` waits for a second manual approval (GitHub environment protection rules on the `mainnet` environment) before `promote-canary` rolls out. | Manual approval required. |
+
+Jobs in both pipelines:
+
+1. **deploy-canary** — deploys a single instance (outputs `canary-url`)
+2. **verify-canary** — waits for readiness, then runs API health + smoke checks
+   (`health-check.sh --api-url ... --skip-contracts`) and on-chain contract
+   checks when deployment artifacts are present
+3. **promote-canary** — full rollout, followed by a post-promotion health check
+4. **abort-canary** — if verification fails, rolls back the canary instance and
+   the run fails; nothing beyond the canary is ever rolled out
+
+The canary commands are currently placeholders (kubectl / docker compose
+profiles) because the app deployment step itself is a placeholder — wire the
+real single-instance rollout primitive in `deploy-canary` and the full rollout
+in `promote-canary`, keeping the same job structure. `CANARY_URL` and `API_URL`
+are configurable via repository secrets with localhost fallbacks.
+
+For on-chain contracts, `scripts/health-check.sh` also gained an `--api-url`
+mode (HTTP health, metrics and root checks) used by the canary verification
+steps.
 
 ### Required secrets
 

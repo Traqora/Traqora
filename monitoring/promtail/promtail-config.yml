@@ -34,19 +34,31 @@ scrape_configs:
             statusCode: statusCode
             method: method
             path: path
+            # issue #594 — background job structured fields. `job` is mapped
+            # to the `jobName` label so it does not clobber the scrape-level
+            # `job` label ({job="traqora-backend"}). jobId stays in the JSON
+            # body (high cardinality — filter it with `| json | jobId="..."`).
+            jobName: job
+            jobId: jobId
+            step: step
+            outcome: outcome
+            event: event
       - labels:
           level:
           service:
           component:
           statusCode:
           method:
+          jobName:
+          step:
+          outcome:
       - timestamp:
           source: timestamp
           format: RFC3339
       - metrics:
           loki_log_entries_total:
             type: Counter
-            description: "Total log entries by level and component"
+            description: "Total log entries by level, component and job outcome"
             prefix: traqora_
             max_idle_duration: 24h
             match:
@@ -57,6 +69,19 @@ scrape_configs:
               labels:
                 - level
                 - component
+          loki_job_events_total:
+            type: Counter
+            description: "Total background job log events by job, step and outcome"
+            prefix: traqora_
+            max_idle_duration: 24h
+            match:
+              - jobName: .*
+            config:
+              action: inc
+              labels:
+                - jobName
+                - step
+                - outcome
 
   - job_name: traqora-audit
     static_configs:

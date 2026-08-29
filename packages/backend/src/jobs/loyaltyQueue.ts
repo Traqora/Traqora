@@ -2,6 +2,7 @@ import Redis from 'ioredis';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { createJobLogger } from './jobLogger';
 
 type JobHandler = (data: Record<string, unknown>) => Promise<void>;
 
@@ -46,15 +47,23 @@ export class LoyaltyQueue {
       });
 
       this.redis.on('error', (err: Error) => {
-        logger.error({ msg: 'Redis connection error', error: err.message });
+        logger.error('loyalty-queue: redis connection error', {
+          job: 'loyalty-queue',
+          step: 'redis_connect',
+          error: err.message,
+        });
       });
 
       this.redis.on('connect', () => {
-        logger.info('Connected to Redis for loyalty job queue');
+        logger.info('loyalty-queue: redis connected', {
+          job: 'loyalty-queue',
+          step: 'redis_connect',
+        });
       });
     } catch (err) {
-      logger.warn({
-        msg: 'Redis init failed — falling back to sync processing',
+      logger.warn('loyalty-queue: redis init failed — falling back to sync processing', {
+        job: 'loyalty-queue',
+        step: 'redis_connect',
         error: err instanceof Error ? err.message : String(err),
       });
       this.redis = null;
@@ -78,7 +87,12 @@ export class LoyaltyQueue {
 
     if (this.redis) {
       await this.redis.rpush(QUEUE_KEY, JSON.stringify(job));
-      logger.debug({ msg: 'Job enqueued', jobId: job.id, type: jobType });
+      logger.debug('loyalty-queue: job enqueued', {
+        job: 'loyalty-queue',
+        jobId: job.id,
+        step: 'enqueue',
+        type: jobType,
+      });
     } else {
       await this.processJob(job);
     }
@@ -127,29 +141,34 @@ export class LoyaltyQueue {
   }
 
   private async processJob(job: QueuedJob): Promise<void> {
+    const log = createJobLogger('loyalty-queue', job.id);
     const handler = this.handlers.get(job.type);
     if (!handler) {
-      logger.error({ msg: 'No handler registered for job type', type: job.type });
+      log.fail({
+        step: 'dispatch',
+        type: job.type,
+        error: 'No handler registered for job type',
+      });
       return;
     }
 
+    log.start({ type: job.type });
     try {
       await handler(job.data);
-      logger.debug({ msg: 'Job completed', jobId: job.id });
+      log.complete({ type: job.type });
     } catch (err) {
       job.attempts++;
 
       if (job.attempts < MAX_RETRIES && this.redis) {
         await this.redis.rpush(QUEUE_KEY, JSON.stringify(job));
-        logger.warn({
-          msg: 'Job failed — re-queued',
-          jobId: job.id,
+        log.step('retry', {
+          outcome: 'failure',
           attempt: job.attempts,
+          error: err instanceof Error ? err.message : String(err),
         });
       } else {
-        logger.error({
-          msg: 'Job failed permanently',
-          jobId: job.id,
+        log.fail({
+          step: 'execute',
           attempts: job.attempts,
           error: err instanceof Error ? err.message : String(err),
         });

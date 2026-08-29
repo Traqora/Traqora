@@ -378,12 +378,54 @@ cargo test proxy_test -- --nocapture
 
 - [ ] Confirm 48-hour timelock has expired
 - [ ] Verify all approvals obtained
-- [ ] Re-verify new implementation hash
+- [ ] Re-verify new implementation hash (CI checksum job must be green)
 - [ ] Check contract is in `Active` state
 - [ ] Execute upgrade
 - [ ] Verify `UpgradeExecuted` event
 - [ ] Confirm new version in `get_version()` query
 - [ ] Monitor application logs for errors
+
+## Checksum Verification in CI
+
+Every contract build publishes a SHA-256 checksum for each WASM binary so the
+deployed code can be verified against the source that produced it. This guards
+against drift between what is deployed and what the repository actually builds
+(issue #592).
+
+### What is published
+
+`scripts/compute-wasm-hashes.sh` computes a SHA-256 per `.wasm` and writes two
+files next to the binaries:
+
+```
+wasm-checksums.sha256   # sha256sum format: "<hash>  <name>" (verify with `sha256sum -c`)
+wasm-hashes.json        # { "<contract_name>": "<sha256>", ... } for jq consumers
+```
+
+CI uploads these alongside the WASM artifacts in every build job, and
+`scripts/deploy-contracts.sh` records them in the deployment artifact directory
+(`.deployments/<network>/<tag>/`) next to the deployed binaries.
+
+### How it is enforced
+
+1. **`verify-build-checksums` CI job** (`.github/workflows/ci.yml`,
+   `cd-testnet.yml`, `cd-mainnet.yml`) rebuilds the contracts from source and
+   fails the run if the freshly built hashes do not match the recorded
+   checksums — catching non-reproducible builds before anything is deployed.
+   It also verifies the uploaded WASM binaries against the recorded checksums
+   (upload integrity). Deployment jobs depend on this job, so a checksum
+   mismatch blocks the deploy.
+2. **`scripts/verify-contracts.sh`** compares the locally rebuilt hash, the
+   deployed binary hash and the recorded `wasm-hashes.json` entry for every
+   contract. A mismatch against the recorded checksum (tampered/drifted
+   artifacts) or against the local build (non-reproducible) marks the whole
+   verification as `FAIL` and exits non-zero.
+
+### Adding a new contract
+
+New contracts are picked up automatically: the build glob `*.wasm` and the
+checksum script cover anything `cargo build --release --target
+wasm32-unknown-unknown` emits, so no per-contract CI change is required.
 
 ### Post-Upgrade Monitoring
 
@@ -393,6 +435,7 @@ cargo test proxy_test -- --nocapture
 - [ ] Canary tests (small transaction sample) successful
 - [ ] Full traffic load monitored
 - [ ] 24-hour stability window completed
+- [ ] Contract checksum verification re-run green against the deployed tag
 
 ### Rollback Checklist
 

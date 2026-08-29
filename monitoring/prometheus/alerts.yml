@@ -330,7 +330,7 @@ groups:
           runbook: "https://github.com/traqora/runbooks/suspicious-activity.md"
 
       - alert: HighAuditVolume
-        expr: rate(traqora_log_entries_total{level="info",component~="audit.*"}[5m]) > 100
+        expr: rate(traqora_log_entries_total{level="info",component=~"audit.*"}[5m]) > 100
         for: 5m
         labels:
           severity: warning

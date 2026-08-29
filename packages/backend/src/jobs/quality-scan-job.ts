@@ -11,6 +11,7 @@ import cron from 'node-cron';
 import type { ScheduledTask } from 'node-cron';
 import { logger } from '../utils/logger';
 import { DataQualityService, DataQualityConfig, QualityScanResult } from '../services/analytics/dataQualityService';
+import { createJobLogger } from './jobLogger';
 
 export interface DatasetDescriptor {
   name: string;
@@ -33,13 +34,14 @@ export class QualityScanJob {
 
   /** Run the scan immediately (also called by the cron tick). */
   async runNow(): Promise<void> {
-    logger.info('quality-scan-job: starting scan', { datasets: this.datasets.map((d) => d.name) });
+    const log = createJobLogger('quality-scan');
+    log.start({ datasets: this.datasets.map((d) => d.name) });
     for (const descriptor of this.datasets) {
       try {
         const records = await descriptor.fetch();
         const result = this.svc.scan(records, descriptor.config);
         this.lastResults.set(descriptor.name, result);
-        logger.info('quality-scan-job: scan complete', {
+        log.step('scan_dataset', {
           dataset: descriptor.name,
           qualityScore: result.qualityScore,
           violations: result.violations.length,
@@ -48,13 +50,22 @@ export class QualityScanJob {
         });
         const alerts = this.svc.getAlerts();
         if (alerts.length > 0) {
-          logger.warn('quality-scan-job: quality degradation alert', { dataset: descriptor.name, alerts });
+          log.step('quality_degradation', {
+            outcome: 'failure',
+            dataset: descriptor.name,
+            alerts,
+          });
           this.svc.clearAlerts();
         }
       } catch (err) {
-        logger.error('quality-scan-job: scan failed', { dataset: descriptor.name, err });
+        log.step('scan_dataset', {
+          outcome: 'failure',
+          dataset: descriptor.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
+    log.complete();
   }
 
   /** Start the scheduled cron job. Call once at application startup. */
