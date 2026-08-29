@@ -107,6 +107,12 @@ for name in "${!CONTRACT_IDS[@]}"; do
 done
 
 echo ""
+echo "Computing WASM checksums..."
+"$SCRIPT_DIR/compute-wasm-hashes.sh" \
+    "$CONTRACTS_DIR/target/wasm32-unknown-unknown/release" \
+    "$DEPLOY_ARTIFACTS_DIR/$NETWORK/$DEPLOY_TAG"
+
+echo ""
 echo "Saving deployment artifacts to $DEPLOY_ARTIFACTS_DIR/$NETWORK/$DEPLOY_TAG/"
 
 LATEST_LINK="$DEPLOY_ARTIFACTS_DIR/$NETWORK/latest"

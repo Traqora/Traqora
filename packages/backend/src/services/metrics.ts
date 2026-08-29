@@ -304,6 +304,44 @@ export const rateLimitDecisions = new Counter({
 });
 
 // ============================================================================
+// SLO Metrics (issue #593)
+//
+// SLO-style latency tracking for the booking funnel. Every tracked operation
+// is classified good/bad against its latency target and the ratio feeds the
+// Prometheus recording rules in monitoring/prometheus/slo-rules.yml.
+// ============================================================================
+
+/**
+ * Latency SLO targets (seconds) per booking-funnel operation.
+ *
+ * Thresholds mirror the existing alerting in monitoring/prometheus/alerts.yml
+ * (SlowBookingProcessing at 300s, SlowRefundProcessing at 3600s) so dashboards
+ * and alerts agree on what "good" means.
+ */
+export const SLO_TARGETS = {
+  search: { latencySeconds: 2 },
+  booking: { latencySeconds: 300 },
+  refund: { latencySeconds: 3600 },
+} as const;
+
+export type SloOperation = keyof typeof SLO_TARGETS;
+
+export const sloEventsTotal = new Counter({
+  name: 'traqora_slo_events_total',
+  help: 'Total number of SLO-classified events by operation and result (good|bad)',
+  labelNames: ['operation', 'result'],
+  registers: [register],
+});
+
+export const sloObservedLatency = new Histogram({
+  name: 'traqora_slo_observed_latency_seconds',
+  help: 'Observed latency of SLO-tracked operations (search, booking, refund)',
+  labelNames: ['operation'],
+  buckets: [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 7200],
+  registers: [register],
+});
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -323,6 +361,7 @@ export const recordBookingConfirmed = (airline: string, amountCents: number, cur
   bookingsConfirmed.inc({ airline });
   bookingRevenue.inc({ currency, airline }, amountCents);
   bookingProcessingDuration.observe({ airline }, durationSeconds);
+  recordSloLatency('booking', durationSeconds);
   logger.debug('Metric recorded: booking confirmed', { airline, amountCents, durationSeconds });
 };
 
@@ -340,6 +379,7 @@ export const recordRefundProcessed = (airline: string, status: string, amountCen
   refundsProcessed.inc({ status, airline });
   refundAmount.inc({ airline }, amountCents);
   refundProcessingDuration.observe({ airline }, durationSeconds);
+  recordSloLatency('refund', durationSeconds);
   logger.debug('Metric recorded: refund processed', { airline, status, amountCents });
 };
 
@@ -417,6 +457,19 @@ export const measureAsync = async <T>(
     performanceMonitor.recordQuery(component, operation, 'error', (Date.now() - start) / 1000);
     throw error;
   }
+};
+
+/**
+ * Classify one completed operation against its latency SLO target and record
+ * it as good/bad plus an observation in the SLO histogram.
+ */
+export const recordSloLatency = (operation: string, durationSeconds: number) => {
+  const target = SLO_TARGETS[operation as SloOperation];
+  if (!target) return;
+  const result = durationSeconds <= target.latencySeconds ? 'good' : 'bad';
+  sloEventsTotal.inc({ operation, result });
+  sloObservedLatency.observe({ operation }, durationSeconds);
+  logger.debug('Metric recorded: SLO latency', { operation, durationSeconds, result, targetSeconds: target.latencySeconds });
 };
 
 export const recordCacheOperation = (

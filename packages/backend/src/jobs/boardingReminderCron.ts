@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { logger } from '../utils/logger';
 import { flightStatusService } from '../services/FlightStatusService';
+import { createJobLogger } from './jobLogger';
 
 /**
  * Boarding Reminder Cron Job
@@ -10,10 +11,14 @@ import { flightStatusService } from '../services/FlightStatusService';
 export const initBoardingReminderCron = () => {
   // Run every minute
   cron.schedule('* * * * *', async () => {
+    const log = createJobLogger('boarding-reminder');
+    log.start();
     try {
       await flightStatusService.checkAndSendBoardingReminders();
+      log.complete();
     } catch (error) {
-      logger.error('Boarding reminder cron failed', {
+      log.fail({
+        step: 'check_and_send_reminders',
         error: error instanceof Error ? error.message : String(error),
       });
     }

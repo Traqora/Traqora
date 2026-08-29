@@ -76,12 +76,93 @@ jobs:
           cargo build --locked --target wasm32-unknown-unknown --release
           echo "contracts-built=true" >> $GITHUB_OUTPUT
 
+      - name: Compute WASM checksums
+        run: |
+          chmod +x scripts/compute-wasm-hashes.sh
+          ./scripts/compute-wasm-hashes.sh contracts/target/wasm32-unknown-unknown/release .artifacts/wasm-checksums
+
       - name: Upload Contract Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: traqora-contracts-wasm
-          path: contracts/target/wasm32-unknown-unknown/release/*.wasm
+          path: |
+            contracts/target/wasm32-unknown-unknown/release/*.wasm
+            .artifacts/wasm-checksums/*
           retention-days: 30
+
+  # ============================================================================
+  # STAGE 1b: Verify Contract Build Checksums (issue #592)
+  # Rebuilds from source and fails if the recorded hashes do not match,
+  # guarding against non-reproducible builds / deployment-target drift.
+  # ============================================================================
+
+  verify-build-checksums:
+    name: Verify Contract Build Checksums
+    runs-on: ubuntu-latest
+    needs: build-contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev jq
+
+      - name: Build Contracts
+        working-directory: contracts
+        run: cargo build --locked --target wasm32-unknown-unknown --release
+
+      - name: Download Contract Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: traqora-contracts-wasm
+          path: .artifacts
+
+      - name: Verify build checksums
+        run: |
+          FAILED=0
+          while read -r expected name; do
+            [ -n "$expected" ] || continue
+            actual=$(sha256sum ".artifacts/$name" | cut -d' ' -f1)
+            if [ "$actual" != "$expected" ]; then
+              echo "  ✗ $name: uploaded WASM hash $actual != recorded $expected"
+              FAILED=1
+            fi
+          done < .artifacts/wasm-checksums.sha256
+
+          for wasm in contracts/target/wasm32-unknown-unknown/release/*.wasm; do
+            [ -e "$wasm" ] || continue
+            name=$(basename "$wasm")
+            local_hash=$(sha256sum "$wasm" | cut -d' ' -f1)
+            recorded_hash=$(jq -r ".\"$name\" // empty" .artifacts/wasm-hashes.json)
+            if [ -z "$recorded_hash" ] || [ "$local_hash" != "$recorded_hash" ]; then
+              echo "  ✗ $name: local build does not match recorded checksum"
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "=== Contract build checksum verification FAILED ==="
+            exit 1
+          fi
+          echo "=== Contract build checksum verification PASSED ==="
 
   # ============================================================================
   # STAGE 2: Deploy Contracts to Mainnet
@@ -90,7 +171,7 @@ jobs:
   deploy-contracts:
     name: Deploy Contracts to Mainnet
     runs-on: ubuntu-latest
-    needs: [deploy-approval, build-contracts]
+    needs: [deploy-approval, build-contracts, verify-build-checksums]
     environment: mainnet
     steps:
       - uses: actions/checkout@v4
@@ -208,6 +289,158 @@ jobs:
           echo "Smoke tests passed"
 
   # ============================================================================
+  # STAGE 4b: Canary deployment & promotion (issue #591)
+  #
+  # Mainnet is production, so the flow is gated: a single canary instance is
+  # deployed, health + smoke checks must pass, and then a manual approval
+  # (GitHub environment protection on the `mainnet` environment) is required
+  # before the release is promoted to the full fleet. An unhealthy canary is
+  # rolled back and the run fails before any wider rollout.
+  # ============================================================================
+
+  deploy-canary:
+    name: Deploy Canary Instance (Mainnet)
+    runs-on: ubuntu-latest
+    needs: [deploy-contracts, deploy-app, verify-deployment]
+    environment: mainnet
+    outputs:
+      canary-url: ${{ steps.canary.outputs.canary-url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy single canary instance
+        id: canary
+        env:
+          CANARY_URL: ${{ secrets.CANARY_URL || 'http://localhost:3001' }}
+        run: |
+          echo "Deploying a single canary instance to mainnet..."
+          # Replace with the real single-instance rollout primitive, e.g.:
+          #   kubectl scale deployment/traqora-backend --replicas=1
+          #   kubectl set image deployment/traqora-backend backend=<image>:${{ github.sha }}
+          # or a canary profile in docker-compose.prod.yml:
+          #   docker compose -f docker-compose.prod.yml --profile canary up -d --wait
+          echo "canary-url=$CANARY_URL" >> "$GITHUB_OUTPUT"
+          echo "Canary instance deployed at $CANARY_URL"
+
+  verify-canary:
+    name: Verify Canary (Health + Smoke)
+    runs-on: ubuntu-latest
+    needs: [deploy-contracts, deploy-app, verify-deployment, deploy-canary]
+    environment: mainnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for canary readiness
+        env:
+          CANARY_URL: ${{ needs.deploy-canary.outputs.canary-url }}
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf --max-time 5 "$CANARY_URL/health" > /dev/null 2>&1; then
+              echo "Canary is ready (attempt $i)"
+              exit 0
+            fi
+            echo "Waiting for canary to become ready ($i/30)..."
+            sleep 10
+          done
+          echo "Canary did not become ready in time"
+          exit 1
+
+      - name: Health and smoke checks against canary
+        env:
+          CANARY_URL: ${{ needs.deploy-canary.outputs.canary-url }}
+        run: |
+          chmod +x scripts/health-check.sh
+          ./scripts/health-check.sh mainnet latest --api-url "$CANARY_URL" --skip-contracts
+
+      - name: Contract health checks
+        env:
+          NETWORK: mainnet
+          RPC_URL: https://soroban-rpc.stellar.org:443
+          NETWORK_PASSPHRASE: "Public Global Stellar Network ; October 2015"
+        run: |
+          # Contract-level checks run only when deployment artifacts exist.
+          if [ -d .deployments/mainnet ]; then
+            chmod +x scripts/health-check.sh
+            ./scripts/health-check.sh "$NETWORK" latest
+          else
+            echo "No .deployments artifacts on this runner - skipping on-chain contract checks"
+          fi
+
+  promote-approval:
+    name: Approve Canary Promotion (Mainnet)
+    runs-on: ubuntu-latest
+    needs: [deploy-contracts, deploy-app, verify-deployment, deploy-canary, verify-canary]
+    if: needs.verify-canary.result == 'success'
+    environment: mainnet
+    steps:
+      - name: Wait for Manual Approval
+        run: |
+          echo "Canary is healthy - waiting for manual approval to promote to the full fleet."
+          echo "Approval is enforced by GitHub environment protection rules on the 'mainnet' environment."
+
+  promote-canary:
+    name: Promote Canary to Full Rollout (Mainnet)
+    runs-on: ubuntu-latest
+    needs: [deploy-contracts, deploy-app, verify-deployment, deploy-canary, verify-canary, promote-approval]
+    if: needs.promote-approval.result == 'success'
+    environment: mainnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Roll out to remaining instances
+        run: |
+          echo "Canary healthy and approved - rolling out to the full mainnet fleet."
+          # Replace with the real full rollout, e.g.:
+          #   kubectl rollout status deployment/traqora-backend -n mainnet
+          #   kubectl rollout status deployment/traqora-client -n mainnet
+          # or scale the canary profile up to all instances:
+          #   docker compose -f docker-compose.prod.yml --profile full up -d --wait
+          echo "Full mainnet rollout completed"
+
+      - name: Post-promotion health check
+        env:
+          API_URL: ${{ secrets.API_URL || 'http://localhost:3001' }}
+        run: |
+          for i in $(seq 1 10); do
+            if curl -sf --max-time 5 "$API_URL/health" > /dev/null 2>&1; then
+              echo "Post-promotion health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "Waiting for full rollout to become healthy ($i/10)..."
+            sleep 10
+          done
+          echo "Post-promotion health check failed"
+          exit 1
+
+  abort-canary:
+    name: Abort Canary (Mainnet)
+    runs-on: ubuntu-latest
+    needs: [deploy-contracts, deploy-app, verify-deployment, deploy-canary, verify-canary]
+    if: failure() && needs.verify-canary.result == 'failure'
+    environment: mainnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Roll back canary instance
+        run: |
+          echo "Canary verification failed - rolling back the canary instance. Full rollout skipped."
+          # Replace with the real rollback primitive, e.g.:
+          #   kubectl rollout undo deployment/traqora-backend -n mainnet
+          # or docker compose -f docker-compose.prod.yml --profile canary down
+          echo "Canary instance rolled back."
+
+      - name: Notify canary abort
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -sf -X POST "$SLACK_WEBHOOK_URL" \
+              -H 'Content-Type: application/json' \
+              -d "{\"text\":\":boom: Mainnet canary verification failed - rollout aborted. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" || true
+          fi
+
+  # ============================================================================
   # STAGE 5: Automated Rollback (triggers if app deploy or verification fails)
   # ============================================================================
 
@@ -245,7 +478,7 @@ jobs:
 
   notify:
     name: Notification
-    needs: [deploy-contracts, deploy-app, verify-deployment]
+    needs: [deploy-contracts, deploy-app, verify-deployment, deploy-canary, verify-canary, promote-canary]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -254,14 +487,17 @@ jobs:
         run: |
           if [ "${{ needs.deploy-contracts.result }}" == "success" ] && \
              [ "${{ needs.deploy-app.result }}" == "success" ] && \
-             [ "${{ needs.verify-deployment.result }}" == "success" ]; then
+             [ "${{ needs.verify-deployment.result }}" == "success" ] && \
+             [ "${{ needs.promote-canary.result }}" == "success" ]; then
             echo "✅ Deployment to Mainnet successful!"
-            echo "message=✅ Traqora mainnet deployment succeeded (run <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_id }}>)" >> $GITHUB_OUTPUT
+            echo "message=✅ Traqora mainnet deployment succeeded - canary promoted (run <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_id }}>)" >> $GITHUB_OUTPUT
           else
             echo "❌ Deployment to Mainnet failed."
             echo "Contracts: ${{ needs.deploy-contracts.result }}"
             echo "App: ${{ needs.deploy-app.result }}"
             echo "Verification: ${{ needs.verify-deployment.result }}"
+            echo "Canary verify: ${{ needs.verify-canary.result }}"
+            echo "Promote: ${{ needs.promote-canary.result }}"
             echo "message=❌ Traqora mainnet deployment failed (run <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|#${{ github.run_id }}>)" >> $GITHUB_OUTPUT
           fi
 

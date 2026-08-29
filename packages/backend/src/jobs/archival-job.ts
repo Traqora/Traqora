@@ -10,6 +10,7 @@ import cron from 'node-cron';
 import type { ScheduledTask } from 'node-cron';
 import { logger } from '../utils/logger';
 import { DataRetentionService, DataType } from '../services/analytics/dataRetentionService';
+import { createJobLogger } from './jobLogger';
 
 export interface LiveDataset {
   dataType: DataType;
@@ -30,16 +31,21 @@ export class ArchivalJob {
 
   /** Run the archival pass immediately (also called by the cron tick). */
   async runNow(): Promise<void> {
-    logger.info('archival-job: starting', { datasets: this.datasets.map((d) => d.dataType) });
+    const log = createJobLogger('archival');
+    log.start({ datasets: this.datasets.map((d) => d.dataType) });
     for (const dataset of this.datasets) {
       try {
         const result = this.svc.processDataType(dataset.dataType, dataset.records);
-        logger.info('archival-job: processed', result);
+        log.step('process_dataset', { ...result });
       } catch (err) {
-        logger.error('archival-job: failed', { dataType: dataset.dataType, err });
+        log.step('process_dataset', {
+          outcome: 'failure',
+          dataType: dataset.dataType,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
-    logger.info('archival-job: done', { archiveSize: this.svc.archiveSize() });
+    log.complete({ archiveSize: this.svc.archiveSize() });
   }
 
   /** Start the scheduled cron job. Call once at application startup. */

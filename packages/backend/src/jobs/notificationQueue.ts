@@ -1,5 +1,6 @@
 import Queue from "bull";
 import { config } from "../config";
+import { logger } from "../utils/logger";
 
 export type NotificationType =
   | "booking"
@@ -50,5 +51,14 @@ export const scheduleNotification = async (
     options.delay = delayInMs;
   }
 
-  return await notificationQueue.add(payload, options);
+  const job = await notificationQueue.add(payload, options);
+  logger.debug("notification-queue: job enqueued", {
+    job: "notification-queue",
+    jobId: job.id,
+    step: "enqueue",
+    type: payload.type,
+    userId: payload.userId,
+    channels: payload.channels,
+  });
+  return job;
 };
