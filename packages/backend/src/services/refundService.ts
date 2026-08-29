@@ -155,75 +155,108 @@ export class RefundService {
   }
 
   /**
-   * Check refund eligibility based on booking status, flight timing, and policies
+   * Check refund eligibility based on booking status, flight timing, fare rules, ticket type, and segment usage.
    */
   public async checkEligibility(booking: Booking): Promise<RefundEligibilityResult> {
     const now = new Date();
     const departureTime = booking.flight.departureTime;
     const hoursUntilDeparture = (departureTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+    const { rules, source } = getFareRules(booking);
+    const ticketType = getTicketType(booking, rules);
+    const unusedSegmentRatio = getUnusedSegmentRatio(booking);
+    const factors: RefundPolicyFactors = {
+      bookingStatus: booking.status,
+      flightStatus: booking.flight.status,
+      airlineCode: booking.flight.airlineCode,
+      ticketType,
+      hoursUntilDeparture,
+      unusedSegmentRatio,
+      fareRuleSource: source,
+    };
 
-    // Not eligible if booking is not confirmed or already refunded
+    const blocked = (reason: string, requiresManualReview = false): RefundEligibilityResult => ({
+      isEligible: requiresManualReview,
+      reason,
+      refundPercentage: 0,
+      refundAmountCents: 0,
+      processingFeeCents: 0,
+      requiresManualReview,
+      tier: requiresManualReview ? 'manual_review' : 'no_refund',
+      factors,
+    });
+
     if (!['confirmed', 'paid', 'onchain_submitted'].includes(booking.status)) {
+      return blocked('Booking must be confirmed or paid to request refund');
+    }
+
+    if (hoursUntilDeparture < 0) {
+      return blocked('Cannot refund after flight departure', true);
+    }
+
+    if (booking.flight.status === 'CANCELLED') {
+      const refundPercentage = clampPercentage(rules.refundPercentages?.full ?? 100);
       return {
-        isEligible: false,
-        reason: 'Booking must be confirmed or paid to request refund',
-        refundPercentage: 0,
+        isEligible: true,
+        reason: 'Flight cancellation qualifies for an automatic full refund',
+        refundPercentage,
+        refundAmountCents: Math.floor((booking.amountCents * refundPercentage) / 100),
         processingFeeCents: 0,
         requiresManualReview: false,
+        tier: 'airline_cancelled',
+        factors,
       };
     }
 
-    // Check if flight has already departed
-    if (hoursUntilDeparture < 0) {
-      return {
-        isEligible: false,
-        reason: 'Cannot refund after flight departure',
-        refundPercentage: 0,
-        processingFeeCents: 0,
-        requiresManualReview: true,
-      };
+    if (rules.refundable === false || ticketType === 'non_refundable') {
+      return blocked('Fare rules mark this ticket as non-refundable', true);
     }
 
-    // Refund policy based on time until departure
+    const cancellationWindowHours = rules.cancellationWindowHours ?? 2;
+    if (hoursUntilDeparture < cancellationWindowHours) {
+      return blocked('Cancellation window has closed for this fare rule', true);
+    }
+
     let refundPercentage = 0;
-    let processingFeeCents = 0;
+    let tier = 'no_refund';
     let requiresManualReview = false;
 
-    if (hoursUntilDeparture >= 168) {
-      // 7+ days: Full refund minus small processing fee
-      refundPercentage = 100;
-      processingFeeCents = Math.min(500, Math.floor(booking.amountCents * 0.02)); // 2% or $5 max
+    if (ticketType === 'refundable') {
+      refundPercentage = rules.refundPercentages?.full ?? 100;
+      tier = 'refundable_fare';
+    } else if (hoursUntilDeparture >= 168) {
+      refundPercentage = rules.refundPercentages?.full ?? 100;
+      tier = 'full';
     } else if (hoursUntilDeparture >= 72) {
-      // 3-7 days: 80% refund
-      refundPercentage = 80;
-      processingFeeCents = Math.floor(booking.amountCents * 0.05); // 5% processing fee
+      refundPercentage = rules.refundPercentages?.partial ?? 80;
+      tier = 'standard_partial';
     } else if (hoursUntilDeparture >= 24) {
-      // 1-3 days: 50% refund
-      refundPercentage = 50;
-      processingFeeCents = Math.floor(booking.amountCents * 0.10); // 10% processing fee
-    } else if (hoursUntilDeparture >= 2) {
-      // 2-24 hours: 25% refund, requires manual review
-      refundPercentage = 25;
-      processingFeeCents = Math.floor(booking.amountCents * 0.15); // 15% processing fee
-      requiresManualReview = true;
+      refundPercentage = ticketType === 'restricted' ? 25 : rules.refundPercentages?.partial ?? 50;
+      tier = ticketType === 'restricted' ? 'restricted_partial' : 'late_partial';
     } else {
-      // Less than 2 hours: No automatic refund, manual review required
-      refundPercentage = 0;
-      processingFeeCents = 0;
+      refundPercentage = rules.refundPercentages?.late ?? 25;
+      tier = 'manual_late_window';
       requiresManualReview = true;
     }
+
+    refundPercentage = clampPercentage(refundPercentage * unusedSegmentRatio);
+    const feePercent = rules.processingFeePercent ?? (hoursUntilDeparture >= 168 ? 2 : hoursUntilDeparture >= 72 ? 5 : 10);
+    const feeCap = rules.processingFeeMaxCents ?? (hoursUntilDeparture >= 168 ? 500 : booking.amountCents);
+    const processingFeeCents = refundPercentage > 0 ? Math.min(feeCap, Math.floor(booking.amountCents * (feePercent / 100))) : 0;
+    const refundAmountCents = Math.max(0, Math.floor((booking.amountCents * refundPercentage) / 100) - processingFeeCents);
 
     return {
       isEligible: refundPercentage > 0 || requiresManualReview,
       reason: requiresManualReview
-        ? 'Refund requires manual review due to timing or policy'
-        : `Eligible for ${refundPercentage}% refund`,
+        ? 'Refund requires manual review due to timing, ticket type, or fare rule'
+        : `Eligible for ${refundPercentage}% refund under ${tier} policy`,
       refundPercentage,
+      refundAmountCents,
       processingFeeCents,
       requiresManualReview,
+      tier,
+      factors,
     };
   }
-
   /**
    * Create a new refund request
    * Automatically determines if refund should be delayed based on amount
