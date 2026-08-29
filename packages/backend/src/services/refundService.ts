@@ -8,12 +8,25 @@ import { RefundAuditService } from './refundAuditService';
 import { logger } from '../utils/logger';
 import { withRetries } from './retry';
 
+export interface RefundPolicyFactors {
+  bookingStatus: string;
+  flightStatus?: string;
+  airlineCode?: string;
+  ticketType: 'refundable' | 'standard' | 'restricted' | 'non_refundable';
+  hoursUntilDeparture: number;
+  unusedSegmentRatio: number;
+  fareRuleSource: 'flight_raw_data' | 'booking_metadata' | 'default_policy';
+}
+
 export interface RefundEligibilityResult {
   isEligible: boolean;
   reason: string;
   refundPercentage: number;
+  refundAmountCents: number;
   processingFeeCents: number;
   requiresManualReview: boolean;
+  tier: string;
+  factors: RefundPolicyFactors;
 }
 
 export interface CreateRefundRequest {
@@ -80,6 +93,49 @@ export const REFUND_TIER_HOURS = {
   FULL_REFUND_MIN: 72, // >= 72h before departure: 100%
   PARTIAL_REFUND_MIN: 24, // >= 24h and < 72h: 50%
 } as const;
+type FareRules = {
+  refundable?: boolean;
+  ticketType?: RefundPolicyFactors['ticketType'];
+  cancellationWindowHours?: number;
+  processingFeePercent?: number;
+  processingFeeMaxCents?: number;
+  refundPercentages?: {
+    full?: number;
+    partial?: number;
+    late?: number;
+  };
+};
+
+type RefundableBookingMetadata = Booking & {
+  ticketType?: RefundPolicyFactors['ticketType'];
+  fareRules?: FareRules;
+  segments?: Array<{ used?: boolean }>;
+};
+
+function clampPercentage(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getFareRules(booking: Booking): { rules: FareRules; source: RefundPolicyFactors['fareRuleSource'] } {
+  const enriched = booking as RefundableBookingMetadata;
+  const fromBooking = enriched.fareRules;
+  const fromFlight = booking.flight?.rawData?.fareRules as FareRules | undefined;
+
+  if (fromBooking) return { rules: fromBooking, source: 'booking_metadata' };
+  if (fromFlight) return { rules: fromFlight, source: 'flight_raw_data' };
+  return { rules: {}, source: 'default_policy' };
+}
+
+function getUnusedSegmentRatio(booking: Booking): number {
+  const segments = (booking as RefundableBookingMetadata).segments;
+  if (!segments?.length) return 1;
+  const unused = segments.filter((segment) => !segment.used).length;
+  return unused / segments.length;
+}
+
+function getTicketType(booking: Booking, rules: FareRules): RefundPolicyFactors['ticketType'] {
+  return rules.ticketType ?? (booking as RefundableBookingMetadata).ticketType ?? 'standard';
+}
 
 export class RefundService {
   private static instance: RefundService;
@@ -429,7 +485,8 @@ export class RefundService {
     approved: boolean,
     reviewedBy: string,
     reviewNotes: string,
-    customRefundPercentage?: number
+    customRefundPercentage?: number,
+    adminOverrideJustification?: string
   ): Promise<Refund> {
     const refundRepo = AppDataSource.getRepository(Refund);
     const refund = await refundRepo.findOne({
@@ -456,11 +513,15 @@ export class RefundService {
         approved,
         reviewNotes,
         customRefundPercentage,
+        adminOverrideJustification,
       },
     });
 
     if (approved) {
       const refundPercentage = customRefundPercentage || 100;
+      if (customRefundPercentage !== undefined && !adminOverrideJustification?.trim()) {
+        throw new Error('Admin override justification is required when custom refund percentage is used');
+      }
       await this.approveRefund(refundId, refundPercentage);
     } else {
       refund.status = 'rejected';
@@ -988,6 +1049,7 @@ export class RefundService {
         refundAmountCents,
         tier,
         hoursUntilDeparture,
+        policyFactors: (await this.checkEligibility(booking)).factors,
       },
     });
 
