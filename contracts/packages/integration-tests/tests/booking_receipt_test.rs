@@ -32,7 +32,9 @@ fn test_mint_and_verify_receipt() {
 
     assert_eq!(receipt_id, 1);
     assert_eq!(contracts.booking_receipt.sbt_balance(&actors.passenger), 1);
-    assert!(contracts.booking_receipt.verify_receipt(&actors.passenger, &1));
+    assert!(contracts
+        .booking_receipt
+        .verify_receipt(&actors.passenger, &1));
 
     let other = Address::generate(&env);
     assert!(!contracts.booking_receipt.verify_receipt(&other, &1));
@@ -54,21 +56,31 @@ fn test_multiple_receipts_per_passenger() {
     init_receipt_contract(&env, &contracts, &actors.admin);
 
     let id1 = contracts.booking_receipt.mint_receipt(
-        &actors.passenger, &1001,
-        &Symbol::new(&env, "FL101"), &Symbol::new(&env, "JFK"), &Symbol::new(&env, "LAX"),
-        &String::from_str(&env, "10A"), &200_0000000,
+        &actors.passenger,
+        &1001,
+        &Symbol::new(&env, "FL101"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &String::from_str(&env, "10A"),
+        &200_0000000,
     );
     let id2 = contracts.booking_receipt.mint_receipt(
-        &actors.passenger, &1002,
-        &Symbol::new(&env, "FL202"), &Symbol::new(&env, "LAX"), &Symbol::new(&env, "SFO"),
-        &String::from_str(&env, "5B"), &150_0000000,
+        &actors.passenger,
+        &1002,
+        &Symbol::new(&env, "FL202"),
+        &Symbol::new(&env, "LAX"),
+        &Symbol::new(&env, "SFO"),
+        &String::from_str(&env, "5B"),
+        &150_0000000,
     );
 
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
     assert_eq!(contracts.booking_receipt.sbt_balance(&actors.passenger), 2);
 
-    let receipts = contracts.booking_receipt.get_passenger_receipts(&actors.passenger);
+    let receipts = contracts
+        .booking_receipt
+        .get_passenger_receipts(&actors.passenger);
     assert_eq!(receipts.len(), 2);
     assert_eq!(receipts.get(0).unwrap(), 1);
     assert_eq!(receipts.get(1).unwrap(), 2);
@@ -86,9 +98,13 @@ fn test_receipt_metadata_integrity() {
     init_receipt_contract(&env, &contracts, &actors.admin);
 
     let receipt_id = contracts.booking_receipt.mint_receipt(
-        &actors.passenger, &42,
-        &Symbol::new(&env, "AA789"), &Symbol::new(&env, "ORD"), &Symbol::new(&env, "MIA"),
-        &String::from_str(&env, "22F"), &350_0000000,
+        &actors.passenger,
+        &42,
+        &Symbol::new(&env, "AA789"),
+        &Symbol::new(&env, "ORD"),
+        &Symbol::new(&env, "MIA"),
+        &String::from_str(&env, "22F"),
+        &350_0000000,
     );
 
     let metadata = contracts.booking_receipt.get_receipt_metadata(&receipt_id);
@@ -111,9 +127,13 @@ fn test_uninitialized_receipt_fails() {
     initialize_token(&env, &contracts.token, &actors.admin);
 
     contracts.booking_receipt.mint_receipt(
-        &actors.passenger, &1,
-        &Symbol::new(&env, "FL001"), &Symbol::new(&env, "JFK"), &Symbol::new(&env, "LHR"),
-        &String::from_str(&env, "1A"), &100_0000000,
+        &actors.passenger,
+        &1,
+        &Symbol::new(&env, "FL001"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LHR"),
+        &String::from_str(&env, "1A"),
+        &100_0000000,
     );
 }
 
@@ -127,8 +147,19 @@ fn test_receipt_sbt_interface() {
     initialize_token(&env, &contracts.token, &actors.admin);
     init_receipt_contract(&env, &contracts, &actors.admin);
 
-    assert_eq!(contracts.booking_receipt.sbt_name(), String::from_str(&env, "Traqora Receipt"));
-    assert_eq!(contracts.booking_receipt.sbt_symbol(), Symbol::new(&env, "TREC"));
+    assert_eq!(
+        contracts.booking_receipt.sbt_name(),
+        String::from_str(&env, "Traqora Receipt")
+    );
+    assert_eq!(
+        contracts.booking_receipt.sbt_symbol(),
+        Symbol::new(&env, "TREC")
+    );
     assert_eq!(contracts.booking_receipt.sbt_decimals(), 0);
-    assert_eq!(contracts.booking_receipt.sbt_allowance(&actors.passenger, &actors.airline), 0);
+    assert_eq!(
+        contracts
+            .booking_receipt
+            .sbt_allowance(&actors.passenger, &actors.airline),
+        0
+    );
 }

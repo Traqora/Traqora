@@ -1,8 +1,8 @@
 #![no_std]
+use access::{AccessControl, Role};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol,
 };
-use access::{AccessControl, Role};
 
 // TRQ Token - Traqora Governance and Loyalty Token
 // This token is used for DAO governance voting and loyalty rewards

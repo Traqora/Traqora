@@ -1,6 +1,8 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec, contractclient};
 use access::{AccessControl, Role};
+use soroban_sdk::{
+    contract, contractclient, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec,
+};
 
 #[contracttype]
 #[derive(Clone)]
@@ -22,12 +24,24 @@ pub struct Booking {
 #[contractclient(name = "BookingClient")]
 pub trait BookingInterface {
     fn get_booking(env: Env, booking_id: u64) -> Option<Booking>;
-    fn settle_cancellation(env: Env, booking_id: u64, caller: Address, passenger_refund_bps: u32) -> (i128, i128);
+    fn settle_cancellation(
+        env: Env,
+        booking_id: u64,
+        caller: Address,
+        passenger_refund_bps: u32,
+    ) -> (i128, i128);
 }
 
 #[contractclient(name = "RefundClient")]
 pub trait RefundInterface {
-    fn request_refund(env: Env, passenger: Address, booking_id: u64, amount: i128, currency: Symbol, reason: Symbol) -> u64;
+    fn request_refund(
+        env: Env,
+        passenger: Address,
+        booking_id: u64,
+        amount: i128,
+        currency: Symbol,
+        reason: Symbol,
+    ) -> u64;
     fn process_refund(env: Env, admin: Address, request_id: u64);
     fn approve_refund(env: Env, admin: Address, request_id: u64, approved_amount: i128);
     fn reject_refund(env: Env, admin: Address, request_id: u64, reason: Symbol);
@@ -76,12 +90,13 @@ pub struct RefundAutomationContract;
 
 #[contractimpl]
 impl RefundAutomationContract {
-    pub fn initialize(env: Env, owner: Address, booking_contract: Address, refund_contract: Address) {
-        if env
-            .storage()
-            .instance()
-            .has(&DataKey::BookingContract)
-        {
+    pub fn initialize(
+        env: Env,
+        owner: Address,
+        booking_contract: Address,
+        refund_contract: Address,
+    ) {
+        if env.storage().instance().has(&DataKey::BookingContract) {
             panic!("Already initialized");
         }
 
@@ -95,7 +110,12 @@ impl RefundAutomationContract {
             .set(&DataKey::RefundContract, &refund_contract);
     }
 
-    pub fn register_booking(env: Env, executor: Address, booking_id: Symbol, booking_numeric_id: u64) {
+    pub fn register_booking(
+        env: Env,
+        executor: Address,
+        booking_id: Symbol,
+        booking_numeric_id: u64,
+    ) {
         AccessControl::require_operator(&env, &executor);
         let _: Address = env
             .storage()
@@ -156,11 +176,8 @@ impl RefundAutomationContract {
             (symbol_short!("no_refund"), NO_REFUND_BPS)
         };
 
-        let settlement = booking_client.settle_cancellation(
-            &booking_numeric_id,
-            &caller,
-            &passenger_refund_bps,
-        );
+        let settlement =
+            booking_client.settle_cancellation(&booking_numeric_id, &caller, &passenger_refund_bps);
 
         env.storage()
             .persistent()
@@ -185,7 +202,12 @@ impl RefundAutomationContract {
         }
     }
 
-    pub fn automate_refund(env: Env, caller: Address, booking_id: Symbol, cancellation_reason: Symbol) -> CancellationResult {
+    pub fn automate_refund(
+        env: Env,
+        caller: Address,
+        booking_id: Symbol,
+        cancellation_reason: Symbol,
+    ) -> CancellationResult {
         caller.require_auth();
 
         let booking_numeric_id: u64 = env
@@ -216,11 +238,8 @@ impl RefundAutomationContract {
             (symbol_short!("no_refund"), NO_REFUND_BPS)
         };
 
-        let settlement = booking_client.settle_cancellation(
-            &booking_numeric_id,
-            &caller,
-            &passenger_refund_bps,
-        );
+        let settlement =
+            booking_client.settle_cancellation(&booking_numeric_id, &caller, &passenger_refund_bps);
 
         if passenger_refund_bps > 0 {
             let refund_contract: Address = env
@@ -320,7 +339,13 @@ impl RefundAutomationContract {
         processed
     }
 
-    pub fn submit_dispute(env: Env, passenger: Address, refund_id: Symbol, booking_numeric_id: u64, reason: Symbol) {
+    pub fn submit_dispute(
+        env: Env,
+        passenger: Address,
+        refund_id: Symbol,
+        booking_numeric_id: u64,
+        reason: Symbol,
+    ) {
         passenger.require_auth();
 
         let dispute = Dispute {
@@ -340,7 +365,12 @@ impl RefundAutomationContract {
 
         env.events().publish(
             (symbol_short!("refund"), symbol_short!("dispute")),
-            (passenger, refund_id, booking_numeric_id, env.ledger().timestamp()),
+            (
+                passenger,
+                refund_id,
+                booking_numeric_id,
+                env.ledger().timestamp(),
+            ),
         );
     }
 
@@ -382,9 +412,7 @@ impl RefundAutomationContract {
     }
 
     pub fn get_dispute(env: Env, refund_id: Symbol) -> Option<Dispute> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Dispute(refund_id))
+        env.storage().persistent().get(&DataKey::Dispute(refund_id))
     }
 
     pub fn is_cancelled(env: Env, booking_id: Symbol) -> bool {

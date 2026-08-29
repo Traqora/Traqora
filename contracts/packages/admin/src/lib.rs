@@ -1,4 +1,7 @@
 #![no_std]
+// Booking-style contract entrypoints legitimately need many arguments;
+// soroban macro-generated clients re-declare these signatures.
+#![allow(clippy::too_many_arguments)]
 use soroban_sdk::{
     contract, contractimpl, contractmeta, contracttype, symbol_short, Address, Env, Symbol, Vec,
 };
@@ -106,6 +109,7 @@ impl AdminStorage {
             .unwrap_or(false)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn set_emergency_stopped(env: &Env, stopped: bool) {
         env.storage()
             .instance()
@@ -129,10 +133,7 @@ impl AdminMultisig {
             AdminStorage::get_multisig_config(&env).is_none(),
             "Already initialized"
         );
-        assert!(
-            signers.len() >= threshold as u32,
-            "Threshold exceeds signer count"
-        );
+        assert!(signers.len() >= threshold, "Threshold exceeds signer count");
         assert!(threshold > 0, "Threshold must be > 0");
         assert!(threshold >= 2, "Threshold must be at least 2 for security");
         assert!(proposal_expiration > 0, "Expiration must be > 0");
@@ -159,6 +160,7 @@ impl AdminMultisig {
     /// * `parameter_value` - Optional parameter value
     /// * `target_address` - Optional address for add/remove signer actions
     /// * `new_threshold` - Optional new threshold for threshold updates
+    #[allow(clippy::too_many_arguments)]
     pub fn propose_admin_action(
         env: Env,
         proposer: Address,
@@ -410,7 +412,7 @@ impl AdminMultisig {
 
         assert!(found, "Signer not found");
         assert!(
-            new_signers.len() >= config.threshold as u32,
+            new_signers.len() >= config.threshold,
             "Cannot remove: would fall below threshold"
         );
 
@@ -423,7 +425,7 @@ impl AdminMultisig {
         let mut config = AdminStorage::get_multisig_config(&env).expect("Not initialized");
 
         assert!(
-            config.signers.len() >= new_threshold as u32,
+            config.signers.len() >= new_threshold,
             "Threshold exceeds signer count"
         );
         assert!(new_threshold >= 2, "Threshold must be at least 2");

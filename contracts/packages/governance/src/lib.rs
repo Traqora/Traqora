@@ -1,6 +1,6 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 use access::{AccessControl, Role};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 /// On-chain governance proposal: one vote per address per proposal (1 token-holder = 1 vote).
 #[contracttype]
@@ -84,15 +84,10 @@ impl GovernanceContract {
             GovernanceStorageKey::get_config(&env).is_none(),
             "Already initialized"
         );
-        
+
         AccessControl::init_owner(&env, &owner);
 
-        GovernanceStorageKey::set_config(
-            &env,
-            &GovernanceConfig {
-                voting_period_secs,
-            },
-        );
+        GovernanceStorageKey::set_config(&env, &GovernanceConfig { voting_period_secs });
     }
 
     /// Create a proposal; voting runs until `vote_deadline` (now + configured period).
@@ -102,9 +97,7 @@ impl GovernanceContract {
         let config = GovernanceStorageKey::get_config(&env).expect("Not initialized");
 
         let count = GovernanceStorageKey::get_proposal_count(&env);
-        let id = count
-            .checked_add(1)
-            .expect("Proposal id overflow");
+        let id = count.checked_add(1).expect("Proposal id overflow");
         GovernanceStorageKey::set_proposal_count(&env, id);
 
         let now = env.ledger().timestamp();

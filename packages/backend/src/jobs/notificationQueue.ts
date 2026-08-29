@@ -18,7 +18,6 @@ export type NotificationType =
 export interface NotificationPayload {
   userId: string;
   type: NotificationType;
-  type: "booking" | "reminder" | "refund" | "promotional" | "price_alert" | "flight_status";
   data: Record<string, any>; // specific data for the template
   channels?: ("email" | "sms" | "push")[]; // Optional override of which channels to use
 }

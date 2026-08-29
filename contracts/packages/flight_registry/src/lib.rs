@@ -1,8 +1,8 @@
 #![no_std]
+use access::{AccessControl, Role};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol, Val,
 };
-use access::{AccessControl, Role};
 
 #[contracttype]
 #[derive(Clone)]
@@ -70,7 +70,13 @@ impl FlightRegistryContract {
         AccessControl::init_owner(&env, &owner);
     }
 
-    pub fn register_airline(env: Env, executor: Address, admin: Address, airline_id: Symbol, name: Symbol) {
+    pub fn register_airline(
+        env: Env,
+        executor: Address,
+        admin: Address,
+        airline_id: Symbol,
+        name: Symbol,
+    ) {
         AccessControl::require_admin(&env, &executor);
         admin.require_auth();
 

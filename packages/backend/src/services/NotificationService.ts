@@ -36,6 +36,45 @@ export class NotificationService {
     return true;
   }
 
+  /** Push-channel notification stub (no live provider wired yet). */
+  async sendPushNotification(
+    userId: string,
+    message: string,
+    data?: Record<string, unknown>,
+  ): Promise<boolean> {
+    logger.info('Sending push notification', {
+      userId,
+      messageLength: message.length,
+      hasData: Boolean(data),
+    });
+    return true;
+  }
+
+  /** Price-alert notification via push channel (issue #332 family). */
+  async sendPriceAlert(
+    userId: string,
+    message: string,
+    data?: Record<string, unknown>,
+  ): Promise<boolean> {
+    logger.info('Sending price alert', { userId });
+    return this.sendPushNotification(userId, message, data);
+  }
+
+  /** Flight-status change notification for a subscribed user. */
+  async sendFlightStatusAlert(
+    userId: string,
+    flightId: string,
+    status: string,
+    details?: { gate?: string; delayMinutes?: number; reason?: string },
+  ): Promise<boolean> {
+    logger.info('Sending flight status alert', { userId, flightId, status, ...details });
+    return this.sendPushNotification(
+      userId,
+      `Flight ${flightId} status update: ${status}`,
+      { flightId, status, ...details },
+    );
+  }
+
   /**
    * Get or create user notification settings
    */

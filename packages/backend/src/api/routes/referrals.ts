@@ -137,7 +137,7 @@ router.post(
     const displayName = inviterName ?? `${userId.slice(0, 4)}...${userId.slice(-4)}`;
     const inviteUrl = `${INVITE_BASE_URL}/signup?ref=${encodeURIComponent(code)}`;
 
-    await emailService.send(email, 'referral-invite', {
+    await emailService.sendTemplate(email, 'referral-invite', {
       inviterName: displayName,
       referralCode: code,
       inviteUrl,

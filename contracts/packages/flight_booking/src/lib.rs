@@ -67,9 +67,7 @@ impl FlightBookingContract {
         env.storage()
             .persistent()
             .set(&DataKey::Booking(booking_id), &booking);
-        env.storage()
-            .persistent()
-            .set(&seat_key, &booking_id);
+        env.storage().persistent().set(&seat_key, &booking_id);
         env.storage()
             .instance()
             .set(&DataKey::NextId, &(booking_id + 1));
@@ -83,7 +81,9 @@ impl FlightBookingContract {
     }
 
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
-        env.storage().persistent().get(&DataKey::Booking(booking_id))
+        env.storage()
+            .persistent()
+            .get(&DataKey::Booking(booking_id))
     }
 
     pub fn init_upgrade_owner(env: Env, owner: Address) {

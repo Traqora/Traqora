@@ -1,4 +1,7 @@
 #![no_std]
+// Booking-style contract entrypoints legitimately need many arguments;
+// soroban macro-generated clients re-declare these signatures.
+#![allow(clippy::too_many_arguments)]
 use access::{AccessControl, Role};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol, Vec,
@@ -184,6 +187,7 @@ impl PricingStorage {
             .unwrap_or(vec![env])
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn set_price_history(env: &Env, flight_id: u64, history: &Vec<PriceHistoryEntry>) {
         env.storage()
             .persistent()
@@ -301,6 +305,7 @@ impl AirlineContract {
     }
 
     // Create new flight listing
+    #[allow(clippy::too_many_arguments)]
     pub fn create_flight(
         env: Env,
         airline: Address,
@@ -399,7 +404,7 @@ impl AirlineContract {
         flights: Vec<FlightInput>,
     ) -> BatchCreateFlightsResult {
         airline.require_auth();
-        assert!(flights.len() > 0, "Empty batch");
+        assert!(!flights.is_empty(), "Empty batch");
         assert!(flights.len() <= MAX_BATCH_SIZE, "Batch too large");
 
         let mut profile =
@@ -467,7 +472,7 @@ impl AirlineContract {
         updates: Vec<FlightStatusUpdate>,
     ) -> BatchUpdateFlightStatusResult {
         airline.require_auth();
-        assert!(updates.len() > 0, "Empty batch");
+        assert!(!updates.is_empty(), "Empty batch");
         assert!(updates.len() <= MAX_BATCH_SIZE, "Batch too large");
 
         let mut updated_flight_ids = Vec::new(&env);

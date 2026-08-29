@@ -165,4 +165,35 @@ describe("WebhookService", () => {
     );
     expect(createdLog.payload.timestamp).toBeDefined();
   });
+
+  it("should include a nonce and signature header for replay protection", async () => {
+    const prevSecret = process.env.WEBHOOK_SIGNING_SECRET;
+    process.env.WEBHOOK_SIGNING_SECRET = "test-webhook-signing-secret";
+
+    userPrefRepo.findOne.mockResolvedValue({
+      userId: "user-1",
+      webhookEnabled: true,
+      webhookUrl: "https://example.com/hook",
+    });
+
+    const { withRetries } = require("../../src/services/retry");
+    (withRetries as jest.Mock).mockImplementation(async (fn: Function) => fn());
+    mockedAxios.post.mockResolvedValue({ status: 200 });
+
+    await webhookService.sendWebhook("user-1", "booking_created", {
+      bookingId: "321",
+    });
+
+    process.env.WEBHOOK_SIGNING_SECRET = prevSecret;
+
+    const createdLog = notifLogRepo.create.mock.calls[0][0];
+    expect(createdLog.payload.nonce).toBeDefined();
+
+    const [, postedBody, postConfig] = mockedAxios.post.mock.calls[0];
+    const parsed = JSON.parse(postedBody);
+    expect(parsed.nonce).toBe(createdLog.payload.nonce);
+    expect(postConfig.headers["x-traqora-signature"]).toMatch(
+      /^t=[^,]+,v1=[a-f0-9]{64}$/
+    );
+  });
 });

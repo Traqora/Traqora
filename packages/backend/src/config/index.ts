@@ -111,6 +111,15 @@ const readConfigFromEnv = (): Config => {
     twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
     twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER,
 
+    emailProvider: (process.env.EMAIL_PROVIDER as 'smtp' | 'sendgrid' | 'none') || 'none',
+    smtpHost: process.env.SMTP_HOST,
+    smtpPort: parseInteger(process.env.SMTP_PORT, 587),
+    smtpSecure: parseBool(process.env.SMTP_SECURE, false),
+    smtpUser: process.env.SMTP_USER,
+    smtpPassword: process.env.SMTP_PASSWORD,
+    emailFrom: process.env.EMAIL_FROM,
+    smsProvider: (process.env.SMS_PROVIDER as 'twilio' | 'none') || 'none',
+
     stripeSecretKey: process.env.STRIPE_SECRET_KEY,
     stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
 
@@ -267,6 +276,15 @@ export const loadConfig = async (): Promise<Config> => {
     twilioAccountSid: await secretManager.getSecret('TWILIO_ACCOUNT_SID', ''),
     twilioAuthToken: await secretManager.getSecret('TWILIO_AUTH_TOKEN', ''),
     twilioPhoneNumber: await secretManager.getSecret('TWILIO_PHONE_NUMBER', ''),
+
+    emailProvider: ((await secretManager.getSecret('EMAIL_PROVIDER', 'none')) as 'smtp' | 'sendgrid' | 'none') || 'none',
+    smtpHost: await secretManager.getSecret('SMTP_HOST', ''),
+    smtpPort: parseInteger(await secretManager.getSecret('SMTP_PORT', '587'), 587),
+    smtpSecure: parseBool(await secretManager.getSecret('SMTP_SECURE', 'false'), false),
+    smtpUser: await secretManager.getSecret('SMTP_USER', ''),
+    smtpPassword: await secretManager.getSecret('SMTP_PASSWORD', ''),
+    emailFrom: await secretManager.getSecret('EMAIL_FROM', ''),
+    smsProvider: ((await secretManager.getSecret('SMS_PROVIDER', 'none')) as 'twilio' | 'none') || 'none',
 
     stripeSecretKey: await secretManager.getSecret('STRIPE_SECRET_KEY', ''),
     stripeWebhookSecret: await secretManager.getSecret('STRIPE_WEBHOOK_SECRET', ''),

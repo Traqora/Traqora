@@ -46,11 +46,19 @@ impl AccessControl {
 
         match role {
             Role::Owner => false, // Only the explicit owner check above returns true for Owner
-            Role::Admin => env.storage().persistent().has(&DataKey::Role(address.clone(), Role::Admin)),
+            Role::Admin => env
+                .storage()
+                .persistent()
+                .has(&DataKey::Role(address.clone(), Role::Admin)),
             Role::Operator => {
                 // Admin also has Operator role
-                env.storage().persistent().has(&DataKey::Role(address.clone(), Role::Admin)) ||
-                env.storage().persistent().has(&DataKey::Role(address.clone(), Role::Operator))
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::Role(address.clone(), Role::Admin))
+                    || env
+                        .storage()
+                        .persistent()
+                        .has(&DataKey::Role(address.clone(), Role::Operator))
             }
         }
     }
@@ -58,11 +66,15 @@ impl AccessControl {
     /// Set a role for an address. Only the owner can call this.
     pub fn set_role(env: &Env, caller: &Address, target: &Address, role: Role, enabled: bool) {
         Self::require_owner(env, caller);
-        
+
         if enabled {
-            env.storage().persistent().set(&DataKey::Role(target.clone(), role), &true);
+            env.storage()
+                .persistent()
+                .set(&DataKey::Role(target.clone(), role), &true);
         } else {
-            env.storage().persistent().remove(&DataKey::Role(target.clone(), role));
+            env.storage()
+                .persistent()
+                .remove(&DataKey::Role(target.clone(), role));
         }
     }
 

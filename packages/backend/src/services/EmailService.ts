@@ -34,6 +34,22 @@ export class EmailService {
   /**
    * Send generic email
    */
+  /**
+   * Template-style convenience wrapper used by background workers:
+   * renders a minimal HTML body from structured payload data.
+   */
+  async sendTemplate(
+    to: string,
+    template: string,
+    data: Record<string, unknown>,
+  ): Promise<boolean> {
+    return this.send({
+      to,
+      subject: `[Traqora] ${template.replace(/[_-]/g, ' ')}`,
+      html: `<pre>${JSON.stringify({ template, ...data }, null, 2)}</pre>`,
+    });
+  }
+
   async send(options: EmailOptions): Promise<boolean> {
     if (!this.transporter) {
       logger.warn("Email transporter not configured");

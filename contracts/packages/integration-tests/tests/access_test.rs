@@ -1,7 +1,10 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
 use governance::{GovernanceContract, GovernanceContractClient};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env,
+};
 
 #[test]
 fn test_access_control_ownership() {
@@ -80,7 +83,7 @@ fn test_guarded_function() {
     client.set_role(&owner, &admin, &1, &true);
 
     let proposal_id = client.create_proposal(&owner, &soroban_sdk::Symbol::new(&env, "Test"));
-    
+
     // Jump time to end voting period
     env.ledger().with_mut(|li| {
         li.timestamp += 4000;
@@ -92,7 +95,7 @@ fn test_guarded_function() {
 
     // Admin can execute
     client.execute_proposal(&admin, &proposal_id);
-    
+
     let prop = client.get_proposal(&proposal_id).unwrap();
     assert_ne!(prop.status, soroban_sdk::Symbol::new(&env, "open"));
 }

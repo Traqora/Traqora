@@ -123,7 +123,7 @@ export class SMSService {
   /**
    * Get SMS delivery status
    */
-  async getDeliveryStatus(externalId: string): Promise<DeliveryStatus> {
+  async getDeliveryStatus(_externalId: string): Promise<DeliveryStatus> {
     // In production, query provider API
     return "delivered";
   }
@@ -213,8 +213,8 @@ export class SMSService {
    * Send via provider (Twilio, AWS SNS, Vonage)
    */
   private async providerSend(
-    phoneNumber: string,
-    message: string,
+    _phoneNumber: string,
+    _message: string,
   ): Promise<string> {
     // Simulate provider call
     return `mock-${Date.now()}`;

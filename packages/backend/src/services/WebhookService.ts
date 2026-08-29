@@ -1,14 +1,22 @@
 import axios from "axios";
+import crypto from "crypto";
 import { AppDataSource } from "../db/dataSource";
 import { UserPreference } from "../db/entities/UserPreference";
 import { NotificationLog } from "../db/entities/NotificationLog";
 import { logger } from "../utils/logger";
 import { withRetries } from "./retry";
+import {
+  SIGNATURE_HEADER,
+  getWebhookSecret,
+  signWebhook,
+} from "../middleware/webhookVerification";
 
 export interface WebhookPayload {
   event: string;
   data: any;
   timestamp: string;
+  /** Unique per-delivery value used for replay protection (issue #599). */
+  nonce?: string;
 }
 
 export class WebhookService {
@@ -30,11 +38,30 @@ export class WebhookService {
       return;
     }
 
+    // Replay protection: every delivery carries a fresh nonce and an
+    // HMAC signature covering timestamp + nonce + body (issue #599).
+    const secret = getWebhookSecret();
+    const nonce = crypto.randomUUID();
     const payload: WebhookPayload = {
       event: eventType,
       data: payloadData,
       timestamp: new Date().toISOString(),
+      nonce,
     };
+    const rawBody = JSON.stringify(payload);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (secret) {
+      headers[SIGNATURE_HEADER] = signWebhook(rawBody, secret, {
+        timestamp: payload.timestamp,
+        nonce,
+      }).header;
+    } else {
+      logger.warn(
+        "webhook: no signing secret configured; delivering unsigned payload"
+      );
+    }
 
     const logRepo = AppDataSource.getRepository(NotificationLog);
     const logEntry = logRepo.create({
@@ -51,11 +78,8 @@ export class WebhookService {
       await withRetries(
         async () => {
           logEntry.attempts += 1;
-          await axios.post(pref.webhookUrl, payload, {
-            headers: {
-              "Content-Type": "application/json",
-              // Could add signature headers here later
-            },
+          await axios.post(pref.webhookUrl, rawBody, {
+            headers,
             timeout: 5000,
           });
         },

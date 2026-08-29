@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env};
 use proxy::{ContractProxy, ContractProxyClient};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 #[test]
 fn test_proxy_transfer_ownership_unauthorized() {
@@ -15,7 +15,12 @@ fn test_proxy_transfer_ownership_unauthorized() {
     let other = Address::generate(&env);
     let new_owner = Address::generate(&env);
 
-    client.init_proxy(&owner, &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]), &soroban_sdk::Vec::new(&env), &1);
+    client.init_proxy(
+        &owner,
+        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::Vec::new(&env),
+        &1,
+    );
 
     // Non-owner cannot transfer ownership
     let res = client.try_transfer_ownership(&other, &new_owner);
@@ -34,7 +39,12 @@ fn test_proxy_set_role_unauthorized() {
     let target = Address::generate(&env);
     let random = Address::generate(&env);
 
-    client.init_proxy(&owner, &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]), &soroban_sdk::Vec::new(&env), &1);
+    client.init_proxy(
+        &owner,
+        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::Vec::new(&env),
+        &1,
+    );
 
     // Random user cannot set roles
     let res = client.try_set_role(&random, &target, &1u32, &true);
@@ -52,7 +62,12 @@ fn test_proxy_transfer_ownership_updates_config_admin() {
     let owner = Address::generate(&env);
     let new_owner = Address::generate(&env);
 
-    client.init_proxy(&owner, &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]), &soroban_sdk::Vec::new(&env), &1);
+    client.init_proxy(
+        &owner,
+        &soroban_sdk::BytesN::from_array(&env, &[0u8; 32]),
+        &soroban_sdk::Vec::new(&env),
+        &1,
+    );
 
     // Owner transfers ownership to new_owner
     client.transfer_ownership(&owner, &new_owner);

@@ -4,7 +4,6 @@ import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { BadRequestError, NotFoundError } from '../../utils/errors';
 import { ReviewService } from '../../services/reviewService';
-import { logger } from '../../utils/logger';
 
 const router = Router();
 const reviewService = ReviewService.getInstance();

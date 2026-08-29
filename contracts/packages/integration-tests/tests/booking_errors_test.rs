@@ -1,9 +1,8 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, Vec};
 use booking::{BookingContract, BookingContractClient};
+use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, Vec};
 use token::{TRQTokenContract, TRQTokenContractClient};
 
-
-use integration_tests::{new_env, generate_actors, register_contracts, initialize_token};
+use integration_tests::{generate_actors, initialize_token, new_env, register_contracts};
 
 #[test]
 fn test_pay_for_booking_then_success() {
@@ -26,7 +25,9 @@ fn test_pay_for_booking_then_success() {
     );
 
     // Pay once
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id);
 
     // Status now confirmed; next test covers panic on second payment
@@ -50,7 +51,9 @@ fn test_pay_for_booking_again_should_panic() {
         &price,
         &contracts.token.address,
     );
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id);
     contracts.booking.pay_for_booking(&booking_id);
 }
@@ -108,13 +111,13 @@ fn test_release_payment_success() {
     );
 
     // Confirm but no funds (no mint/transfer) -> will panic inside token client, but simulate correct flow
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id);
 
     // Release successfully
-    contracts
-        .booking
-        .release_payment_to_airline(&booking_id);
+    contracts.booking.release_payment_to_airline(&booking_id);
     let booking = contracts.booking.get_booking(&booking_id).unwrap();
     assert_eq!(booking.status, Symbol::new(&env, "completed"));
     assert_eq!(booking.amount_escrowed, 0);
@@ -158,13 +161,17 @@ fn test_refund_passenger_window_and_status_checks() {
         &price,
         &contracts.token.address,
     );
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id2);
-    assert_eq!(contracts.token.balance_of(&contracts.booking.address), price);
+    assert_eq!(
+        contracts.token.balance_of(&contracts.booking.address),
+        price
+    );
     contracts.booking.refund_passenger(&booking_id2);
     assert_eq!(contracts.token.balance_of(&actors.passenger), price);
     assert_eq!(contracts.token.balance_of(&contracts.booking.address), 0);
-
 }
 
 #[test]
@@ -208,7 +215,9 @@ fn test_cancel_and_complete_wrappers() {
     );
 
     // Cancel wrapper (pending -> refunded)
-    contracts.booking.cancel_booking(&actors.passenger, &booking_id);
+    contracts
+        .booking
+        .cancel_booking(&actors.passenger, &booking_id);
     let b = contracts.booking.get_booking(&booking_id).unwrap();
     assert_eq!(b.status, Symbol::new(&env, "refunded"));
 
@@ -223,9 +232,13 @@ fn test_cancel_and_complete_wrappers() {
         &price,
         &contracts.token.address,
     );
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id2);
-    contracts.booking.complete_booking(&actors.airline, &booking_id2);
+    contracts
+        .booking
+        .complete_booking(&actors.airline, &booking_id2);
     let b2 = contracts.booking.get_booking(&booking_id2).unwrap();
     assert_eq!(b2.status, Symbol::new(&env, "completed"));
 }
@@ -250,7 +263,9 @@ fn test_batch_complete_bookings_partial_failure() {
         &price_ok,
         &contracts.token.address,
     );
-    contracts.token.mint(&actors.admin, &actors.passenger, &price_ok);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price_ok);
     contracts.booking.pay_for_booking(&booking_ok);
 
     let booking_pending = contracts.booking.create_booking(
@@ -275,7 +290,9 @@ fn test_batch_complete_bookings_partial_failure() {
         &price_ok,
         &contracts.token.address,
     );
-    contracts.token.mint(&actors.admin, &actors.passenger, &price_ok);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price_ok);
     contracts.booking.pay_for_booking(&other_booking);
 
     let mut ids = Vec::new(&env);
@@ -284,7 +301,9 @@ fn test_batch_complete_bookings_partial_failure() {
     ids.push_back(999_999u64);
     ids.push_back(other_booking);
 
-    let result = contracts.booking.batch_complete_bookings(&actors.airline, &ids);
+    let result = contracts
+        .booking
+        .batch_complete_bookings(&actors.airline, &ids);
     assert_eq!(result.completed_booking_ids.len(), 1);
     assert_eq!(result.failures.len(), 3);
     assert_eq!(result.total_released, price_ok);
@@ -314,5 +333,7 @@ fn test_batch_complete_bookings_enforces_max_batch_size() {
         i += 1;
     }
 
-    contracts.booking.batch_complete_bookings(&actors.airline, &ids);
+    contracts
+        .booking
+        .batch_complete_bookings(&actors.airline, &ids);
 }

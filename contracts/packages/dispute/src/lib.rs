@@ -1,8 +1,11 @@
 #![no_std]
+// Booking-style contract entrypoints legitimately need many arguments;
+// soroban macro-generated clients re-declare these signatures.
+#![allow(clippy::too_many_arguments)]
+use access::{AccessControl, Role};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol,
 };
-use access::{AccessControl, Role};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -196,6 +199,7 @@ impl DisputeStorageKey {
             .unwrap_or(0)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn set_stake(env: &Env, dispute_id: u64, party: &Address, amount: i128) {
         env.storage()
             .persistent()
@@ -208,6 +212,7 @@ pub struct DisputeContract;
 
 #[contractimpl]
 impl DisputeContract {
+    #[allow(clippy::too_many_arguments)]
     pub fn initialize(
         env: Env,
         owner: Address,
