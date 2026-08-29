@@ -6,6 +6,37 @@
 import { logger } from "../utils/logger";
 import type { PushSubscription } from "../types/notification";
 
+export type PushNotificationType =
+  | "booking"
+  | "reminder"
+  | "refund"
+  | "flight_delayed"
+  | "flight_delayed_significant"
+  | "flight_cancelled"
+  | "gate_changed"
+  | "boarding_reminder"
+  | "flight_status"
+  | "refund_initiated"
+  | "payment"
+  | "marketing"
+  | "system";
+
+export interface TypedPushData {
+  flightNumber?: string;
+  bookingReference?: string;
+  refundAmount?: string;
+  from?: string;
+  to?: string;
+  delayMinutes?: number;
+  cancellationReason?: string;
+  previousGate?: string;
+  newGate?: string;
+  gate?: string;
+  terminal?: string;
+  status?: string;
+  [key: string]: string | number | undefined;
+}
+
 export class PushNotificationService {
   private subscriptions: Map<string, PushSubscription[]> = new Map();
 
@@ -76,7 +107,7 @@ export class PushNotificationService {
   }
 
   /**
-   * Send push notification
+   * Send push notification with explicit title/options
    */
   async sendPush(
     userId: string,
@@ -98,21 +129,15 @@ export class PushNotificationService {
       return { successful: 0, failed: 0 };
     }
 
-    const payload = JSON.stringify({
-      title,
-      options,
-    });
+    const payload = JSON.stringify({ title, options });
 
     let successful = 0;
     let failed = 0;
 
     for (const sub of subscriptions) {
       try {
-        // In production, integrate with Firebase Cloud Messaging, OneSignal, or similar
-        // For now, we'll simulate the send
-        await this.simulateSend(sub, payload);
+        await this.deliverToSubscription(sub, payload);
         successful++;
-
         sub.lastUsedAt = new Date();
       } catch (error) {
         failed++;
@@ -123,7 +148,7 @@ export class PushNotificationService {
           error,
         });
 
-        // Mark subscription as inactive if endpoint is dead
+        // Mark subscription as inactive if endpoint is permanently gone
         if (error instanceof Error && error.message.includes("410")) {
           sub.isActive = false;
         }
@@ -133,6 +158,27 @@ export class PushNotificationService {
     logger.info("Push notifications sent", { userId, successful, failed });
 
     return { successful, failed };
+  }
+
+  /**
+   * Send a typed push notification using a pre-defined template
+   */
+  async sendTypedPush(
+    userId: string,
+    type: PushNotificationType,
+    data: TypedPushData,
+  ): Promise<{ successful: number; failed: number }> {
+    const { title, body } = this.buildTypedMessage(type, data);
+
+    return this.sendPush(userId, title, {
+      body,
+      tag: type,
+      data: Object.fromEntries(
+        Object.entries(data)
+          .filter(([, v]) => v !== undefined)
+          .map(([k, v]) => [k, String(v)]),
+      ) as Record<string, string>,
+    });
   }
 
   /**
@@ -170,9 +216,8 @@ export class PushNotificationService {
    */
   async validateSubscription(sub: PushSubscription): Promise<boolean> {
     try {
-      // In production, test the subscription with a minimal payload
       const testPayload = JSON.stringify({ test: true });
-      await this.simulateSend(sub, testPayload);
+      await this.deliverToSubscription(sub, testPayload);
       return true;
     } catch (error) {
       logger.warn("Push subscription validation failed", {
@@ -211,7 +256,7 @@ export class PushNotificationService {
   }
 
   /**
-   * Get subscription count by user
+   * Get subscription statistics
    */
   async getSubscriptionStats(): Promise<{
     totalUsers: number;
@@ -234,16 +279,97 @@ export class PushNotificationService {
   }
 
   /**
-   * Helper: Simulate push send (replace with actual provider integration)
+   * Build title/body strings for typed push notifications
+   */
+  private buildTypedMessage(
+    type: PushNotificationType,
+    data: TypedPushData,
+  ): { title: string; body: string } {
+    switch (type) {
+      case "booking":
+        return {
+          title: "Booking Confirmed",
+          body: `Your flight ${data.flightNumber} is confirmed! Ref: ${data.bookingReference}`,
+        };
+      case "reminder":
+        return {
+          title: "Flight Reminder",
+          body: `Your flight ${data.flightNumber} departs in 24 hours!`,
+        };
+      case "refund":
+        return {
+          title: "Refund Processed",
+          body: `Refund of ${data.refundAmount} for booking ${data.bookingReference} is processed.`,
+        };
+      case "flight_delayed":
+        return {
+          title: `Flight ${data.flightNumber} Delayed`,
+          body: `Your flight ${data.flightNumber} (${data.from ?? ""} → ${data.to ?? ""}) is delayed by ${data.delayMinutes} minutes.`,
+        };
+      case "flight_delayed_significant":
+        return {
+          title: `\u26a0\ufe0f Significant Delay: ${data.flightNumber}`,
+          body: `Your flight ${data.flightNumber} (${data.from ?? ""} → ${data.to ?? ""}) is delayed by ${data.delayMinutes} minutes. Please check the app for updated information.`,
+        };
+      case "flight_cancelled":
+        return {
+          title: `\u274c Flight ${data.flightNumber} Cancelled`,
+          body: `Your flight ${data.flightNumber} (${data.from ?? ""} → ${data.to ?? ""}) has been cancelled. Reason: ${data.cancellationReason ?? "Unknown"}. A refund is being initiated automatically.`,
+        };
+      case "gate_changed":
+        return {
+          title: `Gate Change: ${data.flightNumber}`,
+          body: `Your flight ${data.flightNumber} gate has changed from ${data.previousGate ?? "N/A"} to ${data.newGate ?? "N/A"}.`,
+        };
+      case "boarding_reminder":
+        return {
+          title: `\ud83d\udd14 Boarding Soon: ${data.flightNumber}`,
+          body: `Boarding for ${data.flightNumber} begins in 45 minutes at gate ${data.gate ?? "TBD"}, terminal ${data.terminal ?? "TBD"}.`,
+        };
+      case "flight_status":
+        return {
+          title: `Flight ${data.flightNumber} Update`,
+          body: `Your flight ${data.flightNumber} (${data.from ?? ""} → ${data.to ?? ""}) status: ${data.status}`,
+        };
+      case "refund_initiated":
+        return {
+          title: "\ud83d\udd04 Automatic Refund Initiated",
+          body: `A refund for cancelled flight ${data.flightNumber} has been initiated. Refund will be processed to your original payment method.`,
+        };
+      case "payment":
+        return {
+          title: "Payment Update",
+          body: `A payment update is available for booking ${data.bookingReference}.`,
+        };
+      case "marketing":
+        return {
+          title: "Special Offer",
+          body: "Check out the latest deals for your next trip!",
+        };
+      case "system":
+        return {
+          title: "System Notification",
+          body: "A system notification requires your attention.",
+        };
+      default: {
+        // exhaustive check
+        const _exhaustive: never = type;
+        throw new Error(`Unknown push notification type: ${_exhaustive}`);
+      }
+    }
+  }
+
+  /**
+   * Deliver payload to a single subscription.
+   * In production, replace simulateSend with Firebase Admin SDK or web-push.
    */
   private async simulateSend(
     _sub: PushSubscription,
     _payload: string,
   ): Promise<void> {
-    // Simulate network call
     return new Promise((resolve, reject) => {
       setTimeout(() => {
-        // Simulate occasional failures
+        // Simulate occasional dead endpoints (5 % failure rate)
         if (Math.random() > 0.95) {
           reject(new Error("410 Gone - subscription invalid"));
         } else {
