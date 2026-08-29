@@ -1185,6 +1185,7 @@ export class RefundService {
         resolution: resolution.resolution,
         notes: resolution.notes,
         customRefundPercentage: resolution.customRefundPercentage,
+        adminOverrideJustification: resolution.adminOverrideJustification,
       },
     });
 
