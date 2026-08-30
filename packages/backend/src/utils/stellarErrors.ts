@@ -1,7 +1,11 @@
+import { mapBookingContractError } from './sorobanContractErrors';
+
 export type StellarErrorMapping = {
   code: string;
   message: string;
   details?: unknown;
+  /** HTTP status this failure should surface as. Absent for the pre-existing generic mappings below, which the caller (errorHandler.ts) has always defaulted to the thrown error's own statusCode (typically 500) — only the more specific contract-error mappings added for #547 set this. */
+  statusCode?: number;
 };
 
 const RESULT_CODE_MAP: Record<string, { code: string; message: string }> = {
@@ -42,6 +46,20 @@ export const mapStellarError = (error: any): StellarErrorMapping | null => {
         details: { resultCodes },
       };
     }
+  }
+
+  // Checked before the generic "simulation failed" fallback below: a
+  // recognized contract panic message (#547) is more actionable to a
+  // caller than the generic SOROBAN_SIMULATION_FAILED code, so it wins
+  // when both would otherwise match the same underlying error string.
+  const contractMapping = mapBookingContractError(message);
+  if (contractMapping) {
+    return {
+      code: contractMapping.code,
+      message: contractMapping.message,
+      statusCode: contractMapping.statusCode,
+      details: { rawError: message },
+    };
   }
 
   if (message.toLowerCase().includes('simulation failed')) {

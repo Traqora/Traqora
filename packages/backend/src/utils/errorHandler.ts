@@ -29,8 +29,13 @@ export const errorHandler = (
           retryAfterMs: err.retryAfterMs,
         });
 
-  const statusCode = appError.statusCode;
   const stellarMapping = mapStellarError(err);
+  // A contract-error mapping (#547) carries its own, more accurate status
+  // (e.g. 404 for "booking not found", 409 for an already-processed
+  // booking) rather than always falling back to appError's default of 500
+  // — that default is correct for the generic, older Stellar/Horizon
+  // mappings above it, which never set statusCode.
+  const statusCode = stellarMapping?.statusCode || appError.statusCode;
   const message =
     stellarMapping?.message || appError.message || 'Internal Server Error';
   const code = stellarMapping?.code || appError.code || 'INTERNAL_ERROR';
