@@ -9,8 +9,15 @@ import { UserPreference } from '../../db/entities/UserPreference';
 import { UserProfile } from '../../db/entities/UserProfile';
 import { AccountDeletionRequest } from '../../db/entities/AccountDeletionRequest';
 import { BadRequestError, NotFoundError } from '../../utils/errors';
-import { passengerSchema, userPreferencesSchema, userProfileSchema } from '../schemas';
+import {
+  consentGrantSchema,
+  consentWithdrawSchema,
+  passengerSchema,
+  userPreferencesSchema,
+  userProfileSchema,
+} from '../schemas';
 import { logger } from '../../utils/logger';
+import { consentService } from '../../services/governance/consentService';
 
 const router = Router();
 
@@ -179,6 +186,107 @@ router.post(
     logger.info('gdpr: deletion request created', { userId: walletAddress, requestId: request.id });
 
     return res.status(202).json({ success: true, data: request, alreadyPending: false });
+  }),
+);
+
+/**
+ * GET /users/me/consent
+ * Lists the caller's own currently-granted consent records (#549).
+ * Scoped to the authenticated wallet — never accepts a target user id from
+ * the caller, since that shape (an id-only lookup with no ownership check)
+ * is exactly what made governance.ts's equivalent routes let any caller
+ * view or withdraw another user's consent records; see the note there.
+ */
+router.get(
+  '/me/consent',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const walletAddress = ensureAuthenticatedUser(req);
+    const consents = await consentService.getUserConsents(walletAddress);
+    return res.json({ success: true, data: consents });
+  }),
+);
+
+/**
+ * POST /users/me/consent
+ * Grants (or re-grants, if a prior record for this consentType exists —
+ * see ConsentService.grantConsent's upsert-by-type behaviour) a consent
+ * record for the authenticated user. Idempotent per consentType: granting
+ * an already-granted type updates the same record rather than creating a
+ * duplicate.
+ */
+router.post(
+  '/me/consent',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const walletAddress = ensureAuthenticatedUser(req);
+    const parsed = consentGrantSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const consent = await consentService.grantConsent({
+      userWalletAddress: walletAddress,
+      consentType: parsed.data.consentType,
+      consentDetails: parsed.data.consentDetails,
+      ipAddress: req.ip,
+      userAgent: req.header('user-agent'),
+      expiresAt: parsed.data.expiresAt,
+    });
+
+    return res.status(200).json({ success: true, data: consent });
+  }),
+);
+
+/**
+ * DELETE /users/me/consent/:consentId
+ * Withdraws one of the authenticated user's own consent records.
+ *
+ * Ownership is verified before withdrawal — the record is looked up
+ * scoped to the caller's own wallet first, and a record that doesn't
+ * belong to (or doesn't exist for) this user surfaces as 404, never as a
+ * silent cross-user withdrawal. ConsentService.withdrawConsent itself
+ * takes only a bare consentId with no ownership check, so that guard has
+ * to live here at the route boundary.
+ */
+router.delete(
+  '/me/consent/:consentId',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const walletAddress = ensureAuthenticatedUser(req);
+    const parsed = consentWithdrawSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    // Unfiltered by id (queryConsents has no id filter) and unlimited — a
+    // user can have one record per ConsentType, so an arbitrary `limit`
+    // here risks missing the target record and 404ing incorrectly.
+    const { records } = await consentService.queryConsents({
+      userWalletAddress: walletAddress,
+    });
+    const owned = records.find((record) => record.id === req.params.consentId);
+    if (!owned) {
+      // Deliberately indistinguishable from "consent record does not
+      // exist at all" — confirming existence of another user's record id
+      // via a 403 would itself leak information.
+      throw new NotFoundError('Consent record not found');
+    }
+    if (owned.status === 'withdrawn') {
+      // Withdrawing an already-withdrawn record is a no-op, not an error —
+      // matches deletion-request's alreadyPending idempotency pattern above.
+      return res.status(200).json({ success: true, data: owned, alreadyWithdrawn: true });
+    }
+
+    const withdrawn = await consentService.withdrawConsent(
+      req.params.consentId,
+      parsed.data.reason,
+      walletAddress,
+    );
+
+    logger.info('gdpr: consent withdrawn', { userId: walletAddress, consentId: withdrawn.id });
+
+    return res.status(200).json({ success: true, data: withdrawn, alreadyWithdrawn: false });
   }),
 );
 
