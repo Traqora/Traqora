@@ -125,6 +125,36 @@ export const createFlightRoutes = (
     router.use("/search", searchRateLimitMiddleware);
   }
 
+  router.get("/airports", asyncHandler(async (req, res) => {
+    const q = (req.query.q as string || "").toLowerCase();
+    const allAirports = [
+      { code: "JFK", city: "New York", name: "John F. Kennedy International" },
+      { code: "LAX", city: "Los Angeles", name: "Los Angeles International" },
+      { code: "ORD", city: "Chicago", name: "O'Hare International" },
+      { code: "MIA", city: "Miami", name: "Miami International" },
+      { code: "SFO", city: "San Francisco", name: "San Francisco International" },
+      { code: "LAS", city: "Las Vegas", name: "McCarran International" },
+      { code: "SEA", city: "Seattle", name: "Seattle-Tacoma International" },
+      { code: "DEN", city: "Denver", name: "Denver International" },
+      { code: "LHR", city: "London", name: "Heathrow Airport" },
+      { code: "CDG", city: "Paris", name: "Charles de Gaulle" },
+      { code: "FRA", city: "Frankfurt", name: "Frankfurt Airport" },
+      { code: "HND", city: "Tokyo", name: "Haneda Airport" },
+      { code: "DXB", city: "Dubai", name: "Dubai International" },
+      { code: "SYD", city: "Sydney", name: "Sydney Airport" },
+      { code: "YYZ", city: "Toronto", name: "Toronto Pearson" },
+    ];
+    if (!q) {
+      return res.json({ success: true, data: allAirports.slice(0, 8) });
+    }
+    const filtered = allAirports.filter(a => 
+      a.code.toLowerCase().includes(q) || 
+      a.city.toLowerCase().includes(q) || 
+      a.name.toLowerCase().includes(q)
+    );
+    res.json({ success: true, data: filtered });
+  }));
+
   router.get("/search", asyncHandler(async (req, res) => {
     const parsed = searchQuerySchema.safeParse(req.query);
     if (!parsed.success) {
