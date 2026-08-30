@@ -70,6 +70,7 @@ import {
   IpRateLimitOptions,
   TieredRateLimitOptions,
 } from './utils/rateLimiter';
+import { searchRateLimit } from './middleware/rate-limit-tiers';
 import { requireAuth } from './middleware/authMiddleware';
 import { NotFoundError } from './utils/errors';
 import { AppError } from './services/ErrorHandlingService';
@@ -134,12 +135,16 @@ export const createApp = async (options: AppOptions = {}) => {
         ...options.tieredRateLimit,
       });
 
-  const searchRateLimitMiddleware = createIpRateLimiter({
-    points: 100,
-    durationSeconds: 60,
-    keyPrefix: 'traqora-flight-search-rate-limit',
-    ...options.searchRateLimit,
-  });
+  // Per-tier search rate limiting (#550): replaces the flat IP-based
+  // limiter with SEARCH_LIMITS from rate-limit-tiers.ts, the same config
+  // the admin dashboard (admin.ts, #305) already reads and lets admins
+  // adjust — previously that config existed but was never actually wired
+  // into request-blocking middleware. `options.searchRateLimit === false`
+  // still disables it entirely, matching the pre-existing escape hatch
+  // tests and local dev may rely on; a partial IpRateLimitOptions override
+  // isn't meaningful for the tiered limiter, so it's not threaded through.
+  const searchRateLimitMiddleware =
+    options.searchRateLimit === false ? undefined : searchRateLimit;
 
   app.use(cspMiddleware);
   app.use(rateLimitMiddleware);
