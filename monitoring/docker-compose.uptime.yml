@@ -1,0 +1,30 @@
+# -------------------------------------------------------------------
+# Blackbox Exporter — External Uptime Probes  (Issue #597)
+# -------------------------------------------------------------------
+# Lightweight HTTP probes that Prometheus scrapes to verify public
+# endpoints are reachable from outside the network.
+#
+# Usage:
+#   docker compose -f docker-compose.uptime.yml up -d
+#
+# Requires: prometheus/blackbox-exporter
+# -------------------------------------------------------------------
+
+services:
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: traqora-blackbox-exporter
+    restart: unless-stopped
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./blackbox-exporter/blackbox.yml:/config/blackbox.yml:ro
+    command:
+      - "--config.file=/config/blackbox.yml"
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    name: traqora-monitoring
+    driver: bridge

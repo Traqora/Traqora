@@ -16,6 +16,9 @@ alerting:
 rule_files:
   - '/etc/prometheus/alerts.yml'
   - '/etc/prometheus/slo-rules.yml'
+  - '/etc/prometheus/booking-success-rules.yml'
+  - '/etc/prometheus/error-rate-rules.yml'
+  - '/etc/prometheus/uptime-probe-rules.yml'
 
 # Scrape configurations
 scrape_configs:
@@ -47,3 +50,31 @@ scrape_configs:
     static_configs:
       - targets: ['grafana:3000']
     metrics_path: '/metrics'
+
+  # Blackbox Exporter (external uptime probes)
+  - job_name: 'blackbox-exporter'
+    static_configs:
+      - targets:
+          - 'blackbox-exporter:9115'
+
+  # External uptime probes via Blackbox Exporter
+  - job_name: 'blackbox-https'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    scrape_interval: 30s
+    scrape_timeout: 15s
+    static_configs:
+      - targets:
+          - 'https://api.traqora.io/health'
+          - 'https://api.traqora.io/api/v1/health'
+        labels:
+          service: traqora-api
+          environment: production
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+      - source_labels: [__param_target]
+        target_label: instance
