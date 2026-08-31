@@ -17,6 +17,23 @@ const rejectSchema = z.object({
 
 const REFUNDABLE_STATUSES: BookingStatus[] = ['confirmed', 'failed'];
 
+// GET /api/v1/admin/refunds/overview — aggregated refund overview
+router.get('/overview', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const { getRefundDisputeRepository } = await import('../../../repositories/refundDisputeRepository');
+    const recentLimit = req.query.recentLimit ? Math.min(50, Math.max(1, parseInt(String(req.query.recentLimit), 10))) : 5;
+    const startDate = req.query.startDate ? new Date(String(req.query.startDate)) : undefined;
+    const endDate = req.query.endDate ? new Date(String(req.query.endDate)) : undefined;
+
+    const repository = getRefundDisputeRepository();
+    const refunds = await repository.getRefundOverview({
+        recentLimit,
+        startDate,
+        endDate,
+    });
+
+    return res.json({ success: true, data: refunds });
+}));
+
 // GET /api/v1/admin/refunds — list refund-eligible bookings
 router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
     
