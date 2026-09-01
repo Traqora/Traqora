@@ -334,18 +334,27 @@ Total Consent Changes: ${findings.totalConsentChanges}
 Total Deletion Requests: ${findings.totalDeletionRequests}
 
 Detailed Findings
-----------------
-Data Access by User: ${JSON.stringify(findings.dataAccessByUser, null, 2)}
-Data Export by User: ${JSON.stringify(findings.dataExportByUser, null, 2)}
-Consent Changes by User: ${JSON.stringify(findings.consentChangesByUser, null, 2)}
-Deletion Requests by User: ${JSON.stringify(findings.deletionRequestsByUser, null, 2)}
+    const dataAccessStr = JSON.stringify(findings.dataAccessByUser || {}, null, 2);
+    const dataExportStr = JSON.stringify(findings.dataExportByUser || {}, null, 2);
+    const consentChangesStr = JSON.stringify(findings.consentChangesByUser || {}, null, 2);
+    const deletionRequestsStr = JSON.stringify(findings.deletionRequestsByUser || {}, null, 2);
+
+    return `
+Detailed Findings
+
+Data Access by User: ${dataAccessStr}
+Data Export by User: ${dataExportStr}
+Consent Changes by User: ${consentChangesStr}
+Deletion Requests by User: ${deletionRequestsStr}
 `;
   }
 
   private static generatePCIDSSReportContent(findings: any, options: ComplianceReportOptions): string {
     return `
 PCI-DSS Compliance Audit Report
+
 ===============================
+
 Report Name: ${options.reportName}
 Report Period: ${options.startDate.toISOString()} to ${options.endDate.toISOString()}
 Generated: ${new Date().toISOString()}
