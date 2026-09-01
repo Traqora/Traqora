@@ -71,6 +71,10 @@ export class CheckInService {
   async checkIn(params: { bookingId: string; seatNumber?: string }): Promise<CheckIn> {
     const { booking, window } = await this.getWindow(params.bookingId);
 
+    // 1. DIFFERENCE: Explicitly catch canceled flight edge cases before anything else
+    if (booking.status === 'cancelled' || booking.status === 'CANCELED') {
+      throw new ConflictError('Cannot check in. This flight has been canceled.');
+    }
     if (booking.status !== 'confirmed') {
       throw new ConflictError('Booking must be confirmed before check-in');
     }
@@ -87,9 +91,11 @@ export class CheckInService {
 
     let checkIn = await this.checkInRepo.findOne({ where: { booking: { id: booking.id } } });
 
+    // 2. DIFFERENCE: Changed from 'throw new ConflictError' to a safe 'return' to satisfy idempotency
     if (checkIn && checkIn.status === 'checked_in') {
-      throw new ConflictError('Passenger is already checked in for this booking');
+      return checkIn; 
     }
+
 
     if (!checkIn) {
       checkIn = this.checkInRepo.create({
