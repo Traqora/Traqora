@@ -141,6 +141,25 @@ jobs:
           provenance: true
           sbom: true
 
+      # Issue #590: an explicit SPDX SBOM file per image, attached to the
+      # GitHub Release below — distinct from `sbom: true` on the build step
+      # above, which embeds a buildkit attestation rather than a
+      # downloadable artifact auditors can pull independently.
+      - name: Generate SPDX SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service.name }}:${{ env.IMAGE_TAG }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.service.name }}.spdx.json
+          upload-artifact: false
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service.name }}
+          path: sbom-${{ matrix.service.name }}.spdx.json
+          retention-days: 90
+
       - name: Install Trivy (retry)
         run: |
           for i in 1 2 3; do
@@ -428,10 +447,13 @@ jobs:
             echo "No previous successful run found, using 'latest' tag"
           fi
 
-      - name: Rollback stack
+      # See docs/DEPLOYMENT_CHECKLIST.md "Phase 4: Rollback Runbook" for the
+      # full decision tree this step implements, and the dry-run drill that
+      # exercises this exact script in .github/workflows/rollback-drill.yml
+      # (issue #589).
+      - name: Rollback stack (scripts/rollback-backend.sh)
         env:
           ENVIRONMENT: ${{ needs.environment.outputs.name }}
-          IMAGE_TAG: ${{ steps.previous.outputs.tag }}
           REGISTRY: ${{ env.REGISTRY }}
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
@@ -440,28 +462,20 @@ jobs:
           CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
+          set -o pipefail
           echo "## ⚠️ Rolling Back ${{ needs.environment.outputs.name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Redeploying with previous image tag: ${{ steps.previous.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
 
-          docker compose -f docker-compose.prod.yml \
-            --profile ${{ needs.environment.outputs.name }} \
-            up -d --wait --wait-timeout 120
-
-      - name: Verify rollback
-        run: |
-          echo "### Rollback Verification" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if curl -sf --max-time 10 "http://localhost:3001/health"; then
-            echo "✅ Rollback health check passed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ Rollback health check failed" >> $GITHUB_STEP_SUMMARY
-            exit 1
-          fi
-
-          echo "Rollback completed successfully" >> $GITHUB_STEP_SUMMARY
+          chmod +x scripts/rollback-backend.sh
+          ./scripts/rollback-backend.sh \
+            "${{ needs.environment.outputs.name }}" \
+            "${{ steps.previous.outputs.tag }}" \
+            --api-url "http://localhost:3001" \
+            --force \
+          | tee -a $GITHUB_STEP_SUMMARY
 
       - name: Execute rollback script
         env:
@@ -580,3 +594,36 @@ jobs:
       - name: Fail on deployment failure
         if: needs.deploy-app.result == 'failure' && needs.rollback.result != 'success'
         run: exit 1
+
+  # ─── SBOM Publication (issue #590) ─────────────────────────────────
+  # Attaches the SPDX SBOMs generated in docker-build to the GitHub Release
+  # for this tag, so third-party component lists for the exact images that
+  # shipped in a release stay independently auditable.
+  publish-sbom:
+    name: Publish SBOMs to Release
+    needs: [docker-build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download backend SBOM
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-backend
+          path: sboms/
+
+      - name: Download client SBOM
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-client
+          path: sboms/
+
+      - name: Attach SBOMs to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            sboms/sbom-backend.spdx.json
+            sboms/sbom-client.spdx.json
+          fail_on_unmatched_files: true
+          generate_release_notes: true
