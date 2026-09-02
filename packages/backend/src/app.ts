@@ -12,6 +12,7 @@ import { insuranceRoutes } from './api/routes/insurance';
 import { groupBookingRoutes } from './api/routes/group-bookings';
 import { corporateRoutes } from './api/routes/corporate';
 import { securityRoutes } from './api/routes/security';
+import { adminRoutes } from './api/routes/admin';
 import { adminAuthRoutes } from './api/routes/admin/auth';
 import { adminFlightRoutes } from './api/routes/admin/flights';
 import { adminUserRoutes } from './api/routes/admin/users';
@@ -231,6 +232,8 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/admin/analytics', tenantAnalyticsRoutes);
   app.use('/api/v1', auditRoutes);
   app.use('/api/v1/admin/refunds', adminRefundRoutes);
+  app.use('/api/v1/admin', adminRoutes);
+  app.use('/admin', adminRoutes);
   app.use('/api/v1/collaboration', collaborationRoutes);
   app.use('/api/v1/disputes', disputeRoutes);
   app.use('/api/v1/services', serviceRoutes);
