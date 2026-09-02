@@ -6,7 +6,7 @@ import {
   AncillaryPurchaseStatus,
   AncillaryServiceType,
 } from '../db/entities/AncillaryPurchase';
-import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../utils/errors';
 
 export type CabinClass = 'economy' | 'premium' | 'business' | 'first';
 
@@ -26,6 +26,12 @@ export interface PurchaseAncillaryInput {
   serviceCode: string;
   quantity?: number;
   details?: Record<string, string | number | boolean>;
+}
+
+export interface AncillaryAvailabilityResult {
+  available: boolean;
+  reason?: string;
+  item?: AncillaryCatalogItem;
 }
 
 export interface UpgradeBidInput {
@@ -199,15 +205,127 @@ export class AncillaryService {
     return booking;
   }
 
-  async purchase(input: PurchaseAncillaryInput, walletAddress?: string): Promise<AncillaryPurchase> {
-    const booking = await this.getBooking(input.bookingId, walletAddress);
-    const item = ANCILLARY_CATALOG.find((candidate) => candidate.code === input.serviceCode);
-    if (!item) throw new BadRequestError('Unknown ancillary service code');
+  async checkAvailability(
+    bookingId: string,
+    serviceCode: string,
+    walletAddress?: string,
+    details?: Record<string, string | number | boolean>,
+  ): Promise<AncillaryAvailabilityResult> {
+    const booking = await this.getBooking(bookingId, walletAddress);
+
+    const INACTIVE_BOOKING_STATUSES = ['failed', 'refunded', 'refund_rejected'];
+    if (INACTIVE_BOOKING_STATUSES.includes(booking.status)) {
+      return {
+        available: false,
+        reason: `Booking is in '${booking.status}' status and cannot accept ancillary purchases`,
+      };
+    }
+
+    if (
+      booking.flight?.departureTime &&
+      new Date(booking.flight.departureTime).getTime() < Date.now()
+    ) {
+      return {
+        available: false,
+        reason: 'Flight has already departed; ancillary offers are no longer available',
+      };
+    }
+
+    const item = ANCILLARY_CATALOG.find((candidate) => candidate.code === serviceCode);
+    if (!item) {
+      return {
+        available: false,
+        reason: 'Unknown ancillary service code',
+      };
+    }
 
     const cabin = normalizeCabinClass(booking.flight?.rawData?.cabinClass as string | undefined);
     if (!item.availableCabins.includes(cabin)) {
-      throw new BadRequestError(`${item.name} is not available for ${cabin} cabin`);
+      return {
+        available: false,
+        reason: `${item.name} is not available for ${cabin} cabin`,
+        item,
+      };
     }
+
+    if (item.requiresAirport) {
+      const airport = details?.airport ? String(details.airport).trim().toUpperCase() : undefined;
+      if (!airport && details) {
+        return {
+          available: false,
+          reason: 'An airport is required for lounge access',
+          item,
+        };
+      }
+      if (airport && booking.flight) {
+        const from = booking.flight.fromAirport?.toUpperCase();
+        const to = booking.flight.toAirport?.toUpperCase();
+        if (from && to && airport !== from && airport !== to) {
+          return {
+            available: false,
+            reason: `Airport ${airport} does not match flight itinerary (${from} -> ${to})`,
+            item,
+          };
+        }
+      }
+    }
+
+    const existingPurchases = await this.repositories().purchases.find({
+      where: { bookingId },
+    });
+
+    const activePurchases = existingPurchases.filter((p) =>
+      ['purchased', 'fulfilled', 'bid_accepted', 'bid_pending'].includes(p.status),
+    );
+
+    const alreadyPurchased = activePurchases.some((p) => p.serviceCode === item.code);
+    if (alreadyPurchased) {
+      return {
+        available: false,
+        reason: `${item.name} has already been purchased for this booking`,
+        item,
+      };
+    }
+
+    if (item.type === 'seat_upgrade') {
+      const hasActiveUpgrade = activePurchases.some(
+        (p) => p.serviceType === 'seat_upgrade' && p.status !== 'bid_rejected',
+      );
+      if (hasActiveUpgrade) {
+        return {
+          available: false,
+          reason: 'A seat upgrade is already active or pending for this booking',
+          item,
+        };
+      }
+    }
+
+    return {
+      available: true,
+      item,
+    };
+  }
+
+  async purchase(input: PurchaseAncillaryInput, walletAddress?: string): Promise<AncillaryPurchase> {
+    const availability = await this.checkAvailability(
+      input.bookingId,
+      input.serviceCode,
+      walletAddress,
+      input.details,
+    );
+
+    if (!availability.available) {
+      if (
+        availability.reason?.includes('already been purchased') ||
+        availability.reason?.includes('already active') ||
+        availability.reason?.includes('cannot accept ancillary purchases')
+      ) {
+        throw new ConflictError(availability.reason);
+      }
+      throw new BadRequestError(availability.reason || 'Ancillary service is no longer available');
+    }
+
+    const item = availability.item!;
     if (item.requiresAirport && typeof input.details?.airport !== 'string') {
       throw new BadRequestError('An airport is required for lounge access');
     }
@@ -229,6 +347,22 @@ export class AncillaryService {
 
   async placeUpgradeBid(input: UpgradeBidInput, walletAddress?: string): Promise<AncillaryPurchase> {
     const booking = await this.getBooking(input.bookingId, walletAddress);
+
+    const INACTIVE_BOOKING_STATUSES = ['failed', 'refunded', 'refund_rejected'];
+    if (INACTIVE_BOOKING_STATUSES.includes(booking.status)) {
+      throw new ConflictError(`Booking is in '${booking.status}' status and cannot accept upgrade bids`);
+    }
+
+    const existingPurchases = await this.repositories().purchases.find({
+      where: { bookingId: input.bookingId },
+    });
+    const hasActiveUpgrade = existingPurchases.some(
+      (p) => p.serviceType === 'seat_upgrade' && ['bid_pending', 'bid_accepted', 'fulfilled', 'purchased'].includes(p.status),
+    );
+    if (hasActiveUpgrade) {
+      throw new ConflictError('A seat upgrade or bid is already active for this booking');
+    }
+
     const currentCabin = normalizeCabinClass(
       booking.flight?.rawData?.cabinClass as string | undefined,
     );

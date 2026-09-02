@@ -7,6 +7,7 @@ import { smsService } from "../services/SMSService";
 import { pushNotificationService } from "../services/PushNotificationService";
 import { logger } from "../utils/logger";
 import { createJobLogger } from "./jobLogger";
+import { deadLetterQueue } from "./deadLetterQueue";
 
 export const setupNotificationWorker = () => {
   notificationQueue.process(async (job) => {
@@ -156,6 +157,32 @@ export const setupNotificationWorker = () => {
       outcome: "failure",
       error: err.message,
     });
+
+    const maxAttempts = job.opts?.attempts ?? 1;
+    const isFinalAttempt = job.attemptsMade >= maxAttempts;
+
+    if (isFinalAttempt) {
+      // Bull will not retry this job again — quarantine it instead of letting it
+      // disappear once Bull removes/expires the failed job record.
+      deadLetterQueue
+        .add({
+          id: job.id?.toString() ?? "unknown",
+          queue: "notification-worker",
+          type: job.data?.type,
+          data: job.data,
+          attempts: job.attemptsMade,
+          error: err.message,
+        })
+        .catch((dlqError: unknown) => {
+          logger.error("notification-worker: failed to write to dead-letter queue", {
+            job: "notification-worker",
+            jobId: job.id,
+            step: "dead_letter",
+            outcome: "failure",
+            error: dlqError instanceof Error ? dlqError.message : String(dlqError),
+          });
+        });
+    }
   });
 
   notificationQueue.on("completed", (job, result) => {
