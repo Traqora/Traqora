@@ -39,8 +39,17 @@ interface SeatLock {
   expiresAt: Date;
 }
 
+export interface GroupSeatHold {
+  groupBookingId: string;
+  seatCount: number;
+  seats: string[];
+  lockedAt: Date;
+  expiresAt: Date;
+}
+
 // In-memory seat lock storage (in production, use Redis)
 const seatLocks: Map<string, Map<string, SeatLock>> = new Map();
+const groupSeatHolds: Map<string, Map<string, GroupSeatHold>> = new Map();
 
 export class SeatAvailabilityService {
   /**
@@ -109,6 +118,157 @@ export class SeatAvailabilityService {
   }
 
   /**
+   * Hold seats for a group booking from the shared seat pool
+   */
+  async holdSeatsForGroup(
+    flightId: string,
+    groupBookingId: string,
+    seatCount: number,
+    preferredSeats?: string[],
+  ): Promise<{ seats: string[]; heldCount: number }> {
+    if (seatCount <= 0) {
+      throw new BadRequestError("Seat count must be greater than zero");
+    }
+
+    const availability = await this.getSeatAvailability(flightId);
+    if (availability.availableSeats < seatCount) {
+      throw new BadRequestError(
+        `Not enough available seats in the seat pool for group hold: requested ${seatCount}, available ${availability.availableSeats}`,
+      );
+    }
+
+    const allocatedSeats: string[] = [];
+    const availableSeatsList: string[] = [];
+
+    // Collect all currently available seat numbers
+    for (const [rowStr, row] of Object.entries(availability.seatMap)) {
+      for (const [col, seat] of Object.entries(row)) {
+        if (seat.available) {
+          availableSeatsList.push(`${rowStr}${col}`);
+        }
+      }
+    }
+
+    // Allocate preferred seats first if provided and available
+    if (preferredSeats && preferredSeats.length > 0) {
+      for (const seat of preferredSeats) {
+        if (
+          availableSeatsList.includes(seat) &&
+          !allocatedSeats.includes(seat) &&
+          allocatedSeats.length < seatCount
+        ) {
+          allocatedSeats.push(seat);
+        }
+      }
+    }
+
+    // Allocate remaining required seats from available seats
+    for (const seat of availableSeatsList) {
+      if (allocatedSeats.length >= seatCount) break;
+      if (!allocatedSeats.includes(seat)) {
+        allocatedSeats.push(seat);
+      }
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + SEAT_LOCK_DURATION_MS);
+
+    if (!groupSeatHolds.has(flightId)) {
+      groupSeatHolds.set(flightId, new Map());
+    }
+
+    groupSeatHolds.get(flightId)!.set(groupBookingId, {
+      groupBookingId,
+      seatCount,
+      seats: allocatedSeats,
+      lockedAt: now,
+      expiresAt,
+    });
+
+    // Also register locks for each allocated seat
+    if (!seatLocks.has(flightId)) {
+      seatLocks.set(flightId, new Map());
+    }
+
+    for (const seatNumber of allocatedSeats) {
+      seatLocks.get(flightId)!.set(seatNumber, {
+        bookingId: `group:${groupBookingId}`,
+        seatNumber,
+        lockedAt: now,
+        expiresAt,
+      });
+    }
+
+    logger.info("Group seats held", {
+      flightId,
+      groupBookingId,
+      seatCount,
+      allocatedSeats,
+      expiresAt,
+    });
+
+    return {
+      seats: allocatedSeats,
+      heldCount: allocatedSeats.length,
+    };
+  }
+
+  /**
+   * Release group seat hold back into the shared pool
+   */
+  async releaseGroupSeatHold(
+    flightId: string,
+    groupBookingId: string,
+  ): Promise<void> {
+    const hold = groupSeatHolds.get(flightId)?.get(groupBookingId);
+    if (!hold) return;
+
+    // Release seat locks associated with this group
+    const locks = seatLocks.get(flightId);
+    if (locks) {
+      for (const seatNumber of hold.seats) {
+        if (locks.get(seatNumber)?.bookingId === `group:${groupBookingId}`) {
+          locks.delete(seatNumber);
+        }
+      }
+    }
+
+    groupSeatHolds.get(flightId)?.delete(groupBookingId);
+    if (groupSeatHolds.get(flightId)?.size === 0) {
+      groupSeatHolds.delete(flightId);
+    }
+
+    logger.info("Group seat hold released", { flightId, groupBookingId });
+  }
+
+  /**
+   * Update group seat hold count (e.g. when members are added/removed)
+   */
+  async updateGroupSeatHold(
+    flightId: string,
+    groupBookingId: string,
+    newSeatCount: number,
+  ): Promise<{ seats: string[]; heldCount: number }> {
+    await this.releaseGroupSeatHold(flightId, groupBookingId);
+    return this.holdSeatsForGroup(flightId, groupBookingId, newSeatCount);
+  }
+
+  /**
+   * Get active group seat hold
+   */
+  getGroupSeatHold(
+    flightId: string,
+    groupBookingId: string,
+  ): GroupSeatHold | undefined {
+    const hold = groupSeatHolds.get(flightId)?.get(groupBookingId);
+    if (hold && hold.expiresAt < new Date()) {
+      this.releaseGroupSeatHold(flightId, groupBookingId);
+      return undefined;
+    }
+    return hold;
+  }
+
+  /**
    * Lock a seat (temporary reservation, expires after 15 minutes)
    */
   async lockSeat(
@@ -123,9 +283,13 @@ export class SeatAvailabilityService {
 
     // Check if seat already locked
     const existingLock = this.getSeatLock(flightId, seatNumber);
-    if (existingLock && existingLock.bookingId !== bookingId) {
+    if (
+      existingLock &&
+      existingLock.bookingId !== bookingId &&
+      existingLock.bookingId !== `group:${bookingId}`
+    ) {
       throw new BadRequestError(
-        `Seat ${seatNumber} is locked by another booking`,
+        `Seat ${seatNumber} is locked by another booking or group hold`,
       );
     }
 
@@ -175,7 +339,10 @@ export class SeatAvailabilityService {
       return;
     }
 
-    if (lock.bookingId !== bookingId) {
+    if (
+      lock.bookingId !== bookingId &&
+      lock.bookingId !== `group:${bookingId}`
+    ) {
       throw new BadRequestError("Cannot release lock owned by another booking");
     }
 
@@ -298,11 +465,32 @@ export class SeatAvailabilityService {
       }
     }
 
+    for (const [flightId, holds] of groupSeatHolds) {
+      for (const [groupId, hold] of holds) {
+        if (hold.expiresAt < now) {
+          holds.delete(groupId);
+          cleanedCount += hold.seats.length;
+        }
+      }
+
+      if (holds.size === 0) {
+        groupSeatHolds.delete(flightId);
+      }
+    }
+
     if (cleanedCount > 0) {
-      logger.info("Cleaned up expired seat locks", { count: cleanedCount });
+      logger.info("Cleaned up expired seat locks and group holds", { count: cleanedCount });
     }
 
     return cleanedCount;
+  }
+
+  /**
+   * Reset/clear all in-memory seat locks and group holds (for testing/maintenance)
+   */
+  clearAllLocksAndHolds(): void {
+    seatLocks.clear();
+    groupSeatHolds.clear();
   }
 
   /**

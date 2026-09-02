@@ -50,3 +50,15 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+fix.md
+
+# Terraform (issues #587, #588)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+tfplan.txt
+crash.log
+terraform/backend.hcl
+terraform/environments/**/backend.hcl
