@@ -712,7 +712,22 @@ export async function getCarbonStats(userId: string): Promise<SustainabilityStat
   return apiGet<SustainabilityStats>(`/api/v1/carbon/stats?userId=${userId}`)
 }
 
+export interface Airport {
+  code: string;
+  city: string;
+  name: string;
+}
+
 export const apiClient = {
+  searchAirports: async (query: string): Promise<ApiResult<Airport[]>> => {
+    try {
+      const response = await apiGet<Airport[]>(`/api/flights/airports?q=${encodeURIComponent(query)}`);
+      return { success: true, data: response };
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } };
+    }
+  },
+
   searchFlights: async (params: FlightSearchParams) => {
     try {
       const response = await searchFlights(params)
