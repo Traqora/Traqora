@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { NextFunction, Router, Request, Response } from "express";
 import { asyncHandler } from "../../utils/errorHandler";
 import { AppDataSource } from "../../db/dataSource";
 import { Flight } from "../../db/entities/Flight";
@@ -118,7 +118,7 @@ const HISTORY_LIMIT = 10;
 
 export const createFlightRoutes = (
   flightSearchService: FlightSearchService,
-  searchRateLimitMiddleware?: any,
+  searchRateLimitMiddleware?: (req: Request, res: Response, next: NextFunction) => Promise<void>,
   flexibleSearchService: FlexibleSearchService = createFlexibleSearchService(flightSearchService),
 ) => {
   const router = Router();
@@ -137,7 +137,12 @@ export const createFlightRoutes = (
   });
 
   if (searchRateLimitMiddleware) {
-    router.use("/search", searchRateLimitMiddleware);
+    // Wrapped in asyncHandler (#550): searchRateLimitMiddleware is now
+    // SEARCH_LIMITS-driven and async (see rate-limit-tiers.ts), and a
+    // rejected promise must reach next(err) rather than become an
+    // unhandled rejection — the same reasoning as bookings.ts's
+    // equivalent wiring.
+    router.use("/search", asyncHandler(searchRateLimitMiddleware));
   }
 
   router.get("/search", asyncHandler(async (req, res) => {

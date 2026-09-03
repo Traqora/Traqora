@@ -25,8 +25,17 @@ import {
   mapPassengerToRequest,
 } from "../../services/specialAssistanceService";
 import type { SpecialAssistanceRequest } from "../../types/specialAssistance";
+import { bookingRateLimit, excludingPaths } from "../../middleware/rate-limit-tiers";
 
 const router = Router();
+
+// Per-tier booking rate limiting (#550), applied to every route on this
+// router except the Stripe webhook — see excludingPaths's doc comment.
+// Wrapped in asyncHandler (the project's existing pattern) so a rejected
+// promise inside the rate limiter — e.g. a Redis error surfacing through
+// rate-limiter-flexible — reaches Express's error handler via next(err)
+// instead of becoming an unhandled rejection.
+router.use(asyncHandler(excludingPaths(bookingRateLimit, ["/webhook/stripe"])));
 
 // IATA name format: letters, spaces, hyphens, and apostrophes only
 const iatanameRegex = /^[A-Za-z\s'\-]+$/;
