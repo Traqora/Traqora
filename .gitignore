@@ -50,6 +50,7 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
 fix.md
 
 # Terraform (issues #587, #588)
