@@ -1,26 +1,24 @@
-#545 Add group-booking seat-pool consistency checks
+#510 Support partial refunds in the refund contract
 Repo Avatar
 Traqora/Traqora
 Title
-Add group-booking seat-pool consistency checks
+Support partial refunds in the refund contract
 
 Summary
-Improvement to the Node/Express backend layer.
+Improvement to the Soroban smart-contract layer.
 
 Context
 Traqora is a decentralized travel-booking platform built on the Stellar ecosystem: Soroban smart contracts handle booking, refunds, disputes and loyalty, with a Node/Express backend and a React client. This is a contributor-friendly task for the community. Please ask in the discussion before starting and reference this issue in your PR.
 
 Task
-Guarantee group booking holds use the same seat pool as individual holds so groups cannot overcommit capacity, with tests for mixed group/individual loads.
+Implement partial refunds in contracts/packages/refund so a booking can be refunded in multiple transactions, with idempotency guarding against double-settlement.
 
 Suggested files / areas
-packages/backend/src/services/groupBooking.ts, packages/backend/src/services/seatAvailabilityService.ts
+contracts/packages/refund
 
 Acceptance Criteria
- Behaviour is covered by unit/integration tests
- Idempotency and error handling are preserved
- Types/validation follow existing conventions
+ Tests are added and pass (cargo test / relevant harness)
+ Contract behaviour is deterministic and safe
+ Existing contracts/abilities are not regressed
 Difficulty: Hard
 This issue is ideal for a first-time contributor. Comment to claim it and maintainers will assign you.
-
-
