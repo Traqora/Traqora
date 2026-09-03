@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "test": "jest --config jest.config.cjs",
+    "test:coverage": "jest --config jest.config.cjs --coverage --coverageReporters=lcov --coverageReporters=text-summary",
     "test:integration": "jest --config jest.config.cjs --runInBand",
     "test:perf": "jest --config jest.config.cjs tests/performance/",
     "test:perf:auth": "jest --config jest.config.cjs tests/performance/authService.perf.test.ts",

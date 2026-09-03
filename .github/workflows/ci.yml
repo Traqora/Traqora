@@ -179,7 +179,24 @@ jobs:
 
       - run: npm install --legacy-peer-deps
 
-      - run: npm test --workspace=packages/backend -- --coverage
+      - name: Run tests with coverage gate
+        # Fails when coverage drops below the thresholds configured in
+        # packages/backend/jest.config.cjs (coverageThreshold).
+        run: |
+          set +e
+          npm run test:coverage --workspace=packages/backend > /tmp/backend-coverage.log 2>&1
+          status=$?
+          set -e
+          grep -iE "coverage threshold|Coverage summary|^Statements|^Branches|^Functions|^Lines|Test Suites:|Tests:" /tmp/backend-coverage.log > /tmp/backend-coverage-summary.txt || true
+          {
+            echo "### Backend Coverage Gate"
+            echo ""
+            cat /tmp/backend-coverage-summary.txt
+            echo ""
+            echo "Thresholds: \`packages/backend/jest.config.cjs\` -> \`coverageThreshold.global\` (statements 35, branches 30, functions 34, lines 35)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
@@ -267,7 +284,24 @@ jobs:
 
       - name: Coverage
         working-directory: contracts
-        run: cargo llvm-cov --summary-only --fail-under-lines 90
+        # Fails when line coverage drops below 90% (no silent regression).
+        run: |
+          set +e
+          cargo llvm-cov --summary-only --fail-under-lines 90 > /tmp/contracts-coverage.log 2>&1
+          status=$?
+          set -e
+          tail -25 /tmp/contracts-coverage.log > /tmp/contracts-coverage-summary.txt
+          {
+            echo "### Contracts Coverage Gate"
+            echo ""
+            echo '```'
+            cat /tmp/contracts-coverage-summary.txt
+            echo '```'
+            echo ""
+            echo "Threshold: line coverage >= 90% (\`cargo llvm-cov --fail-under-lines 90\`)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
 
   # ── Integration: Backend ──────────────────────────────────────────────────
   integration-backend:
