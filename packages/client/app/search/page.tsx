@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { Plane, Calendar, BarChart3, Keyboard, Bookmark, History, Trash2 } from "lucide-react"
+import { Plane, Calendar, BarChart3, Keyboard, Bookmark, History, Trash2, Share2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { NavWalletButton } from "@/components/nav-wallet-button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -19,6 +19,7 @@ import { PriceTrendSparkline } from "@/components/flight-search/price-trend-spar
 import { FlightComparison } from "@/components/flight-comparison"
 import { useFlightSearch } from "@/hooks/use-flight-search"
 import { apiClient, SavedSearch, SearchHistoryEntry } from "@/lib/api"
+import { buildSearchShareLink, decodeSearchQueryFromUrl } from "@/lib/search-sharing"
 
 const FILTERS_STORAGE_KEY = "traqora:flight-search-filters"
 const MAX_COMPARE = 3
@@ -58,15 +59,15 @@ function departureWindowToHours(window: string): [number, number] | null {
     default:
       return null
   }
+}
 
-  function toSearchMemoryPayload(query: SearchFormData) {
-    return {
-      from: query.from.toUpperCase(),
-      to: query.to.toUpperCase(),
-      date: query.departure,
-      passengers: parseInt(query.passengers, 10),
-      class: query.class,
-    }
+function toSearchMemoryPayload(query: SearchFormData) {
+  return {
+    from: query.from.toUpperCase(),
+    to: query.to.toUpperCase(),
+    date: query.departure,
+    passengers: parseInt(query.passengers, 10),
+    class: query.class,
   }
 }
 
@@ -138,16 +139,14 @@ export default function SearchPage() {
 
   // Prefill from URL query params (bookmarkable/shareable searches)
   useEffect(() => {
-    const from = searchParams.get("from")
-    const to = searchParams.get("to")
-    const departure = searchParams.get("date")
-    if (from && to && departure) {
+    const decoded = decodeSearchQueryFromUrl(searchParams.toString())
+    if (decoded) {
       const query: SearchFormData = {
-        from,
-        to,
-        departure,
-        passengers: searchParams.get("passengers") || "1",
-        class: (searchParams.get("class") as SearchFormData["class"]) || "economy",
+        from: decoded.from,
+        to: decoded.to,
+        departure: decoded.date,
+        passengers: String(decoded.passengers),
+        class: decoded.class,
       }
       setLastQuery(query)
       runSearch(query, loadStoredFilters())
@@ -275,6 +274,68 @@ export default function SearchPage() {
     toast({ title: "Search saved" })
   }
 
+  const shareCurrentSearch = async () => {
+    if (!lastQuery) return
+    const { url } = buildSearchShareLink(toSearchMemoryPayload(lastQuery))
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(url)
+        toast({ title: "Share link copied to clipboard" })
+        return
+      } catch {
+        // fall through to legacy fallback below
+      }
+    }
+    if (typeof window !== "undefined") {
+      window.prompt("Copy this share link", url)
+    }
+  }
+
+  const handleClearAllHistory = async () => {
+    if (typeof window !== "undefined" && !window.confirm("Remove all recent searches? This cannot be undone.")) {
+      return
+    }
+    const response = await apiClient.clearSearchHistory()
+    if (!response.success) {
+      toast({ title: "Failed to clear history", description: response.error.message, variant: "destructive" })
+      return
+    }
+    setSearchHistory([])
+    toast({ title: `Cleared ${response.data.deletedCount} search${response.data.deletedCount === 1 ? "" : "es"}` })
+  }
+
+  const handleClearAllSaved = async () => {
+    if (typeof window !== "undefined" && !window.confirm("Remove all saved searches? This cannot be undone.")) {
+      return
+    }
+    const response = await apiClient.clearSavedSearches()
+    if (!response.success) {
+      toast({ title: "Failed to clear saved searches", description: response.error.message, variant: "destructive" })
+      return
+    }
+    setSavedSearches([])
+    toast({ title: `Cleared ${response.data.deletedCount} saved search${response.data.deletedCount === 1 ? "" : "es"}` })
+  }
+
+  const handleExportSearchData = async () => {
+    const response = await apiClient.exportSearchData()
+    if (!response.success) {
+      toast({ title: "Failed to export search data", description: response.error.message, variant: "destructive" })
+      return
+    }
+    if (typeof window === "undefined") return
+    const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: "application/json" })
+    const objectUrl = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = objectUrl
+    anchor.download = `traqora-search-data-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(objectUrl)
+    toast({ title: "Search data exported" })
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation — landmark: banner */}
@@ -345,11 +406,22 @@ export default function SearchPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <Card>
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <History className="h-4 w-4 text-primary" />
                 Recent Searches
               </CardTitle>
+              {searchHistory.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleClearAllHistory}
+                  aria-label="Clear all recent searches"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  Clear all
+                </Button>
+              )}
             </CardHeader>
             <CardContent className="space-y-2">
               {isMemoryLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
@@ -394,9 +466,15 @@ export default function SearchPage() {
                 <Bookmark className="h-4 w-4 text-primary" />
                 Saved Searches
               </CardTitle>
-              <Button size="sm" variant="outline" onClick={saveCurrentSearch} disabled={!lastQuery}>
-                Save Current
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={shareCurrentSearch} disabled={!lastQuery}>
+                  <Share2 className="h-4 w-4 mr-1" />
+                  Share
+                </Button>
+                <Button size="sm" variant="outline" onClick={saveCurrentSearch} disabled={!lastQuery}>
+                  Save Current
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-2">
               {isMemoryLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
@@ -433,6 +511,33 @@ export default function SearchPage() {
                   </Button>
                 </div>
               ))}
+              {savedSearches.length > 0 && (
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <span className="text-xs text-muted-foreground">
+                    {savedSearches.length} saved · manage privacy
+                  </span>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleExportSearchData}
+                      aria-label="Export search history and saved searches as JSON"
+                    >
+                      <Download className="h-4 w-4 mr-1" />
+                      Export
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleClearAllSaved}
+                      aria-label="Clear all saved searches"
+                    >
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      Clear all
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

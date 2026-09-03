@@ -133,6 +133,17 @@ export interface SavedSearch {
   updatedAt: string
 }
 
+export interface SearchDataExport {
+  exportedAt: string
+  userId: string
+  history: SearchHistoryEntry[]
+  savedSearches: SavedSearch[]
+}
+
+export interface ClearSearchDataResult {
+  deletedCount: number
+}
+
 export interface CreateBookingRequest {
   flightId: string
   passengerCount: number
@@ -588,6 +599,30 @@ export async function updateSavedSearch(
 
 export async function deleteSavedSearch(id: string): Promise<void> {
   await authedFetch(`/api/v1/flights/saved-searches/${id}`, { method: 'DELETE' })
+}
+
+export async function clearSearchHistory(): Promise<ClearSearchDataResult> {
+  const body = await authedFetch('/api/v1/flights/search/history', { method: 'DELETE' })
+  return body.data as ClearSearchDataResult
+}
+
+export async function clearSavedSearches(): Promise<ClearSearchDataResult> {
+  const body = await authedFetch('/api/v1/flights/saved-searches', { method: 'DELETE' })
+  return body.data as ClearSearchDataResult
+}
+
+export async function exportSearchData(): Promise<SearchDataExport> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/flights/search/history/export`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeader(),
+    },
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+  }
+  return (await response.json()) as SearchDataExport
 }
 
 export async function getInsuranceQuotes(
@@ -1057,5 +1092,32 @@ export const apiClient = {
     } catch (error: any) {
       return { success: false, error: { message: error.message } }
     }
-  }
+  },
+
+  clearSearchHistory: async (): Promise<ApiResult<ClearSearchDataResult>> => {
+    try {
+      const data = await clearSearchHistory()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  clearSavedSearches: async (): Promise<ApiResult<ClearSearchDataResult>> => {
+    try {
+      const data = await clearSavedSearches()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  exportSearchData: async (): Promise<ApiResult<SearchDataExport>> => {
+    try {
+      const data = await exportSearchData()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
 }
