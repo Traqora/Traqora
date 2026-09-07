@@ -620,7 +620,7 @@ jobs:
           path: sboms/
 
       - name: Attach SBOMs to the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             sboms/sbom-backend.spdx.json
