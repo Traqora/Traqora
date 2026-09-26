@@ -4,6 +4,7 @@ members = [
     "packages/shared/access",
     "packages/shared/storage_version",
     "packages/shared/errors",
+    "packages/shared/events",
     "packages/admin",
     "packages/airline",
     "packages/booking",
@@ -33,6 +34,7 @@ soroban-sdk = { version = "22.0.0" }
 access = { path = "packages/shared/access" }
 storage-version = { path = "packages/shared/storage_version" }
 errors = { path = "packages/shared/errors" }
+contract-events = { path = "packages/shared/events" }
 airline = { path = "packages/airline" }
 booking = { path = "packages/booking" }
 booking-receipt = { path = "packages/booking_receipt" }
