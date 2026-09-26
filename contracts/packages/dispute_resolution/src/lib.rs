@@ -1,7 +1,6 @@
 #![no_std]
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Symbol, Vec,
-};
+use contract_events::{Action, Domain};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, BytesN, Env, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone)]
@@ -195,8 +194,10 @@ impl DisputeResolutionContract {
             .persistent()
             .set(&DataKey::BookingToDispute(booking_id), &dispute_id);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("opened")),
+        contract_events::emit(
+            &env,
+            Domain::Dispute,
+            Action::Opened,
             (dispute_id, claimant),
         );
 
@@ -251,8 +252,10 @@ impl DisputeResolutionContract {
         env.storage()
             .persistent()
             .set(&DataKey::Dispute(dispute_id), &dispute);
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("counter")),
+        contract_events::emit(
+            &env,
+            Domain::Dispute,
+            Action::Counter,
             (dispute_id, respondent),
         );
     }
@@ -311,8 +314,10 @@ impl DisputeResolutionContract {
             .persistent()
             .set(&DataKey::Dispute(dispute_id), &dispute);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("resolved")),
+        contract_events::emit(
+            &env,
+            Domain::Dispute,
+            Action::Resolved,
             (dispute_id, arbiter, winner, payout_amount),
         );
     }

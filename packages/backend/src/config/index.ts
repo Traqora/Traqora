@@ -104,6 +104,7 @@ const readConfigFromEnv = (): Config => {
     flightSearchCacheTtlSeconds: parseInteger(process.env.FLIGHT_SEARCH_CACHE_TTL_SECONDS, 300),
     flightRegistryCacheTtlSeconds: parseInteger(process.env.FLIGHT_REGISTRY_CACHE_TTL_SECONDS, 60),
     apiResponseCacheTtlSeconds: parseInteger(process.env.API_RESPONSE_CACHE_TTL_SECONDS, 60),
+    oracleRateCacheTtlSeconds: parseInteger(process.env.ORACLE_RATE_CACHE_TTL_SECONDS, 60),
 
     sendgridApiKey: process.env.SENDGRID_API_KEY,
     firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT,
@@ -270,6 +271,7 @@ export const loadConfig = async (): Promise<Config> => {
     flightSearchCacheTtlSeconds: parseInteger(await secretManager.getSecret('FLIGHT_SEARCH_CACHE_TTL_SECONDS', '300'), 300),
     flightRegistryCacheTtlSeconds: parseInteger(await secretManager.getSecret('FLIGHT_REGISTRY_CACHE_TTL_SECONDS', '60'), 60),
     apiResponseCacheTtlSeconds: parseInteger(await secretManager.getSecret('API_RESPONSE_CACHE_TTL_SECONDS', '60'), 60),
+    oracleRateCacheTtlSeconds: parseInteger(await secretManager.getSecret('ORACLE_RATE_CACHE_TTL_SECONDS', '60'), 60),
 
     sendgridApiKey: await secretManager.getSecret('SENDGRID_API_KEY', ''),
     firebaseServiceAccount: await secretManager.getSecret('FIREBASE_SERVICE_ACCOUNT', ''),

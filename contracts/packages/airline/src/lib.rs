@@ -3,6 +3,7 @@
 // soroban macro-generated clients re-declare these signatures.
 #![allow(clippy::too_many_arguments)]
 use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol, Vec,
 };
@@ -244,8 +245,10 @@ impl AirlineContract {
 
         PricingStorage::set_config(&env, &cfg);
 
-        env.events().publish(
-            (symbol_short!("pricing"), symbol_short!("init")),
+        contract_events::emit(
+            &env,
+            Domain::Pricing,
+            Action::Init,
             (admin, oracle, max_change_bps, cooldown_secs),
         );
     }
@@ -261,10 +264,7 @@ impl AirlineContract {
         cfg.oracle = oracle.clone();
         PricingStorage::set_config(&env, &cfg);
 
-        env.events().publish(
-            (symbol_short!("pricing"), symbol_short!("oracle")),
-            (admin, oracle),
-        );
+        contract_events::emit(&env, Domain::Pricing, Action::Oracle, (admin, oracle));
     }
 
     // Register new airline
@@ -283,8 +283,7 @@ impl AirlineContract {
 
         AirlineRegistry::set_airline(&env, &airline, &profile);
 
-        env.events()
-            .publish((symbol_short!("airline"), symbol_short!("reg")), airline);
+        contract_events::emit(&env, Domain::Airline, Action::Reg, airline);
 
         true
     }
@@ -298,10 +297,7 @@ impl AirlineContract {
         profile.is_verified = true;
         AirlineRegistry::set_airline(&env, &airline, &profile);
 
-        env.events().publish(
-            (symbol_short!("airline"), symbol_short!("verified")),
-            airline,
-        );
+        contract_events::emit(&env, Domain::Airline, Action::Verified, airline);
     }
 
     // Create new flight listing
@@ -349,10 +345,7 @@ impl AirlineContract {
         profile.total_flights += 1;
         AirlineRegistry::set_airline(&env, &airline, &profile);
 
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("created")),
-            flight_id,
-        );
+        contract_events::emit(&env, Domain::Flight, Action::Created, flight_id);
 
         flight_id
     }
@@ -389,10 +382,7 @@ impl AirlineContract {
         flight.status = symbol_short!("cancelled");
         AirlineRegistry::set_flight(&env, flight_id, &flight);
 
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("cancelled")),
-            flight_id,
-        );
+        contract_events::emit(&env, Domain::Flight, Action::Cancelled, flight_id);
     }
 
     // Batch create flights with per-item validation and partial failure handling.
@@ -446,10 +436,7 @@ impl AirlineContract {
             AirlineRegistry::set_flight(&env, flight_id, &flight);
             created_flight_ids.push_back(flight_id);
 
-            env.events().publish(
-                (symbol_short!("flight"), symbol_short!("created")),
-                flight_id,
-            );
+            contract_events::emit(&env, Domain::Flight, Action::Created, flight_id);
 
             i += 1;
         }
@@ -518,10 +505,7 @@ impl AirlineContract {
             AirlineRegistry::set_flight(&env, update.flight_id, &flight);
             updated_flight_ids.push_back(update.flight_id);
 
-            env.events().publish(
-                (symbol_short!("flight"), symbol_short!("status")),
-                update.flight_id,
-            );
+            contract_events::emit(&env, Domain::Flight, Action::Status, update.flight_id);
 
             i += 1;
         }
@@ -609,8 +593,10 @@ impl AirlineContract {
         PricingStorage::set_last_update(&env, flight_id, now);
 
         // Emit event for price change notifications.
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("price")),
+        contract_events::emit(
+            &env,
+            Domain::Flight,
+            Action::Price,
             (flight_id, old_price, new_price, oracle),
         );
 
