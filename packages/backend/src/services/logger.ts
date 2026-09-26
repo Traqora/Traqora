@@ -81,10 +81,12 @@ export class LoggerService {
   }
 
   private enrich(entry: Record<string, unknown>): Record<string, unknown> {
+    const store = asyncLocalStorage.getStore();
     return {
       ...entry,
       ...this.context,
-      correlationId: entry.correlationId || this.context.correlationId,
+      correlationId: entry.correlationId || this.context.correlationId || (store?.get('correlationId') as string) || undefined,
+      requestId: entry.requestId || this.context.requestId || (store?.get('requestId') as string) || undefined,
       component: entry.component || this.context.component,
     };
   }
