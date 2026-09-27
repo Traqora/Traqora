@@ -162,6 +162,12 @@ jobs:
         working-directory: contracts
         run: cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
 
+      # Ensure coverage.sh keeps enforcing the same gate as CI and rejects
+      # invalid arguments instead of silently skipping the check.
+      - name: coverage.sh regression tests
+        working-directory: contracts
+        run: bash scripts/test-coverage.sh
+
   # ── Tests: Backend ────────────────────────────────────────────────────────
   test-backend:
     name: Tests - Backend
