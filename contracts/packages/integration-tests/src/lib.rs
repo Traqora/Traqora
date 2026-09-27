@@ -8,6 +8,8 @@ use refund_automation::{RefundAutomationContract, RefundAutomationContractClient
 use soroban_sdk::{testutils::Address as _, Address, Env, String, Symbol};
 use token::{TRQTokenContract, TRQTokenContractClient};
 
+pub mod snapshot_review;
+
 pub struct Contracts<'a> {
     pub token: TRQTokenContractClient<'a>,
     pub booking: BookingContractClient<'a>,
