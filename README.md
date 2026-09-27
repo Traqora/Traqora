@@ -36,6 +36,32 @@ Frequent travelers are rewarded through a decentralized loyalty program built in
 
 Traqora is built using a robust and scalable tech stack designed for performance and security on the Stellar network.
 
+## Architecture Diagram
+
+```mermaid
+graph TD
+    subgraph Client Layer
+        UI[Next.js Client App] -->|JWT / REST API| BE[Express Backend API]
+        UI -->|Freighter / Stellar Wallets Kit| SW[Stellar Network]
+    end
+
+    subgraph Backend Services
+        BE -->|TypeORM| DB[(PostgreSQL / SQLite DB)]
+        BE -->|Soroban RPC / Horizon| SW
+        BE -->|Amadeus / Flight Providers| FP[External Flight Providers]
+    end
+
+    subgraph Stellar Soroban Smart Contracts
+        SW --> BC[Booking Contract]
+        SW --> AC[Airline Contract]
+        SW --> RC[Refund & Automation Contract]
+        SW --> LC[Loyalty Contract]
+        SW --> GC[Governance Contract]
+        SW --> TC[TRQ Token Contract]
+        SW --> DC[Dispute Resolution Contract]
+    end
+```
+
 Blockchain:  
 - Stellar (Layer 1 blockchain)
 

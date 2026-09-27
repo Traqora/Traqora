@@ -11,6 +11,7 @@
 
 use errors::{guards, ContractError};
 use governance::{GovernanceContract, GovernanceContractClient};
+use soroban_sdk::testutils::Ledger;
 use soroban_sdk::{
     testutils::{Address as _, Events},
     Address, Env, IntoVal,
