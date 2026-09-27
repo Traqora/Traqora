@@ -122,17 +122,11 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev
 
-      - name: Format check
-        working-directory: contracts
-        run: cargo fmt -- --check
-
-      - name: Clippy
-        run: |
-          cd contracts
-          # integration-tests enables soroban-sdk "testutils", which cannot
-          # be compiled for the wasm target; it is a native test harness,
-          # never deployed, so it is excluded here.
-          cargo clippy --locked --target wasm32-unknown-unknown --workspace --exclude integration-tests -- -D warnings
+      - name: Contracts fmt/clippy gate
+        # Single source of truth for the contracts quality gate (#743): the same
+        # script `make fmt` / `make clippy` / `make lint` run locally, so CI
+        # cannot disagree with a developer's machine.
+        run: bash scripts/fmt-clippy-check.sh
 
   # ==========================================================================
   # STAGE 2 — Unit Tests (parallel, each gated on its quality job)
