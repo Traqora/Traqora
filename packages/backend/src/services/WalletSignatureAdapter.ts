@@ -1,4 +1,4 @@
-import { Keypair } from '@stellar/stellar-base';
+import { Keypair } from '@stellar/stellar-sdk';
 
 /**
  * Interface for wallet-specific signature extraction logic.
