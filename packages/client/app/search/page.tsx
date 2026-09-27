@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast"
 import { SearchForm, SearchFormData } from "@/components/flight-search/search-form"
 import { FilterPanel, FilterOptions } from "@/components/flight-search/filter-panel"
 import { ResultsList } from "@/components/flight-search/results-list"
-import { FlexibleDateSearchPanel } from "@/components/flight-search/FlexibleDateSearchPanel"
+import { DateFlexSearch } from "@/components/flight-search/date-flex-search"
 import { PriceTrendSparkline } from "@/components/flight-search/price-trend-sparkline"
 import { FlightComparison } from "@/components/flight-comparison"
 import { useFlightSearch } from "@/hooks/use-flight-search"
@@ -394,12 +394,21 @@ export default function SearchPage() {
           </TabsContent>
 
           <TabsContent value="flexible" className="mt-4">
-            <FlexibleDateSearchPanel
-              from={lastQuery?.from || "JFK"}
-              to={lastQuery?.to || "LAX"}
-              passengers={lastQuery ? parseInt(lastQuery.passengers, 10) : 1}
-              travelClass={lastQuery?.class}
-              onDateSelect={handleDateSelect}
+            <DateFlexSearch
+              defaultFrom={lastQuery?.from || "JFK"}
+              defaultTo={lastQuery?.to || "LAX"}
+              defaultDate={lastQuery?.departure}
+              onSearch={(payload) => {
+                const query: SearchFormData = {
+                  from: payload.from,
+                  to: payload.to,
+                  departure: payload.date,
+                  passengers: String(payload.passengers),
+                  class: payload.cabinClass,
+                }
+                setLastQuery(query)
+                handleSearch(query)
+              }}
             />
           </TabsContent>
         </Tabs>
