@@ -4,10 +4,84 @@ import { Dispute, DisputeOutcome, DisputeStatus } from '../../db/entities/Disput
 import { DisputeEvidence } from '../../db/entities/DisputeEvidence';
 import { Refund } from '../../db/entities/Refund';
 import { logger } from '../../utils/logger';
+import { BadRequestError } from '../../utils/errors';
 
 export interface EvidenceInput {
   description: string;
   fileUrl?: string;
+}
+
+export interface EvidenceValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+const ALLOWED_FILE_TYPES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'text/plain',
+]);
+
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+function validateEvidenceFile(fileUrl: string, submittedBy: string): EvidenceValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Validate file URL format (IPFS or HTTPS)
+  if (!fileUrl.startsWith('ipfs://') && !fileUrl.startsWith('https://')) {
+    errors.push('File URL must be an IPFS URI (ipfs://) or HTTPS URL');
+  }
+
+  // Extract file extension/type from URL for validation
+  try {
+    const url = new URL(fileUrl);
+    const pathname = url.pathname.toLowerCase();
+    const extension = pathname.split('.').pop() || '';
+
+    // Check file type based on extension (as a proxy since we don't have MIME type from IPFS)
+    const allowedExtensions = new Set(['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'txt']);
+    if (extension && !allowedExtensions.has(extension)) {
+      errors.push(`File type .${extension} is not allowed. Allowed types: PDF, JPEG, PNG, GIF, WebP, TXT`);
+    }
+  } catch {
+    // If URL parsing fails, we can't validate extension
+    warnings.push('Could not validate file type from URL');
+  }
+
+  // Note: Actual file size validation would require fetching the file headers
+  // For IPFS, this is not straightforward without a gateway. We log a warning
+  // and recommend checking file size before upload.
+  if (fileUrl.startsWith('ipfs://')) {
+    warnings.push('File size cannot be validated for IPFS URLs. Ensure file is under 10MB before upload.');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+function validateEvidenceOwnership(
+  submittedBy: string,
+  dispute: Dispute,
+): { valid: boolean; error?: string } {
+  const isClaimant = submittedBy === dispute.claimantAddress;
+  const isRespondent = submittedBy === dispute.respondentAddress;
+
+  if (!isClaimant && !isRespondent) {
+    return {
+      valid: false,
+      error: 'Only dispute participants (claimant or respondent) may submit evidence',
+    };
+  }
+
+  return { valid: true };
 }
 
 export interface DisputeTimelineEvent {
@@ -223,14 +297,35 @@ export class DisputeService {
 
     if (params.evidence?.length) {
       const evidenceRepo = AppDataSource.getRepository(DisputeEvidence);
-      const evidenceRows = params.evidence.map((item) =>
-        evidenceRepo.create({
+      const evidenceRows = params.evidence.map((item) => {
+        // Validate file if provided
+        if (item.fileUrl) {
+          let normalizedUrl: string | undefined;
+          try {
+            normalizedUrl = normalizeIpfsUrl(item.fileUrl);
+          } catch (error) {
+            throw new BadRequestError(error instanceof Error ? error.message : 'Invalid evidence URL format');
+          }
+          if (normalizedUrl) {
+            const fileValidation = validateEvidenceFile(normalizedUrl, params.claimantAddress);
+            if (!fileValidation.valid) {
+              throw new BadRequestError(fileValidation.errors.join('; '));
+            }
+            if (fileValidation.warnings.length > 0) {
+              logger.warn('Evidence validation warnings on dispute creation', {
+                refundId: params.refundId,
+                warnings: fileValidation.warnings,
+              });
+            }
+          }
+        }
+        return evidenceRepo.create({
           dispute: savedDispute,
           submittedBy: params.claimantAddress,
           description: item.description,
           fileUrl: normalizeIpfsUrl(item.fileUrl),
-        }),
-      );
+        });
+      });
       await evidenceRepo.save(evidenceRows);
     }
 
@@ -293,15 +388,37 @@ export class DisputeService {
 
     if (!dispute) throw new Error('Dispute not found');
 
-    const canSubmit =
-      params.submittedBy === dispute.claimantAddress || params.submittedBy === dispute.respondentAddress;
-
-    if (!canSubmit) {
-      throw new Error('Only dispute participants may submit evidence');
+    // Validate evidence ownership
+    const ownershipValidation = validateEvidenceOwnership(params.submittedBy, dispute);
+    if (!ownershipValidation.valid) {
+      throw new BadRequestError(ownershipValidation.error!);
     }
 
     if (!['open', 'evidence_submission', 'under_review', 'appealed'].includes(dispute.status)) {
       throw new Error('Evidence can no longer be submitted for this dispute');
+    }
+
+    // Validate file if provided
+    if (params.fileUrl) {
+      let normalizedUrl: string | undefined;
+      try {
+        normalizedUrl = normalizeIpfsUrl(params.fileUrl);
+      } catch (error) {
+        throw new BadRequestError(error instanceof Error ? error.message : 'Invalid evidence URL format');
+      }
+      if (normalizedUrl) {
+        const fileValidation = validateEvidenceFile(normalizedUrl, params.submittedBy);
+        if (!fileValidation.valid) {
+          throw new BadRequestError(fileValidation.errors.join('; '));
+        }
+        // Log warnings but don't fail
+        if (fileValidation.warnings.length > 0) {
+          logger.warn('Evidence validation warnings', {
+            disputeId: params.disputeId,
+            warnings: fileValidation.warnings,
+          });
+        }
+      }
     }
 
     const item = evidenceRepo.create({
