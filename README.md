@@ -159,6 +159,8 @@ cp packages/backend/env.example packages/backend/.env
 ```
 Open these files and configure the environment variables as needed. Refer to the comments in [env.example](./env.example) and [packages/backend/env.example](./packages/backend/env.example) for detailed information on types and default values.
 
+For a single table of every variable with its type, default and description, see the [Environment Variable Reference](./docs/ENV_REFERENCE.md). It is generated from the `env.example` files. See [packages/backend/docs/ENV_DOCS.md](./packages/backend/docs/ENV_DOCS.md) for how to add a variable.
+
 ### Step 3: Install Dependencies
 
 From the repository root, install dependencies for the entire monorepo:

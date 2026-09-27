@@ -1,3 +1,5 @@
+pub mod time;
+
 use airline::{AirlineContract, AirlineContractClient};
 use booking::{BookingContract, BookingContractClient};
 use booking_receipt::{BookingReceiptContract, BookingReceiptContractClient};

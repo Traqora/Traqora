@@ -237,6 +237,21 @@ describe('Group Booking & Individual Holds Unified Seat Pool Consistency', () =>
       avail = await seatService.getSeatAvailability(testFlightId);
       expect(avail.availableSeats).toBe(112);
     });
+
+    it('lists active holds and releases holds whose expiry has passed', async () => {
+      await seatService.holdSeatsForGroup(testFlightId, 'group-active', 1, ['3A']);
+      await seatService.holdSeatsForGroup(testFlightId, 'group-expired', 1, ['4A']);
+      const expiredHold = seatService.getGroupSeatHold(testFlightId, 'group-expired')!;
+      expiredHold.expiresAt = new Date(Date.now() - 1000);
+
+      const activeHolds = seatService.getActiveGroupSeatHolds(testFlightId);
+      const availability = await seatService.getSeatAvailability(testFlightId);
+
+      expect(activeHolds).toHaveLength(1);
+      expect(activeHolds[0].seats).toEqual(['3A']);
+      expect(activeHolds[0].groupBookingId).toBe('group-active');
+      expect(availability.seatMap[4].A.available).toBe(true);
+    });
   });
 
   describe('Mixed Group and Individual Loads Scenario', () => {
