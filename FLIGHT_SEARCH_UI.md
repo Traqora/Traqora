@@ -169,3 +169,10 @@ const response = await searchFlights({
 8. **Performance**: Optimized rendering and efficient state management
 
 The flight search UI is now fully functional and ready for production use with the Traqora blockchain flight booking platform.
+
+### Cancellation policy explainer
+
+Expanded fare rules state whether refunds are permitted, list the cancellation
+fee per passenger, and explain the no-show penalty and grace period from the
+airline-provided rule data. These details describe the fare rules; the booking's
+cancellation quote remains authoritative for the current estimated refund.

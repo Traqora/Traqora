@@ -3,6 +3,7 @@ import { Dispute } from '../../src/db/entities/Dispute';
 import { DisputeEvidence } from '../../src/db/entities/DisputeEvidence';
 import { Refund } from '../../src/db/entities/Refund';
 import { disputeService } from '../../src/services/dispute/disputeService';
+import { EvidenceValidationError } from '../../src/services/dispute/evidenceValidation';
 
 describe('DisputeService', () => {
   const claimantAddress = 'GCLAIMANTWALLET123456789';
@@ -174,5 +175,43 @@ describe('DisputeService', () => {
     });
 
     expect(appealed.status).toBe('appealed');
+  });
+
+  it('rejects invalid evidence on create without persisting the dispute', async () => {
+    await expect(
+      disputeService.createDispute({
+        refundId: 'refund-1',
+        claimantAddress,
+        disputeType: 'refund_denied',
+        description: 'Refund was denied despite airline cancellation and supporting receipts.',
+        desiredOutcome: 'Full refund and fee reversal',
+        evidence: [{ description: 'Receipt', fileUrl: 'https://evil.example/files/ipfs/not-a-cid' }],
+      }),
+    ).rejects.toBeInstanceOf(EvidenceValidationError);
+
+    expect(disputes).toHaveLength(0);
+    expect(evidenceItems).toHaveLength(0);
+  });
+
+  it('rejects invalid evidence submissions and leaves dispute status unchanged', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details and missing compensation response from airline.',
+      desiredOutcome: 'Partial refund aligned with policy',
+    });
+
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: claimantAddress,
+        description: 'Airline incident log export',
+        fileUrl: 'http://ipfs.io/ipfs/QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx',
+      }),
+    ).rejects.toMatchObject({ code: 'EVIDENCE_URL_INSECURE_GATEWAY' });
+
+    expect(evidenceItems).toHaveLength(0);
+    expect(disputes[0].status).toBe('evidence_submission');
   });
 });

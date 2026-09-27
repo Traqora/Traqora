@@ -7,6 +7,7 @@ import { FlightSearchService } from "../../services/flightSearchService";
 import { CurrencyService } from "../../services/currencyService";
 import { FareRulesService, FareClass } from "../../services/fareRulesService";
 import { BadRequestError } from "../../utils/errors";
+import { invalidateFlightSearchCacheForFlight } from "../../services/cache";
 import { requireAuth } from "../../middleware/authMiddleware";
 import { SearchHistoryEntry } from "../../db/entities/SearchHistoryEntry";
 import { SavedSearch } from "../../db/entities/SavedSearch";
@@ -451,6 +452,8 @@ export const createFlightRoutes = (
       const repo = AppDataSource.getRepository(Flight);
       const flight = repo.create(req.body);
       const saved = await repo.save(flight);
+      // A newly created flight is immediately searchable.
+      await invalidateFlightSearchCacheForFlight(saved);
       res.status(201).json({ success: true, data: saved });
     }),
   );

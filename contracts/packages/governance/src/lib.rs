@@ -1,5 +1,6 @@
 #![no_std]
 use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 /// On-chain governance proposal: one vote per address per proposal (1 token-holder = 1 vote).
@@ -115,8 +116,7 @@ impl GovernanceContract {
 
         GovernanceStorageKey::set_proposal(&env, id, &proposal);
 
-        env.events()
-            .publish((symbol_short!("proposal"), symbol_short!("created")), id);
+        contract_events::emit(&env, Domain::Proposal, Action::Created, id);
 
         id
     }
@@ -150,8 +150,10 @@ impl GovernanceContract {
         GovernanceStorageKey::set_proposal(&env, proposal_id, &proposal);
         GovernanceStorageKey::record_vote(&env, &voter, proposal_id);
 
-        env.events().publish(
-            (symbol_short!("vote"), symbol_short!("cast")),
+        contract_events::emit(
+            &env,
+            Domain::Vote,
+            Action::Cast,
             (proposal_id, voter, support),
         );
     }
@@ -180,8 +182,10 @@ impl GovernanceContract {
 
         GovernanceStorageKey::set_proposal(&env, proposal_id, &proposal);
 
-        env.events().publish(
-            (symbol_short!("proposal"), symbol_short!("executed")),
+        contract_events::emit(
+            &env,
+            Domain::Proposal,
+            Action::Executed,
             (proposal_id, proposal.status.clone()),
         );
     }
