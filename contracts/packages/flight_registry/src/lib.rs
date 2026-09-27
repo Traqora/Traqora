@@ -1,5 +1,6 @@
 #![no_std]
 use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, Map, Symbol, Val,
 };
@@ -128,12 +129,11 @@ impl FlightRegistryContract {
         FlightRegistryStorage::set_airline(&env, &airline_id, &airline);
         FlightRegistryStorage::set_airline_id_for_admin(&env, &admin, &airline_id);
 
-        env.events().publish(
-            (
-                symbol_short!("airline"),
-                symbol_short!("reg"),
-                airline_id.clone(),
-            ),
+        contract_events::emit_indexed(
+            &env,
+            Domain::Airline,
+            Action::Reg,
+            airline_id.clone(),
             (admin, name),
         );
     }
@@ -165,13 +165,7 @@ impl FlightRegistryContract {
                     existing.available_seats,
                 )
             } else {
-                (
-                    Symbol::new(&env, "active"),
-                    0,
-                    0,
-                    0,
-                    0,
-                )
+                (Symbol::new(&env, "active"), 0, 0, 0, 0)
             };
 
         let flight = FlightRecord {
@@ -189,13 +183,19 @@ impl FlightRegistryContract {
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
 
         if is_update {
-            env.events().publish(
-                (symbol_short!("flight"), symbol_short!("updated"), flight_id.clone()),
+            contract_events::emit_indexed(
+                &env,
+                Domain::Flight,
+                Action::Updated,
+                flight_id.clone(),
                 (airline_id.clone(), airline_admin.clone()),
             );
         }
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("added"), flight_id),
+        contract_events::emit_indexed(
+            &env,
+            Domain::Flight,
+            Action::Added,
+            flight_id,
             (airline_id, airline_admin),
         );
     }
@@ -248,19 +248,34 @@ impl FlightRegistryContract {
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
 
         if is_update {
-            env.events().publish(
-                (symbol_short!("flight"), symbol_short!("updated"), flight_id.clone()),
+            contract_events::emit_indexed(
+                &env,
+                Domain::Flight,
+                Action::Updated,
+                flight_id.clone(),
                 (airline_id.clone(), airline_admin.clone(), status.clone()),
             );
         }
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("added"), flight_id.clone()),
+        contract_events::emit_indexed(
+            &env,
+            Domain::Flight,
+            Action::Added,
+            flight_id.clone(),
             (airline_id.clone(), airline_admin.clone()),
         );
         // Emit dedicated event for richer metadata
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("details"), flight_id),
-            (status, departure_time, arrival_time, total_seats, available_seats),
+        contract_events::emit_indexed(
+            &env,
+            Domain::Flight,
+            Action::Details,
+            flight_id,
+            (
+                status,
+                departure_time,
+                arrival_time,
+                total_seats,
+                available_seats,
+            ),
         );
     }
 
@@ -271,8 +286,8 @@ impl FlightRegistryContract {
         status: Symbol,
     ) {
         airline_admin.require_auth();
-        let mut flight = FlightRegistryStorage::get_flight(&env, &flight_id)
-            .expect("Flight not found");
+        let mut flight =
+            FlightRegistryStorage::get_flight(&env, &flight_id).expect("Flight not found");
         assert!(flight.airline_admin == airline_admin, "Unauthorized");
         assert!(
             FlightRegistryStorage::is_valid_status(&env, &status),
@@ -280,12 +295,18 @@ impl FlightRegistryContract {
         );
         flight.status = status.clone();
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("status"), flight_id.clone()),
+        contract_events::emit_indexed(
+            &env,
+            Domain::Flight,
+            Action::Status,
+            flight_id.clone(),
             (status.clone(), flight.airline_id.clone()),
         );
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("updated"), flight_id),
+        contract_events::emit_indexed(
+            &env,
+            Domain::Flight,
+            Action::Updated,
+            flight_id,
             (flight.airline_id, status),
         );
     }
@@ -298,20 +319,26 @@ impl FlightRegistryContract {
         arrival_time: u64,
     ) {
         airline_admin.require_auth();
-        let mut flight = FlightRegistryStorage::get_flight(&env, &flight_id)
-            .expect("Flight not found");
+        let mut flight =
+            FlightRegistryStorage::get_flight(&env, &flight_id).expect("Flight not found");
         assert!(flight.airline_admin == airline_admin, "Unauthorized");
         assert!(departure_time < arrival_time, "Invalid schedule");
         assert!(departure_time > 0 && arrival_time > 0, "Invalid schedule");
         flight.departure_time = departure_time;
         flight.arrival_time = arrival_time;
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("schedule"), flight_id.clone()),
+        contract_events::emit_indexed(
+            &env,
+            Domain::Flight,
+            Action::Schedule,
+            flight_id.clone(),
             (departure_time, arrival_time),
         );
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("updated"), flight_id),
+        contract_events::emit_indexed(
+            &env,
+            Domain::Flight,
+            Action::Updated,
+            flight_id,
             (flight.airline_id, departure_time, arrival_time),
         );
     }
@@ -324,20 +351,26 @@ impl FlightRegistryContract {
         available_seats: u32,
     ) {
         airline_admin.require_auth();
-        let mut flight = FlightRegistryStorage::get_flight(&env, &flight_id)
-            .expect("Flight not found");
+        let mut flight =
+            FlightRegistryStorage::get_flight(&env, &flight_id).expect("Flight not found");
         assert!(flight.airline_admin == airline_admin, "Unauthorized");
         assert!(total_seats > 0, "Invalid seats");
         assert!(available_seats <= total_seats, "Invalid available seats");
         flight.total_seats = total_seats;
         flight.available_seats = available_seats;
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("seats"), flight_id.clone()),
+        contract_events::emit_indexed(
+            &env,
+            Domain::Flight,
+            Action::Seats,
+            flight_id.clone(),
             (total_seats, available_seats),
         );
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("updated"), flight_id),
+        contract_events::emit_indexed(
+            &env,
+            Domain::Flight,
+            Action::Updated,
+            flight_id,
             (flight.airline_id, total_seats, available_seats),
         );
     }
@@ -402,7 +435,10 @@ mod test {
         Env, IntoVal, Map, Symbol, TryFromVal, Val,
     };
 
-    fn setup_registry<'a>(env: &'a Env, owner: &'a Address) -> (Address, crate::FlightRegistryContractClient<'a>) {
+    fn setup_registry<'a>(
+        env: &'a Env,
+        owner: &'a Address,
+    ) -> (Address, crate::FlightRegistryContractClient<'a>) {
         let contract_id = env.register(crate::FlightRegistryContract, ());
         let client = crate::FlightRegistryContractClient::new(env, &contract_id);
         client.initialize(owner);
@@ -411,8 +447,14 @@ mod test {
 
     fn sample_metadata(env: &Env) -> Map<Symbol, Val> {
         let mut m = Map::new(env);
-        m.set(Symbol::new(env, "route"), Symbol::new(env, "LOS_NBO").to_val());
-        m.set(Symbol::new(env, "aircraft"), Symbol::new(env, "A320").to_val());
+        m.set(
+            Symbol::new(env, "route"),
+            Symbol::new(env, "LOS_NBO").to_val(),
+        );
+        m.set(
+            Symbol::new(env, "aircraft"),
+            Symbol::new(env, "A320").to_val(),
+        );
         m
     }
 
@@ -426,7 +468,12 @@ mod test {
         let airline_id = Symbol::new(&env, "TRAQ");
         let flight_id = Symbol::new(&env, "TRAQ100");
 
-        client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "TraqoraAir"));
+        client.register_airline(
+            &owner,
+            &airline_admin,
+            &airline_id,
+            &Symbol::new(&env, "TraqoraAir"),
+        );
         let status = Symbol::new(&env, "active");
         let dep = 1_700_000_000;
         let arr = 1_700_003_600;
@@ -468,10 +515,18 @@ mod test {
         let airline_admin = Address::generate(&env);
         let airline_id = Symbol::new(&env, "STAT");
         let flight_id = Symbol::new(&env, "STAT100");
-        client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "StatAir"));
+        client.register_airline(
+            &owner,
+            &airline_admin,
+            &airline_id,
+            &Symbol::new(&env, "StatAir"),
+        );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
         // Initial status is active
-        assert_eq!(client.get_flight_status(&flight_id).unwrap(), Symbol::new(&env, "active"));
+        assert_eq!(
+            client.get_flight_status(&flight_id).unwrap(),
+            Symbol::new(&env, "active")
+        );
         // Update to cancelled
         let cancelled = Symbol::new(&env, "cancelled");
         client.update_flight_status(&airline_admin, &flight_id, &cancelled);
@@ -493,7 +548,12 @@ mod test {
         let airline_admin = Address::generate(&env);
         let airline_id = Symbol::new(&env, "SCHD");
         let flight_id = Symbol::new(&env, "SCHD200");
-        client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "SchedAir"));
+        client.register_airline(
+            &owner,
+            &airline_admin,
+            &airline_id,
+            &Symbol::new(&env, "SchedAir"),
+        );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
         // Update schedule
         let dep = 1_800_000_000;
@@ -519,7 +579,12 @@ mod test {
         let airline_admin = Address::generate(&env);
         let airline_id = Symbol::new(&env, "BAD");
         let flight_id = Symbol::new(&env, "BAD100");
-        client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "BadAir"));
+        client.register_airline(
+            &owner,
+            &airline_admin,
+            &airline_id,
+            &Symbol::new(&env, "BadAir"),
+        );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
         client.update_flight_status(&airline_admin, &flight_id, &Symbol::new(&env, "unknown"));
     }
@@ -534,7 +599,12 @@ mod test {
         let airline_admin = Address::generate(&env);
         let airline_id = Symbol::new(&env, "SCH");
         let flight_id = Symbol::new(&env, "SCH100");
-        client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "SchedAir"));
+        client.register_airline(
+            &owner,
+            &airline_admin,
+            &airline_id,
+            &Symbol::new(&env, "SchedAir"),
+        );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
         client.update_flight_schedule(&airline_admin, &flight_id, &1_000, &500);
     }
@@ -549,7 +619,12 @@ mod test {
         let airline_admin = Address::generate(&env);
         let airline_id = Symbol::new(&env, "SEAT");
         let flight_id = Symbol::new(&env, "SEAT100");
-        client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "SeatAir"));
+        client.register_airline(
+            &owner,
+            &airline_admin,
+            &airline_id,
+            &Symbol::new(&env, "SeatAir"),
+        );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
         client.update_flight_seats(&airline_admin, &flight_id, &100, &150);
     }
@@ -563,12 +638,20 @@ mod test {
         let airline_admin = Address::generate(&env);
         let airline_id = Symbol::new(&env, "UPD");
         let flight_id = Symbol::new(&env, "UPD100");
-        client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "UpdAir"));
+        client.register_airline(
+            &owner,
+            &airline_admin,
+            &airline_id,
+            &Symbol::new(&env, "UpdAir"),
+        );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
         let before = client.get_flight(&flight_id).unwrap();
         // Update via add_flight (same flight_id, should preserve status/schedule/seats)
         let mut new_meta = Map::new(&env);
-        new_meta.set(Symbol::new(&env, "route"), Symbol::new(&env, "LOS_JFK").to_val());
+        new_meta.set(
+            Symbol::new(&env, "route"),
+            Symbol::new(&env, "LOS_JFK").to_val(),
+        );
         client.add_flight(&airline_admin, &flight_id, &new_meta);
         // Event on update: second add_flight should emit updated + added (capture before view)
         let events = env.events().all();

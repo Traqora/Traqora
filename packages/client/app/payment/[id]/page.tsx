@@ -12,6 +12,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Plane, CreditCard, Wallet, Shield, CheckCircle, ArrowLeft, Lock, Zap } from "lucide-react"
 // NEW: import real wallet hook and store from stellar-wallet-connect
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
+import { getGasFee, formatGasFee, getPlatformFee, isStablecoin } from "@/lib/currency"
 
 // Mock flight data
 const mockFlightDetails = {
@@ -307,11 +308,11 @@ export default function PaymentPage() {
                   </div>
                   <div className="flex justify-between">
                     <span>Platform fee</span>
-                    <span className="text-secondary">0 {flight.currency}</span>
+                    <span className="text-secondary">{isStablecoin(selectedCrypto as any) ? `0 ${flight.currency}` : `${getPlatformFee(selectedCrypto as any, Number(flight.price))} ${flight.currency}`}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Gas fee (estimated)</span>
-                    <span className="text-muted-foreground">~0.001 ETH</span>
+                    <span className="text-muted-foreground">{formatGasFee(selectedCrypto as any)}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between text-lg font-bold">
