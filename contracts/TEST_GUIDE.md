@@ -49,6 +49,7 @@ Every test builds a `soroban_sdk::Env` — an in-memory Soroban runtime — then
 | `register_contracts(&env)` | Registers token, booking, airline, loyalty, governance, refund, refund-automation, and booking-receipt contracts and returns typed clients (`Contracts`). |
 | `initialize_token(&env, &token, &admin)` | Initializes the TRQ token (7-decimal, symbol `TRQ`). |
 | `register_and_verify_airline(&env, &airline_client, &owner, &airline)` | Registers and verifies an airline so flight/booking flows succeed. |
+| `time::*` | Ledger time helpers (`advance_time`, `advance_ledgers`, `set_time`, `advance_past`). See [Time-dependent behavior](#time-dependent-behavior). |
 
 A typical integration test therefore looks like:
 
@@ -223,12 +224,52 @@ Note that with `mock_all_auths()` the host authorizes every call; the `try_*` pa
 
 ### Time-dependent behavior
 
+Use the helpers in `integration_tests::time` (`packages/integration-tests/src/time.rs`) rather
+than changing the ledger by hand:
+
 ```rust
-env.ledger().set_timestamp(1_700_000_000u64);          // absolute
-env.ledger().with_mut(|li| { li.timestamp += 4000; });  // relative
+use integration_tests::time::{advance_past, advance_time, set_time, HOUR};
+
+set_time(&env, 1_700_000_000);            // absolute; must not be earlier than now
+advance_time(&env, 48 * HOUR + 1);        // relative, in seconds
+advance_past(&env, proposal.vote_deadline); // now = deadline + 1, for `now > deadline` checks
 ```
 
-Tests that depend on booking departure times, vote deadlines, or escrow windows must set the ledger timestamp explicitly (see `booking_test.rs`, `governance_test.rs`).
+**Contract**
+
+| Helper | Input | Effect / return value |
+| --- | --- | --- |
+| `advance_time(env, seconds)` | `u64` seconds | `timestamp += seconds`. Returns the new timestamp. `0` does nothing |
+| `advance_ledgers(env, n)` | `u32` ledgers | `sequence += n`, `timestamp += n * SECONDS_PER_LEDGER` |
+| `set_time(env, ts)` | Absolute `u64` | `timestamp = ts`. `ts` must be `>= now` |
+| `advance_past(env, deadline)` | `u64` deadline | `timestamp = deadline + 1`. Does nothing if `now` is already past the deadline |
+| `now(env)` / `ledgers_for(seconds)` | — | Current timestamp / `ceil(seconds / 5)` |
+
+- Only `timestamp` and `sequence_number` change. `network_id`, `base_reserve`, `protocol_version`
+  and the entry TTL settings are kept as they are.
+- The sequence number moves with time at `SECONDS_PER_LEDGER = 5` seconds per ledger (rounded up).
+- Time only moves forward.
+
+**Error cases.** Each helper has a `try_*` form (`try_advance_time`, `try_set_time`, and so on).
+It returns a `TimeError` and **leaves the ledger unchanged**. The plain forms panic with the
+same message, so you can use `#[should_panic(expected = ...)]`:
+
+| `TimeError` | Panic message | Cause |
+| --- | --- | --- |
+| `Backwards { current, requested }` | `cannot move ledger time backwards (current C, requested R)` | `set_time` was given a timestamp earlier than `now` |
+| `TimestampOverflow` | `ledger timestamp overflow` | The new timestamp would be larger than `u64::MAX` |
+| `SequenceOverflow` | `ledger sequence overflow` | The new sequence would be larger than `u32::MAX` |
+
+Avoid `env.ledger().set(LedgerInfo { .. })` for moving time. It overwrites every ledger field, so
+it is easy to reset the network ID or the TTLs by accident. The old `advance_ledger` helper in
+`dispute_test.rs` had exactly this problem, and it now calls `time::advance_time`.
+
+Tests that depend on booking departure times, vote deadlines or escrow windows must set the
+ledger time explicitly. Regression tests for the helpers are in `time_helpers_test.rs`:
+
+```bash
+cargo test -p integration-tests --test time_helpers_test
+```
 
 ### Property-based tests
 
