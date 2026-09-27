@@ -1,6 +1,3 @@
-## 1. ✅ CONTRIBUTING.md
-
-```markdown
 # Contributing to Traqora
 
 We welcome contributions from everyone interested in building a decentralized travel future with Stellar!
@@ -50,12 +47,12 @@ For frontend contributions:
 ```bash
 npm run lint
 npm run test
-
+```
 
 ### Contracts Testing Approach
 
 - Use soroban-sdk testutils to create an Env and mock auth with `env.mock_all_auths()`.
-- Reuse shared fixtures in [common.rs](file:///Users/ew/waves2/Traqora/contracts/tests/common.rs) to register contracts and seed actors.
+- Reuse shared fixtures in [common.rs](contracts/tests/common.rs) to register contracts and seed actors.
 - Write unit tests for every public function across contracts:
   - Token: initialize, mint, transfer, approve, transfer_from, queries
   - Booking: create, pay, release, refund, get, wrappers
@@ -76,3 +73,29 @@ npm run test
   - View HTML: `cargo llvm-cov --workspace --open`
 
 Ensure coverage exceeds 90% across contract crates before merging.
+
+## 🔍 CONTRIBUTING.md Lint
+
+This file is validated by an automated linter that checks structure and correctness. Run it locally before submitting changes to this file:
+
+```bash
+npm run lint:contributing
+```
+
+The linter validates:
+
+| Rule | Severity | Description |
+|------|----------|-------------|
+| `required-sections` | error | All required sections (Ways to Contribute, Pull Request, Code Guidelines, Testing) must be present |
+| `fenced-code-balance` | error | Every ` ``` ` open must have a matching close |
+| `fenced-code-lang` | warning | Fenced code blocks should specify a language |
+| `no-broken-links` | error | `file://` links must not contain placeholder paths |
+| `command-reference` | error | `npm run <script>` commands must reference scripts that exist in package.json |
+| `no-trailing-whitespace` | warning | Lines should not have trailing whitespace |
+| `max-line-length` | warning | Prose lines should not exceed 200 characters |
+
+To run the linter's own regression tests:
+
+```bash
+npm run test:contributing
+```
