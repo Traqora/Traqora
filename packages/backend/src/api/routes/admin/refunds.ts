@@ -8,6 +8,7 @@ import { auditLog } from '../../../middleware/adminAudit';
 import { paginationSchema } from '../../schemas/common';
 import { BadRequestError, NotFoundError, ConflictError } from '../../../utils/errors';
 import { In } from 'typeorm';
+import { createPaginationMeta } from '../../../types/pagination';
 
 const router = Router();
 
@@ -36,12 +37,12 @@ router.get('/overview', requireAdmin, asyncHandler(async (req: Request, res: Res
 
 // GET /api/v1/admin/refunds — list refund-eligible bookings
 router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    
+
     const parsed = paginationSchema.safeParse(req.query);
     if (!parsed.success) {
         throw new BadRequestError('Validation Error', parsed.error.flatten());
     }
-    const { limit, offset } = parsed.data;
+    const { page, limit } = parsed.data;
     const repo = AppDataSource.getRepository(Booking);
 
     const [bookings, total] = await repo.findAndCount({
@@ -49,10 +50,11 @@ router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) =
         relations: ['flight', 'passenger'],
         order: { createdAt: 'DESC' },
         take: limit,
-        skip: offset,
+        skip: (page - 1) * limit,
     });
 
-    return res.json({ success: true, data: { bookings, total, limit, offset } });
+    const pagination = createPaginationMeta(page, limit, total);
+    return res.json({ success: true, data: bookings, pagination });
 }));
 
 // POST /api/v1/admin/refunds/:id/approve
@@ -61,7 +63,7 @@ router.post(
     requireAdmin,
     auditLog('REFUND_APPROVED', 'bookings'),
     asyncHandler(async (req: Request, res: Response) => {
-        
+
         const repo = AppDataSource.getRepository(Booking);
         const booking = await repo.findOne({ where: { id: req.params.id } });
         if (!booking) {
@@ -87,7 +89,7 @@ router.post(
         if (!parsed.success) {
             throw new BadRequestError('Validation Error', parsed.error.flatten());
         }
-        
+
         const repo = AppDataSource.getRepository(Booking);
         const booking = await repo.findOne({ where: { id: req.params.id } });
         if (!booking) {
