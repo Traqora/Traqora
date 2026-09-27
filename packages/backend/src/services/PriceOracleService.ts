@@ -1,8 +1,31 @@
 import { logger } from '../utils/logger';
+import { invalidateAllFlightSearchCache } from './cache';
+import { config } from '../config';
 import axios from 'axios';
 
 // Supported currencies
 export type SupportedCurrency = 'USD' | 'EUR' | 'GBP' | 'XLM' | 'USDC' | 'USDT';
+
+/**
+ * Whether a new rate is different enough to matter.
+ *
+ * Search results embed the USD/XLM conversion, so a real move invalidates them.
+ * But the rate cache refreshes in the background every TTL, and providers quote
+ * rates well below the precision a user cares about, so an exact comparison
+ * would flush the whole search cache on every refresh. 10 bps is well under any
+ * visible change in a converted price.
+ */
+const RATE_CHANGE_TOLERANCE = 0.001;
+
+const rateMoved = (previous: number | undefined, next: number): boolean => {
+  if (!Number.isFinite(next)) {
+    return false;
+  }
+  if (previous === undefined || !Number.isFinite(previous)) {
+    return true;
+  }
+  return Math.abs(next - previous) / Math.max(Math.abs(previous), Number.EPSILON) > RATE_CHANGE_TOLERANCE;
+};
 
 export interface CurrencyRate {
   currency: SupportedCurrency;
@@ -31,7 +54,9 @@ export interface ConversionQuote {
 export class PriceOracleService {
   private static instance: PriceOracleService;
   private rateCache: Map<SupportedCurrency, CurrencyRate> = new Map();
-  private cacheExpiryMs = 60000; // 1 minute cache
+  // Search results embed the USD/XLM conversion, so the rate window is
+  // env-configurable rather than a hard-coded constant.
+  private cacheExpiryMs = config.oracleRateCacheTtlSeconds * 1000;
   private readonly API_URL = process.env.ORACLE_API_URL || 'https://api.coincap.io/v2/rates';
   private readonly FALLBACK_RATES: Record<SupportedCurrency, number> = {
     USD: 1.0,
@@ -71,27 +96,55 @@ export class PriceOracleService {
     try {
       const response = await axios.get(this.API_URL, { timeout: 5000 });
       const data = response.data.data;
-      
+      let changed = false;
+
       // Update cache with real rates
       if (Array.isArray(data)) {
         data.forEach((rateData: any) => {
           const currency = this.mapCurrencyId(rateData.id);
           if (currency) {
+            const previous = this.rateCache.get(currency);
+            const rate = parseFloat(rateData.rateUsd);
+            if (rateMoved(previous?.rate, rate)) {
+              changed = true;
+            }
             this.rateCache.set(currency, {
               currency,
-              rate: parseFloat(rateData.rateUsd),
+              rate,
               timestamp: new Date(),
             });
           }
         });
       }
-      
+
       logger.info('Exchange rates updated successfully');
+
+      // Cached search results embed the USD/XLM conversion, so a rate change
+      // makes every cached conversion stale. Invalidation is best-effort and
+      // must never fail a rate refresh.
+      if (changed) {
+        await invalidateAllFlightSearchCache();
+      }
+
       return this.rateCache;
     } catch (error) {
       logger.warn('Failed to fetch exchange rates, using cached/fallback rates', error);
       return this.rateCache;
     }
+  }
+
+  /**
+   * Drops every cached rate and re-seeds the fallbacks, so the next `getRate`
+   * starts from a known state instead of a partially refreshed map.
+   */
+  public invalidateRateCache(): void {
+    this.rateCache.clear();
+    this.initializeCache();
+  }
+
+  /** Current rate-cache TTL in milliseconds. */
+  public getRateCacheTtlMs(): number {
+    return this.cacheExpiryMs;
   }
 
   private mapCurrencyId(id: string): SupportedCurrency | null {

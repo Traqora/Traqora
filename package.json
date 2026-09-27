@@ -12,6 +12,7 @@
     "test": "npm run test --workspaces",
     "lint": "npm run lint --workspaces",
     "typecheck": "npm run typecheck --workspaces",
+    "test:scripts": "bash scripts/tests/network-guard.test.sh",
     "clean": "npm run clean --workspaces"
   },
   "devDependencies": {

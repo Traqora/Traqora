@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { disputeService } from '../../services/dispute/disputeService';
+import { EvidenceValidationError } from '../../services/dispute/evidenceValidation';
 
 const router = Router();
 
@@ -39,6 +40,9 @@ const appealSchema = z.object({
 const getErrorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : 'Unexpected dispute workflow error';
 
+const toErrorBody = (err: unknown): { error: string; code?: string } =>
+  err instanceof EvidenceValidationError ? { error: err.message, code: err.code } : { error: getErrorMessage(err) };
+
 router.post(
   '/',
   requireAuth,
@@ -60,7 +64,7 @@ router.post(
       });
       return res.status(201).json(dispute);
     } catch (err: unknown) {
-      return res.status(400).json({ error: getErrorMessage(err) });
+      return res.status(400).json(toErrorBody(err));
     }
   }),
 );
@@ -116,7 +120,7 @@ router.post(
       });
       return res.json(dispute);
     } catch (err: unknown) {
-      return res.status(400).json({ error: getErrorMessage(err) });
+      return res.status(400).json(toErrorBody(err));
     }
   }),
 );
