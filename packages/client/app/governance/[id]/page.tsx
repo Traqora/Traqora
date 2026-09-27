@@ -27,6 +27,7 @@ import { useProposal, useVotingPower } from "@/hooks/governance/useGovernance"
 import { useGovernanceStore } from "@/lib/stores/governance"
 import { VoteDialog } from "@/components/governance/vote-dialog"
 import { CountdownTimer } from "@/components/governance/countdown-timer"
+import { QuorumTimelockStatus } from "@/components/governance/quorum-timelock-status"
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts'
 
 function getStatusBadge(status: string) {
@@ -283,6 +284,16 @@ export default function ProposalDetailPage() {
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Quorum & Timelock */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base font-serif">Quorum &amp; Timelock</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <QuorumTimelockStatus proposal={proposal} />
+              </CardContent>
+            </Card>
+
             {/* Voting Stats */}
             <Card>
               <CardHeader>

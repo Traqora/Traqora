@@ -7,6 +7,7 @@ import { scheduleNotification, NotificationPayload } from '../jobs/notificationQ
 import { logger } from '../utils/logger';
 import { MoreThanOrEqual } from 'typeorm';
 import { FlightStatusValue } from '../models/FlightStatusAlert';
+import { invalidateFlightSearchCacheForFlight } from './cache';
 
 export interface FlightStatusUpdate {
   flightId: string;
@@ -170,6 +171,10 @@ export class FlightStatusService {
     }
 
     await flightRepo.save(flight);
+
+    // A cancellation or delay changes whether this flight may still be booked,
+    // so any cached search result containing it is stale.
+    await invalidateFlightSearchCacheForFlight(flight);
 
     // Broadcast to WebSocket followers
     this.broadcastFlightEvent(flight, savedEvent);

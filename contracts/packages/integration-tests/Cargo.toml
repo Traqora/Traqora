@@ -24,6 +24,7 @@ refund-automation = { workspace = true }
 token = { workspace = true }
 upgrade = { workspace = true }
 admin = { workspace = true }
+contract-events = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.2"

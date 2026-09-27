@@ -52,12 +52,14 @@ const sanitizeHeaders = (headers: Request['headers']) => {
 
 export const requestLogger = (req: Request, res: Response, next: NextFunction) => {
   const correlationId = (req.headers['x-correlation-id'] as string) || uuidv4();
+  const requestId = correlationId;
   const store = new Map<string, string>();
   store.set('correlationId', correlationId);
+  store.set('requestId', requestId);
 
   asyncLocalStorage.run(store, () => {
     const start = process.hrtime.bigint();
-    res.locals.requestId = correlationId;
+    res.locals.requestId = requestId;
 
     const requestSnapshot = {
       method: req.method,
@@ -83,7 +85,8 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction) =
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
       const payload: Record<string, unknown> = {
-        requestId: correlationId,
+        requestId,
+        correlationId,
         statusCode: res.statusCode,
         durationMs,
         request: requestSnapshot,

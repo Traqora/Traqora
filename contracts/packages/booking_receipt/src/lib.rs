@@ -2,6 +2,7 @@
 // Booking-style contract entrypoints legitimately need many arguments;
 // soroban macro-generated clients re-declare these signatures.
 #![allow(clippy::too_many_arguments)]
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
 };
@@ -171,8 +172,10 @@ impl BookingReceiptContract {
         passenger_receipts.push_back(receipt_id);
         ReceiptStorage::set_passenger_receipts(&env, &to, &passenger_receipts);
 
-        env.events().publish(
-            (symbol_short!("mint"), symbol_short!("success")),
+        contract_events::emit(
+            &env,
+            Domain::Mint,
+            Action::Success,
             (to, receipt_id, booking_id),
         );
 

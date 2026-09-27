@@ -24,5 +24,3 @@ Difficulty: Hard
 This issue is ideal for a first-time contributor. Comment to claim it and maintainers will assign you.
 this issue is given a relevant idea
 this isuue pr is subsequential enough 
-this issue pr is good enough 
-this pr is subsequent and balanced 

@@ -7,6 +7,7 @@ import { requireAdmin } from '../../../middleware/adminAuth';
 import { auditLog } from '../../../middleware/adminAudit';
 import { paginationSchema } from '../../schemas/common';
 import { BadRequestError, NotFoundError } from '../../../utils/errors';
+import { invalidateFlightSearchCacheForFlight } from '../../../services/cache';
 
 const router = Router();
 
@@ -80,6 +81,8 @@ router.post(
         const flight = repo.create({ ...parsed.data, departureTime: new Date(parsed.data.departureTime) });
         const saved = await repo.save(flight) as unknown as Flight;
         res.locals.resourceId = saved.id;
+        // A new flight changes what this route/date can return.
+        await invalidateFlightSearchCacheForFlight(saved);
         return res.status(201).json({ success: true, data: saved });
     })
 );
@@ -104,9 +107,14 @@ router.put(
         if (update.departureTime) {
             (update as any).departureTime = new Date(update.departureTime as string);
         }
+        // Snapshot the route/date before the merge: moving a flight's departure
+        // invalidates both the scope it left and the one it now belongs to.
+        const previousScope = { fromAirport: flight.fromAirport, toAirport: flight.toAirport, departureTime: flight.departureTime };
         repo.merge(flight, update as Partial<Flight>);
         const saved = await repo.save(flight) as unknown as Flight;
         res.locals.resourceId = saved.id;
+        await invalidateFlightSearchCacheForFlight(previousScope);
+        await invalidateFlightSearchCacheForFlight(saved);
         return res.json({ success: true, data: saved });
     })
 );
@@ -125,6 +133,8 @@ router.delete(
         }
         res.locals.resourceId = flight.id;
         await repo.remove(flight);
+        // A removed flight must disappear from cached searches immediately.
+        await invalidateFlightSearchCacheForFlight(flight);
         return res.status(204).send();
     })
 );
