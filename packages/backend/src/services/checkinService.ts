@@ -8,6 +8,7 @@ import { Flight } from '../db/entities/Flight';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { notificationService } from './NotificationService';
+import { AppleWalletBoardingPass, buildAppleWalletPass, getAppleWalletConfig } from './walletPass';
 
 const CHECKIN_WINDOW_HOURS_BEFORE = 24;
 const CHECKIN_WINDOW_MINUTES_BEFORE_CUTOFF = 45;
@@ -197,49 +198,11 @@ export class CheckInService {
     });
   }
 
-  async generateWalletPass(bookingId: string): Promise<Record<string, unknown>> {
+  async generateWalletPass(bookingId: string): Promise<AppleWalletBoardingPass & { qrCodeDataUrl: string }> {
     const checkIn = await this.getCheckIn(bookingId);
-    const booking = checkIn.booking;
-    const flight = booking.flight;
-    const passenger = booking.passenger;
-
-    if (checkIn.status !== 'checked_in') {
-      throw new ConflictError('Wallet pass is only available after check-in');
-    }
-
-    const qrCode = await this.generateBarcodeDataUrl(checkIn.boardingPassCode);
-
-    return {
-      formatVersion: 1,
-      passTypeIdentifier: 'pass.com.traqora.boardingpass',
-      serialNumber: checkIn.id,
-      description: `${flight.airlineCode}${flight.flightNumber} boarding pass`,
-      organizationName: 'Traqora',
-      boardingPass: {
-        transitType: 'PKTransitTypeAir',
-        primaryFields: [
-          { key: 'origin', label: 'FROM', value: flight.fromAirport },
-          { key: 'destination', label: 'TO', value: flight.toAirport },
-        ],
-        secondaryFields: [
-          { key: 'passenger', label: 'PASSENGER', value: `${passenger.firstName} ${passenger.lastName}` },
-          { key: 'seat', label: 'SEAT', value: checkIn.seatNumber || 'N/A' },
-        ],
-        auxiliaryFields: [
-          { key: 'flight', label: 'FLIGHT', value: `${flight.airlineCode}${flight.flightNumber}` },
-          { key: 'gate', label: 'GATE', value: flight.gate || 'TBD' },
-          { key: 'departure', label: 'DEPARTS', value: new Date(flight.departureTime).toISOString() },
-        ],
-        barcodes: [
-          {
-            format: 'PKBarcodeFormatQR',
-            message: checkIn.boardingPassCode,
-            messageEncoding: 'iso-8859-1',
-          },
-        ],
-      },
-      qrCodeDataUrl: qrCode,
-    };
+    const pass = buildAppleWalletPass(checkIn, getAppleWalletConfig());
+    const qrCodeDataUrl = await this.generateBarcodeDataUrl(checkIn.boardingPassCode);
+    return { ...pass, qrCodeDataUrl };
   }
 
   async generateGoogleWalletPass(bookingId: string): Promise<GoogleWalletPassObject> {
