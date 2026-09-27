@@ -1,5 +1,4 @@
-import { createSearchCache, SearchCache } from '../cache/searchCache';
-import { parseRedisClusterNodes } from '../cache/redisClusterConfig';
+import { SearchCache } from '../cache/searchCache';
 import { config } from '../config';
 import { getPostgresPool } from '../db/postgres';
 import {
@@ -25,6 +24,7 @@ import { AmadeusFlightDataProvider } from './amadeus/amadeusFlightDataProvider';
 import { sloMeasure } from '../monitoring/slo';
 import { createFlightRegistryService, FlightRegistryService } from './flightRegistryService';
 import { measureAsync } from './metrics';
+import { buildFlightSearchCacheKey, getFlightSearchCache, getOrSetFlightSearchCache } from './cache';
 
 interface CursorPayload {
   offset: number;
@@ -65,10 +65,6 @@ const normalizeSearchCriteria = (criteria: FlightSearchCriteria): FlightSearchCr
   };
 };
 
-const buildCacheKey = (criteria: FlightSearchCriteria): string => {
-  return `flight-search:${Buffer.from(JSON.stringify(criteria), 'utf8').toString('base64url')}`;
-};
-
 const toXlm = (usdPrice: number, xlmUsdRate: number): number => {
   if (xlmUsdRate <= 0) {
     return 0;
@@ -104,67 +100,70 @@ export class FlightSearchService {
     // metric for the booking funnel (issue #593).
     return sloMeasure('search', async () => {
       const normalizedCriteria = normalizeSearchCriteria(criteria);
-      const cacheKey = buildCacheKey(normalizedCriteria);
+      const cacheKey = buildFlightSearchCacheKey(normalizedCriteria);
 
-      const cached = await this.cache.get<FlightSearchResponse>(cacheKey);
-      if (cached) {
-        return cached;
+      // Read-through: a miss (or a cache outage) recomputes and re-caches under
+      // the configured TTL, so entries never outlive `flightSearchCacheTtlSeconds`.
+      return getOrSetFlightSearchCache(this.cache, cacheKey, this.cacheTtlSeconds, () =>
+        this.buildResponse(normalizedCriteria)
+      );
+    });
+  }
+
+  private async buildResponse(
+    normalizedCriteria: FlightSearchCriteria
+  ): Promise<FlightSearchResponse> {
+    const { offset } = decodeCursor(normalizedCriteria.cursor);
+
+    const flights = await measureAsync('flight_search', 'provider_search', () =>
+      this.provider.search(normalizedCriteria, {
+        limit: normalizedCriteria.pageSize + 1,
+        offset,
+      })
+    );
+
+    const hasMore = flights.length > normalizedCriteria.pageSize;
+    const pageFlights = hasMore ? flights.slice(0, normalizedCriteria.pageSize) : flights;
+
+    const onChainStates = await measureAsync('flight_search', 'registry_state_lookup', () =>
+      this.registryService.getStates(pageFlights)
+    );
+    const enrichedFlights: EnrichedFlight[] = pageFlights.reduce<EnrichedFlight[]>((acc, flight) => {
+      const state = onChainStates[flight.id];
+      if (!state?.listed || !state.reservable || state.available_seats < normalizedCriteria.passengers) {
+        return acc;
       }
 
-      const { offset } = decodeCursor(normalizedCriteria.cursor);
-
-      const flights = await measureAsync('flight_search', 'provider_search', () =>
-        this.provider.search(normalizedCriteria, {
-          limit: normalizedCriteria.pageSize + 1,
-          offset,
-        })
-      );
-
-      const hasMore = flights.length > normalizedCriteria.pageSize;
-      const pageFlights = hasMore ? flights.slice(0, normalizedCriteria.pageSize) : flights;
-
-      const onChainStates = await measureAsync('flight_search', 'registry_state_lookup', () =>
-        this.registryService.getStates(pageFlights)
-      );
-      const enrichedFlights: EnrichedFlight[] = pageFlights.reduce<EnrichedFlight[]>((acc, flight) => {
-        const state = onChainStates[flight.id];
-        if (!state?.listed || !state.reservable || state.available_seats < normalizedCriteria.passengers) {
-          return acc;
-        }
-
-        acc.push({
-          ...flight,
-          pricing: {
-            usd: flight.price,
-            xlm: toXlm(flight.price, this.xlmUsdRate),
-            xlm_usd_rate: this.xlmUsdRate,
-          },
-          on_chain: {
-            listed: state.listed,
-            reservable: state.reservable,
-            contract_flight_id: state.contract_flight_id,
-            available_seats: state.available_seats,
-          },
-        });
-
-        return acc;
-      }, []);
-
-      const response: FlightSearchResponse = {
-        data: enrichedFlights,
-        pagination: {
-          next_cursor: hasMore
-            ? encodeCursor({ offset: offset + normalizedCriteria.pageSize })
-            : null,
-          has_more: hasMore,
-          page_size: normalizedCriteria.pageSize,
+      acc.push({
+        ...flight,
+        pricing: {
+          usd: flight.price,
+          xlm: toXlm(flight.price, this.xlmUsdRate),
+          xlm_usd_rate: this.xlmUsdRate,
         },
-      };
+        on_chain: {
+          listed: state.listed,
+          reservable: state.reservable,
+          contract_flight_id: state.contract_flight_id,
+          available_seats: state.available_seats,
+        },
+      });
 
-      await this.cache.set(cacheKey, response, this.cacheTtlSeconds);
+      return acc;
+    }, []);
 
-      return response;
-    });
+    const response: FlightSearchResponse = {
+      data: enrichedFlights,
+      pagination: {
+        next_cursor: hasMore
+          ? encodeCursor({ offset: offset + normalizedCriteria.pageSize })
+          : null,
+        has_more: hasMore,
+        page_size: normalizedCriteria.pageSize,
+      },
+    };
+
+    return response;
   }
 }
 
@@ -172,12 +171,6 @@ export const createDefaultFlightSearchService = (): FlightSearchService => {
   const repository: FlightRepository = config.databaseUrl
     ? new PostgresFlightRepository(getPostgresPool())
     : new InMemoryFlightRepository();
-
-  const cache = createSearchCache(
-    config.redisUrl || undefined,
-    'flight-search',
-    parseRedisClusterNodes(config.redisClusterNodes),
-  );
 
   // #779: provider failover — the offchain repository stays primary; the
   // Amadeus flight-offers API joins the chain as secondary only when AMADEUS
@@ -194,5 +187,10 @@ export const createDefaultFlightSearchService = (): FlightSearchService => {
   }
   const provider: OffchainFlightDataProvider = new FailoverFlightDataProvider(failoverProviders);
 
-  return new FlightSearchService(repository, cache, config.flightSearchCacheTtlSeconds, provider);
+  return new FlightSearchService(
+    repository,
+    getFlightSearchCache(),
+    config.flightSearchCacheTtlSeconds,
+    provider,
+  );
 };
