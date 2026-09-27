@@ -162,6 +162,11 @@ jobs:
         working-directory: contracts
         run: cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
 
+      # Keep TEST_GUIDE.md in sync with the integration test inventory.
+      - name: TEST_GUIDE parity check
+        working-directory: contracts
+        run: bash scripts/check-test-guide-parity.sh
+
   # ── Tests: Backend ────────────────────────────────────────────────────────
   test-backend:
     name: Tests - Backend
