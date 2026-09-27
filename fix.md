@@ -22,4 +22,3 @@ Acceptance Criteria
  Existing contracts/abilities are not regressed
 Difficulty: Hard
 This issue is ideal for a first-time contributor. Comment to claim it and maintainers will assign you.
-this issue is given a relevant idea

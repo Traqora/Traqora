@@ -17,6 +17,8 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 
 ## Specialized Runbooks
 - [Flight Sync On-Call Runbook](./FLIGHT_SYNC_RUNBOOK.md) — what to do when flight sync falls behind.
+- [Flight Provider Failover Runbook](./FLIGHT_PROVIDER_FAILOVER_RUNBOOK.md) — flight search provider chain, failover signals, and remediation (#779).
+- [Dependency Audit Schedule](./DEPENDENCY_AUDIT.md) — weekly npm + cargo audits, runner contract, and remediation workflow (#777).
 - [Contract Deployment Runbook](./CONTRACT_DEPLOYMENT_RUNBOOK.md) — deploying and upgrading Soroban contracts on testnet/mainnet.
 
 ---

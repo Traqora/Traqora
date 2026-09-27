@@ -36,8 +36,13 @@ const sanitizeLogValue = (value: unknown): unknown => {
 
 const addCorrelationId = winston.format((info) => {
   const store = asyncLocalStorage.getStore();
-  if (store && store.has('correlationId')) {
-    info.correlationId = store.get('correlationId');
+  if (store) {
+    if (store.has('correlationId')) {
+      info.correlationId = store.get('correlationId');
+    }
+    if (store.has('requestId')) {
+      info.requestId = store.get('requestId');
+    }
   }
   return info;
 });

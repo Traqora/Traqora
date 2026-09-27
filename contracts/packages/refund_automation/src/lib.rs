@@ -1,5 +1,6 @@
 #![no_std]
 use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec,
 };
@@ -183,15 +184,18 @@ impl RefundAutomationContract {
             .persistent()
             .set(&DataKey::Cancelled(booking_id.clone()), &true);
 
-        env.events().publish(
-            (symbol_short!("refund"), symbol_short!("cancelled")),
+        // Canonical schema: (actor, timestamp, primary_id, ...payload).
+        contract_events::emit(
+            &env,
+            Domain::Refund,
+            Action::Cancelled,
             (
-                booking_id.clone(),
+                caller,
+                env.ledger().timestamp(),
+                booking_numeric_id,
                 tier.clone(),
                 settlement.0,
                 settlement.1,
-                caller,
-                booking_numeric_id,
             ),
         );
 
@@ -262,10 +266,15 @@ impl RefundAutomationContract {
             .persistent()
             .set(&DataKey::Cancelled(booking_id.clone()), &true);
 
-        env.events().publish(
-            (symbol_short!("refund"), symbol_short!("automated")),
+        // Canonical schema: (actor, timestamp, primary_id, ...payload).
+        contract_events::emit(
+            &env,
+            Domain::Refund,
+            Action::Automated,
             (
-                booking_id.clone(),
+                caller,
+                env.ledger().timestamp(),
+                booking_numeric_id,
                 tier.clone(),
                 settlement.0,
                 settlement.1,
@@ -331,8 +340,10 @@ impl RefundAutomationContract {
             processed += 1;
         }
 
-        env.events().publish(
-            (symbol_short!("refund"), symbol_short!("batch")),
+        contract_events::emit(
+            &env,
+            Domain::Refund,
+            Action::Batch,
             (admin, env.ledger().timestamp(), processed),
         );
 
@@ -363,13 +374,16 @@ impl RefundAutomationContract {
             .persistent()
             .set(&DataKey::Dispute(refund_id.clone()), &dispute);
 
-        env.events().publish(
-            (symbol_short!("refund"), symbol_short!("dispute")),
+        // Canonical schema: (actor, timestamp, primary_id, ...payload).
+        contract_events::emit(
+            &env,
+            Domain::Refund,
+            Action::Dispute,
             (
                 passenger,
-                refund_id,
-                booking_numeric_id,
                 env.ledger().timestamp(),
+                booking_numeric_id,
+                refund_id,
             ),
         );
     }
@@ -392,6 +406,8 @@ impl RefundAutomationContract {
         dispute.resolved_at = Some(env.ledger().timestamp());
         dispute.resolution = Some(resolution.clone());
 
+        let booking_id = dispute.booking_id;
+
         env.storage()
             .persistent()
             .set(&DataKey::DisputeResolution(refund_id.clone()), &resolution);
@@ -399,9 +415,18 @@ impl RefundAutomationContract {
             .persistent()
             .set(&DataKey::Dispute(refund_id.clone()), &dispute);
 
-        env.events().publish(
-            (symbol_short!("refund"), symbol_short!("resolved")),
-            (admin, refund_id, resolution, env.ledger().timestamp()),
+        // Canonical schema: (actor, timestamp, primary_id, ...payload).
+        contract_events::emit(
+            &env,
+            Domain::Refund,
+            Action::Resolved,
+            (
+                admin,
+                env.ledger().timestamp(),
+                booking_id,
+                refund_id,
+                resolution,
+            ),
         );
     }
 
