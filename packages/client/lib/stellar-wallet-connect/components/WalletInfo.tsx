@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle, Copy, ExternalLink, Wallet, XCircle } from 'lucide-react';
 import useWalletStore from '../store';
+import { t } from '../../i18n';
 import { useWallet } from '../use-wallet';
 import type { WalletInfoProps, StellarNetwork } from '../types';
 
@@ -95,15 +96,15 @@ export function WalletInfo({
       >
         <div className="swc-card__header">
           <Wallet className="swc-icon swc-icon--accent" aria-hidden="true" />
-          <h3 className="swc-card__title">Wallet Status</h3>
+          <h3 className="swc-card__title">{t('wallet.status')}</h3>
         </div>
         <p className="swc-card__description">
-          Connect your Stellar wallet to get started.
+          {t('wallet.description')}
         </p>
         <div className="swc-card__body">
           <div className="swc-status swc-status--disconnected">
             <XCircle className="swc-status__icon" aria-hidden="true" />
-            <span className="swc-status__label">Not Connected</span>
+            <span className="swc-status__label">{t('wallet.disconnected')}</span>
           </div>
           <button
             type="button"
@@ -112,10 +113,10 @@ export function WalletInfo({
             disabled={isConnecting || isLinking}
           >
             {isConnecting
-              ? 'Connecting...'
+              ? t('wallet.connecting')
               : isLinking
-                ? 'Linking...'
-                : 'Connect Wallet'}
+                ? t('wallet.linking')
+                : t('wallet.connect')}
           </button>
         </div>
       </div>
@@ -131,10 +132,10 @@ export function WalletInfo({
     >
       <div className="swc-card__header">
         <Wallet className="swc-icon swc-icon--accent" aria-hidden="true" />
-        <h3 className="swc-card__title">Wallet Information</h3>
+        <h3 className="swc-card__title">{t('wallet.info.title')}</h3>
       </div>
       <p className="swc-card__description">
-        Your connected Stellar wallet details.
+        {t('wallet.info.description')}
       </p>
 
       <div className="swc-card__body">
