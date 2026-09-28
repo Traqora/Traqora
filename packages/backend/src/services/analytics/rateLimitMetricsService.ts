@@ -1,4 +1,4 @@
-import { getRateLimitSnapshot, __resetRateLimitSnapshot } from '../metrics';
+import { getRateLimitMetrics, resetRateLimitMetrics as resetMetrics } from '../../services/metrics';
 
 export interface RateLimitMetricItem {
   endpoint: string;
@@ -17,19 +17,21 @@ export interface RateLimitMetricsSummary {
 }
 
 export async function getRateLimitAbuseMetrics(): Promise<RateLimitMetricsSummary> {
-  const snapshot = getRateLimitSnapshot();
+  const metrics = getRateLimitMetrics();
   let totalAllowed = 0;
   let totalBlocked = 0;
 
-  const items: RateLimitMetricItem[] = snapshot.map((entry) => {
-    totalAllowed += entry.allowed;
-    totalBlocked += entry.blocked;
+  const items: RateLimitMetricItem[] = (metrics || []).map((entry: any) => {
+    const allowed = entry.allowed ?? 0;
+    const blocked = entry.blocked ?? 0;
+    totalAllowed += allowed;
+    totalBlocked += blocked;
     return {
-      endpoint: entry.endpoint,
-      tier: entry.tier,
-      allowed: entry.allowed,
-      blocked: entry.blocked,
-      lastBlockedAt: entry.lastBlockedAt,
+      endpoint: entry.endpoint || '',
+      tier: entry.tier || 'public',
+      allowed,
+      blocked,
+      lastBlockedAt: entry.lastBlockedAt || null,
     };
   });
 
@@ -43,5 +45,7 @@ export async function getRateLimitAbuseMetrics(): Promise<RateLimitMetricsSummar
 }
 
 export function resetRateLimitAbuseMetrics(): void {
-  __resetRateLimitSnapshot();
+  if (typeof resetMetrics === 'function') {
+    resetMetrics();
+  }
 }
