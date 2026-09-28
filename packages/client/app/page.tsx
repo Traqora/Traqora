@@ -6,7 +6,11 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Plane, Zap, Shield, Globe } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { HomeRecommendations } from "@/app/home/recommendations"
+import dynamic from "next/dynamic"
+
+const HomeRecommendations = dynamic(() => import("@/app/home/recommendations").then(mod => mod.HomeRecommendations), {
+  ssr: false,
+})
 
 export default function HomePage() {
   const router = useRouter()
