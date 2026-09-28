@@ -23,6 +23,11 @@ export interface NotificationPayload {
   channels?: ("email" | "sms" | "push")[]; // Optional override of which channels to use
 }
 
+/**
+ * Notification jobs (issue #758) follow the transactional outbox pattern: producers
+ * persist the outbox row inside the same transaction as the business write, and a
+ * relay drains it into this queue at-least-once, so handlers must stay idempotent.
+ */
 export const notificationQueue = new Queue<NotificationPayload>(
   "notifications",
   {
