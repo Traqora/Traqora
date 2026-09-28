@@ -1,0 +1,223 @@
+/**
+ * Environment variable reference generator — issue #762.
+ *
+ * Parses the structured comments in `env.example` files and renders the reference table in
+ * docs/ENV_REFERENCE.md. Pure functions only; file I/O lives in scripts/env-reference.ts.
+ *
+ * Expected env.example format (one block per variable, blocks separated by a blank line):
+ *
+ *   # Human readable description (one or more lines).
+ *   # Type: [Number] | Default: 3001
+ *   # Example: ...                      (optional)
+ *   PORT=3001                           (active variable)
+ *   # OPTIONAL_VAR=                     (commented-out variable, same metadata)
+ *
+ * Section titles are comment lines wrapped by `# ====` or `# ----` rule lines.
+ */
+
+export interface EnvVarEntry {
+  name: string;
+  section: string;
+  description: string;
+  type: string | null;
+  defaultValue: string | null;
+  example: string | null;
+  exampleValue: string;
+  /** True when the variable is only present as a commented-out line (`# NAME=`). */
+  commented: boolean;
+  line: number;
+}
+
+export type EnvDocIssueCode = 'MISSING_DESCRIPTION' | 'MISSING_TYPE' | 'DUPLICATE_VARIABLE';
+
+export interface EnvDocIssue {
+  code: EnvDocIssueCode;
+  name: string;
+  line: number;
+  message: string;
+}
+
+export interface ParsedEnvFile {
+  entries: EnvVarEntry[];
+  issues: EnvDocIssue[];
+}
+
+const RULE_LINE = /^#\s*(=+|-+)\s*$/;
+const ACTIVE_VAR = /^([A-Z][A-Z0-9_]*)=(.*)$/;
+const COMMENTED_VAR = /^#\s*([A-Z][A-Z0-9_]*)=(.*)$/;
+const TYPE_LINE = /^Type:\s*\[(.+?)\]\s*(?:\|\s*Default:\s*(.*))?$/i;
+const EXAMPLE_LINE = /^Example\b.*?:\s*(.*)$/i;
+
+interface PendingBlock {
+  description: string[];
+  type: string | null;
+  defaultValue: string | null;
+  example: string | null;
+}
+
+const emptyBlock = (): PendingBlock => ({ description: [], type: null, defaultValue: null, example: null });
+
+export function parseEnvExample(content: string): ParsedEnvFile {
+  const lines = content.split(/\r?\n/);
+  const entries: EnvVarEntry[] = [];
+  const issues: EnvDocIssue[] = [];
+  const seen = new Map<string, number>();
+
+  let section = 'General';
+  let block = emptyBlock();
+
+  const addEntry = (name: string, value: string, commented: boolean, line: number) => {
+    const firstLine = seen.get(name);
+    if (firstLine !== undefined) {
+      issues.push({
+        code: 'DUPLICATE_VARIABLE',
+        name,
+        line,
+        message: `${name} is defined more than once (first on line ${firstLine})`,
+      });
+      return;
+    }
+    seen.set(name, line);
+
+    const entry: EnvVarEntry = {
+      name,
+      section,
+      description: block.description.join(' ').trim(),
+      type: block.type,
+      defaultValue: block.defaultValue,
+      example: block.example,
+      exampleValue: value.trim(),
+      commented,
+      line,
+    };
+    entries.push(entry);
+
+    if (!entry.description) {
+      issues.push({ code: 'MISSING_DESCRIPTION', name, line, message: `${name} has no description comment` });
+    }
+    if (!entry.type) {
+      issues.push({ code: 'MISSING_TYPE', name, line, message: `${name} has no "# Type: [...] | Default: ..." line` });
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].trim();
+    const lineNo = i + 1;
+
+    if (!raw) {
+      block = emptyBlock();
+      continue;
+    }
+
+    // Section header: rule, title, rule.
+    if (RULE_LINE.test(raw)) {
+      const title = lines[i + 1]?.trim();
+      const closing = lines[i + 2]?.trim();
+      if (title && closing && title.startsWith('#') && !RULE_LINE.test(title) && RULE_LINE.test(closing)) {
+        section = title.replace(/^#\s*/, '').trim();
+        i += 2;
+      }
+      block = emptyBlock();
+      continue;
+    }
+
+    const active = ACTIVE_VAR.exec(raw);
+    if (active) {
+      addEntry(active[1], active[2], false, lineNo);
+      continue;
+    }
+
+    const commented = COMMENTED_VAR.exec(raw);
+    if (commented) {
+      addEntry(commented[1], commented[2], true, lineNo);
+      continue;
+    }
+
+    if (raw.startsWith('#')) {
+      const text = raw.replace(/^#\s?/, '').trim();
+      const type = TYPE_LINE.exec(text);
+      const example = EXAMPLE_LINE.exec(text);
+      if (type) {
+        block.type = type[1].trim();
+        block.defaultValue = type[2]?.trim() || null;
+      } else if (example) {
+        block.example = text;
+      } else if (text) {
+        block.description.push(text);
+      }
+    }
+  }
+
+  return { entries, issues };
+}
+
+function cell(value: string | null | undefined): string {
+  if (!value) return '—';
+  return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+function code(value: string): string {
+  return `\`${value.replace(/`/g, "'")}\``;
+}
+
+export interface EnvReferenceSource {
+  /** Path shown in the doc, relative to the repo root (e.g. `packages/backend/env.example`). */
+  path: string;
+  entries: EnvVarEntry[];
+}
+
+export const ENV_REFERENCE_HEADER = `<!-- AUTO-GENERATED by packages/backend/scripts/env-reference.ts. Do not edit by hand. -->
+<!-- Regenerate with: cd packages/backend && npm run docs:env -->`;
+
+export function renderEnvReference(sources: EnvReferenceSource[]): string {
+  const out: string[] = [
+    ENV_REFERENCE_HEADER,
+    '',
+    '# Environment Variable Reference',
+    '',
+    'Generated from the annotated `env.example` files. To change a variable, edit its comment block in',
+    'the `env.example` file and regenerate this page. Variables marked *(commented out)* are optional',
+    'and are disabled in the example file.',
+    '',
+  ];
+
+  for (const source of sources) {
+    out.push(`## \`${source.path}\``, '', `${source.entries.length} variables.`, '');
+
+    const sections = new Map<string, EnvVarEntry[]>();
+    for (const entry of source.entries) {
+      const list = sections.get(entry.section) ?? [];
+      list.push(entry);
+      sections.set(entry.section, list);
+    }
+
+    for (const [section, entries] of sections) {
+      out.push(`### ${section}`, '', '| Variable | Type | Default | Description |', '| --- | --- | --- | --- |');
+      for (const entry of entries) {
+        const name = code(entry.name) + (entry.commented ? ' *(commented out)*' : '');
+        const description = [entry.description, entry.example].filter(Boolean).join(' ');
+        out.push(`| ${name} | ${cell(entry.type)} | ${cell(entry.defaultValue)} | ${cell(description)} |`);
+      }
+      out.push('');
+    }
+  }
+
+  return `${out.join('\n').trimEnd()}\n`;
+}
+
+/** Names of `process.env.X` reads in a source file. */
+export function extractProcessEnvNames(source: string): string[] {
+  const names = new Set<string>();
+  const pattern = /process\.env\.([A-Z][A-Z0-9_]*)|process\.env\[['"]([A-Z][A-Z0-9_]*)['"]\]/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(source)) !== null) {
+    names.add(match[1] ?? match[2]);
+  }
+  return [...names].sort();
+}
+
+/** Variables read by code that no env.example documents. */
+export function findUndocumented(usedNames: string[], documented: EnvVarEntry[]): string[] {
+  const known = new Set(documented.map((entry) => entry.name));
+  return usedNames.filter((name) => !known.has(name));
+}

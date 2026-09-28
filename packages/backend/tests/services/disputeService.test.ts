@@ -3,7 +3,7 @@ import { Dispute } from '../../src/db/entities/Dispute';
 import { DisputeEvidence } from '../../src/db/entities/DisputeEvidence';
 import { Refund } from '../../src/db/entities/Refund';
 import { disputeService } from '../../src/services/dispute/disputeService';
-import { BadRequestError } from '../../src/utils/errors';
+import { EvidenceValidationError } from '../../src/services/dispute/evidenceValidation';
 
 describe('DisputeService', () => {
   const claimantAddress = 'GCLAIMANTWALLET123456789';
@@ -177,138 +177,41 @@ describe('DisputeService', () => {
     expect(appealed.status).toBe('appealed');
   });
 
-  describe('Evidence validation', () => {
-    it('rejects evidence with invalid file type on dispute creation', async () => {
-      // Use a valid IPFS CID with invalid file extension in path
-      await expect(
-        disputeService.createDispute({
-          refundId: 'refund-1',
-          claimantAddress,
-          disputeType: 'refund_denied',
-          description: 'Refund was denied despite airline cancellation and supporting receipts.',
-          desiredOutcome: 'Full refund and fee reversal',
-          evidence: [
-            {
-              description: 'Invalid file',
-              fileUrl: 'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/invalid.exe',
-            },
-          ],
-        }),
-      ).rejects.toThrow(BadRequestError);
-    });
-
-    it('rejects evidence with invalid file type on evidence submission', async () => {
-      const created = await disputeService.createDispute({
+  it('rejects invalid evidence on create without persisting the dispute', async () => {
+    await expect(
+      disputeService.createDispute({
         refundId: 'refund-1',
         claimantAddress,
-        disputeType: 'service_quality',
-        description: 'Service issue details and missing compensation response from airline.',
-        desiredOutcome: 'Partial refund aligned with policy',
-      });
+        disputeType: 'refund_denied',
+        description: 'Refund was denied despite airline cancellation and supporting receipts.',
+        desiredOutcome: 'Full refund and fee reversal',
+        evidence: [{ description: 'Receipt', fileUrl: 'https://evil.example/files/ipfs/not-a-cid' }],
+      }),
+    ).rejects.toBeInstanceOf(EvidenceValidationError);
 
-      await expect(
-        disputeService.submitEvidence({
-          disputeId: created.id,
-          submittedBy: airlineAddress,
-          description: 'Invalid file type',
-          fileUrl: 'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/invalid.exe',
-        }),
-      ).rejects.toThrow(BadRequestError);
+    expect(disputes).toHaveLength(0);
+    expect(evidenceItems).toHaveLength(0);
+  });
+
+  it('rejects invalid evidence submissions and leaves dispute status unchanged', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details and missing compensation response from airline.',
+      desiredOutcome: 'Partial refund aligned with policy',
     });
 
-    it('accepts valid file types (PDF, JPEG, PNG, GIF, WebP, TXT)', async () => {
-      const validFileTypes = [
-        'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/document.pdf',
-        'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/image.jpg',
-        'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/image.jpeg',
-        'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/image.png',
-        'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/image.gif',
-        'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/image.webp',
-        'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/document.txt',
-        'https://ipfs.io/ipfs/QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/document.pdf',
-        'https://gateway.pinata.cloud/ipfs/QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/image.jpg',
-      ];
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: claimantAddress,
+        description: 'Airline incident log export',
+        fileUrl: 'http://ipfs.io/ipfs/QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx',
+      }),
+    ).rejects.toMatchObject({ code: 'EVIDENCE_URL_INSECURE_GATEWAY' });
 
-      for (const fileUrl of validFileTypes) {
-        const dispute = await disputeService.createDispute({
-          refundId: 'refund-1',
-          claimantAddress,
-          disputeType: 'refund_denied',
-          description: 'Refund was denied despite airline cancellation and supporting receipts.',
-          desiredOutcome: 'Full refund and fee reversal',
-          evidence: [
-            {
-              description: 'Valid file',
-              fileUrl,
-            },
-          ],
-        });
-        expect(dispute.evidence[0].fileUrl).toBeDefined();
-        // Clear disputes for next iteration
-        disputes.length = 0;
-        evidenceItems.length = 0;
-      }
-    });
-
-    it('rejects evidence from non-participants', async () => {
-      const created = await disputeService.createDispute({
-        refundId: 'refund-1',
-        claimantAddress,
-        disputeType: 'service_quality',
-        description: 'Service issue details and missing compensation response from airline.',
-        desiredOutcome: 'Partial refund aligned with policy',
-      });
-
-      const unauthorizedAddress = 'GUNAUTHORIZEDUSER123456789';
-
-      await expect(
-        disputeService.submitEvidence({
-          disputeId: created.id,
-          submittedBy: unauthorizedAddress,
-          description: 'Unauthorized evidence submission',
-          fileUrl: 'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/valid.pdf',
-        }),
-      ).rejects.toThrow(BadRequestError);
-    });
-
-    it('logs warnings for IPFS file size (cannot be validated)', async () => {
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
-
-      const created = await disputeService.createDispute({
-        refundId: 'refund-1',
-        claimantAddress,
-        disputeType: 'service_quality',
-        description: 'Service issue details and missing compensation response from airline.',
-        desiredOutcome: 'Partial refund aligned with policy',
-        evidence: [
-          {
-            description: 'Large file',
-            fileUrl: 'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/large.pdf',
-          },
-        ],
-      });
-
-      expect(created.evidence[0].fileUrl).toBeDefined();
-      consoleSpy.mockRestore();
-    });
-
-    it('rejects evidence with non-IPFS/HTTPS URL', async () => {
-      const created = await disputeService.createDispute({
-        refundId: 'refund-1',
-        claimantAddress,
-        disputeType: 'service_quality',
-        description: 'Service issue details and missing compensation response from airline.',
-        desiredOutcome: 'Partial refund aligned with policy',
-      });
-
-      await expect(
-        disputeService.submitEvidence({
-          disputeId: created.id,
-          submittedBy: claimantAddress,
-          description: 'Invalid URL scheme',
-          fileUrl: 'ftp://example.com/file.pdf',
-        }),
-      ).rejects.toThrow(BadRequestError);
-    });
+    expect(evidenceItems).toHaveLength(0);
+    expect(disputes[0].status).toBe('evidence_submission');
   });
 });

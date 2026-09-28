@@ -4,7 +4,7 @@ import { Dispute, DisputeOutcome, DisputeStatus } from '../../db/entities/Disput
 import { DisputeEvidence } from '../../db/entities/DisputeEvidence';
 import { Refund } from '../../db/entities/Refund';
 import { logger } from '../../utils/logger';
-import { BadRequestError } from '../../utils/errors';
+import { validateEvidenceInput } from './evidenceValidation';
 
 export interface EvidenceInput {
   description: string;
@@ -134,30 +134,6 @@ function parseArbitrators(): string[] {
   return ['platform-arbiter'];
 }
 
-function normalizeIpfsUrl(raw?: string): string | undefined {
-  if (!raw) return undefined;
-  const value = raw.trim();
-  if (!value) return undefined;
-
-  const cidPattern = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/;
-  if (cidPattern.test(value)) {
-    return `ipfs://${value}`;
-  }
-
-  if (/^ipfs:\/\/[a-zA-Z0-9]+(?:\/.*)?$/.test(value)) {
-    return value;
-  }
-
-  if (/^https?:\/\//.test(value)) {
-    if (value.includes('/ipfs/')) {
-      return value;
-    }
-    throw new Error('Evidence URL must be an IPFS CID, ipfs:// URI, or an IPFS gateway URL');
-  }
-
-  throw new Error('Invalid evidence URI format');
-}
-
 function buildTimeline(dispute: Dispute): DisputeTimelineEvent[] {
   const timeline: DisputeTimelineEvent[] = [
     {
@@ -260,6 +236,9 @@ export class DisputeService {
 
     if (!refund) throw new Error('Refund not found');
 
+    // Validate evidence before persisting anything so a bad upload cannot leave an orphaned dispute.
+    const validatedEvidence = (params.evidence || []).map(validateEvidenceInput);
+
     const passengerWallet = refund.booking.passenger?.sorobanAddress;
     if (passengerWallet && passengerWallet !== params.claimantAddress) {
       throw new Error('Only the booking passenger may create a dispute');
@@ -295,37 +274,16 @@ export class DisputeService {
 
     const savedDispute = await disputeRepo.save(dispute);
 
-    if (params.evidence?.length) {
+    if (validatedEvidence.length) {
       const evidenceRepo = AppDataSource.getRepository(DisputeEvidence);
-      const evidenceRows = params.evidence.map((item) => {
-        // Validate file if provided
-        if (item.fileUrl) {
-          let normalizedUrl: string | undefined;
-          try {
-            normalizedUrl = normalizeIpfsUrl(item.fileUrl);
-          } catch (error) {
-            throw new BadRequestError(error instanceof Error ? error.message : 'Invalid evidence URL format');
-          }
-          if (normalizedUrl) {
-            const fileValidation = validateEvidenceFile(normalizedUrl, params.claimantAddress);
-            if (!fileValidation.valid) {
-              throw new BadRequestError(fileValidation.errors.join('; '));
-            }
-            if (fileValidation.warnings.length > 0) {
-              logger.warn('Evidence validation warnings on dispute creation', {
-                refundId: params.refundId,
-                warnings: fileValidation.warnings,
-              });
-            }
-          }
-        }
-        return evidenceRepo.create({
+      const evidenceRows = validatedEvidence.map((item) =>
+        evidenceRepo.create({
           dispute: savedDispute,
           submittedBy: params.claimantAddress,
           description: item.description,
-          fileUrl: normalizeIpfsUrl(item.fileUrl),
-        });
-      });
+          fileUrl: item.fileUrl,
+        }),
+      );
       await evidenceRepo.save(evidenceRows);
     }
 
@@ -398,34 +356,13 @@ export class DisputeService {
       throw new Error('Evidence can no longer be submitted for this dispute');
     }
 
-    // Validate file if provided
-    if (params.fileUrl) {
-      let normalizedUrl: string | undefined;
-      try {
-        normalizedUrl = normalizeIpfsUrl(params.fileUrl);
-      } catch (error) {
-        throw new BadRequestError(error instanceof Error ? error.message : 'Invalid evidence URL format');
-      }
-      if (normalizedUrl) {
-        const fileValidation = validateEvidenceFile(normalizedUrl, params.submittedBy);
-        if (!fileValidation.valid) {
-          throw new BadRequestError(fileValidation.errors.join('; '));
-        }
-        // Log warnings but don't fail
-        if (fileValidation.warnings.length > 0) {
-          logger.warn('Evidence validation warnings', {
-            disputeId: params.disputeId,
-            warnings: fileValidation.warnings,
-          });
-        }
-      }
-    }
+    const validated = validateEvidenceInput({ description: params.description, fileUrl: params.fileUrl });
 
     const item = evidenceRepo.create({
       dispute,
       submittedBy: params.submittedBy,
-      description: params.description,
-      fileUrl: normalizeIpfsUrl(params.fileUrl),
+      description: validated.description,
+      fileUrl: validated.fileUrl,
     });
 
     await evidenceRepo.save(item);

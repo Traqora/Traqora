@@ -172,3 +172,43 @@ export function getStablecoins(): CurrencyCode[] {
 export function isStablecoin(currency: CurrencyCode): boolean {
   return currency === 'USDC' || currency === 'USDT';
 }
+
+/**
+ * Get the gas fee for a given cryptocurrency.
+ * Returns the fee amount in the native token of the currency.
+ */
+export function getGasFee(currency: CurrencyCode): string {
+  switch (currency) {
+    case 'XLM':
+      return '0.00001';
+    case 'USDC':
+      return '0.0001';
+    case 'USDT':
+      return '0.0001';
+    case 'ETH':
+      return '0.001';
+    default:
+      return '0.001';
+  }
+}
+
+/**
+ * Get the platform fee for a given currency.
+ * For stablecoins, returns a fixed platform fee of 0.
+ * For other currencies, returns a percentage-based fee.
+ */
+export function getPlatformFee(currency: CurrencyCode, amount: number): number {
+  if (isStablecoin(currency)) {
+    return 0;
+  }
+  return Math.round(amount * 0.01 * 100) / 100;
+}
+
+/**
+ * Format a gas fee with the appropriate currency symbol.
+ */
+export function formatGasFee(currency: CurrencyCode): string {
+  const fee = getGasFee(currency);
+  const info = SUPPORTED_CURRENCIES[currency];
+  return `${fee} ${info?.symbol || currency}`;
+}
