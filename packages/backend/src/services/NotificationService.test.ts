@@ -552,6 +552,110 @@ describe("NotificationService", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Multi-channel de-duplication (issue #533)
+  // -------------------------------------------------------------------------
+
+  describe("Multi-channel de-duplication", () => {
+    it("returns the same notification when queueNotification is called twice with the same ID", async () => {
+      const payload = {
+        id: "dedup-1",
+        userId: "user-dedup",
+        category: "booking" as NotificationCategory,
+        title: "Duplicate Test",
+        body: "Body",
+        timestamp: new Date(),
+      };
+
+      const first = await service.queueNotification("user-dedup", payload, ["email", "push"]);
+      const second = await service.queueNotification("user-dedup", payload, ["email", "push"]);
+
+      expect(second).toBe(first); // same object reference – no duplicate created
+    });
+
+    it("does not add duplicate deliveries when queueNotification is called twice", async () => {
+      const payload = {
+        id: "dedup-2",
+        userId: "user-dedup2",
+        category: "payment" as NotificationCategory,
+        title: "Dup Delivery",
+        body: "Body",
+        timestamp: new Date(),
+      };
+
+      await service.queueNotification("user-dedup2", payload, ["inapp"]);
+      const second = await service.queueNotification("user-dedup2", payload, ["inapp"]);
+
+      // Only one delivery entry for the channel should exist
+      expect(second.deliveries.filter((d) => d.channel === "inapp").length).toBe(1);
+    });
+
+    it("stores only one notification in the inbox when the same ID is queued twice", async () => {
+      const payload = {
+        id: "dedup-3",
+        userId: "user-dedup3",
+        category: "system" as NotificationCategory,
+        title: "System alert",
+        body: "Body",
+        timestamp: new Date(),
+      };
+
+      await service.queueNotification("user-dedup3", payload, ["inapp"]);
+      await service.queueNotification("user-dedup3", payload, ["inapp"]);
+
+      const notifs = await service.getInAppNotifications("user-dedup3");
+      expect(notifs.filter((n) => n.id === "dedup-3").length).toBe(1);
+    });
+
+    it("appends a new channel to an existing notification if it was not already scheduled", async () => {
+      const payload = {
+        id: "dedup-extend",
+        userId: "user-extend",
+        category: "booking" as NotificationCategory,
+        title: "Extend Test",
+        body: "Body",
+        timestamp: new Date(),
+      };
+
+      // First call: only email
+      const first = await service.queueNotification("user-extend", payload, ["email"]);
+      expect(first.deliveries.map((d) => d.channel)).toContain("email");
+      expect(first.deliveries.map((d) => d.channel)).not.toContain("push");
+
+      // Second call with push added: should append push delivery, not create a new notification
+      const second = await service.queueNotification("user-extend", payload, ["email", "push"]);
+      expect(second).toBe(first);
+      const channels = second.deliveries.map((d) => d.channel);
+      expect(channels.filter((c) => c === "email").length).toBe(1);
+      expect(channels).toContain("push");
+    });
+
+    it("does not add a channel that is gated by a disabled preference even on the second call", async () => {
+      await service.updatePreference("user-gated", {
+        channel: "sms",
+        category: "marketing",
+        frequency: "never",
+        enabled: false,
+      });
+
+      const payload = {
+        id: "dedup-gated",
+        userId: "user-gated",
+        category: "marketing" as NotificationCategory,
+        title: "Gated",
+        body: "Body",
+        timestamp: new Date(),
+      };
+
+      const first = await service.queueNotification("user-gated", payload, ["inapp"]);
+      const second = await service.queueNotification("user-gated", payload, ["inapp", "sms"]);
+
+      expect(second).toBe(first);
+      // SMS is disabled – it must never appear in deliveries
+      expect(second.deliveries.find((d) => d.channel === "sms")).toBeUndefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Type coverage (compile-time guards)
   // -------------------------------------------------------------------------
 
