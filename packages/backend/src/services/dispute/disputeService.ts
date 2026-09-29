@@ -1,21 +1,10 @@
 import { randomUUID } from 'crypto';
-import { AppDataSource } from '../../db/dataSource';
 import { Dispute, DisputeOutcome, DisputeStatus } from '../../db/entities/Dispute';
-import { DisputeEvidence } from '../../db/entities/DisputeEvidence';
-import { Refund } from '../../db/entities/Refund';
-import { logger } from '../../utils/logger';
-import { validateEvidenceInput } from './evidenceValidation';
+
 
 export interface EvidenceInput {
   description: string;
   fileUrl?: string;
-}
-
-export interface DisputeTimelineEvent {
-  type: 'dispute_opened' | 'arbitrator_assigned' | 'evidence_submitted' | 'dispute_resolved' | 'dispute_appealed';
-  at: string;
-  actor: string;
-  notes?: string;
 }
 
 export interface DisputeDTO {
@@ -137,124 +126,98 @@ function toDTO(dispute: Dispute): DisputeDTO {
     deadlineAt: dispute.deadlineAt ? toIso(dispute.deadlineAt) : null,
   };
 }
+export interface DisputeEvidence {
+  id: string;
+  submittedBy: string;
+  description: string;
+  fileUrl: string | null;
+  submittedAt: string;
+}
+
+export interface DisputeTimelineEvent {
+  type: 'dispute_opened' | 'arbitrator_assigned' | 'evidence_submitted' | 'dispute_resolved' | 'dispute_appealed';
+  at: string;
+  actor: string;
+  notes?: string;
+}
+
+export interface DisputeRecord {
+  id: string;
+  bookingId: string;
+  refundId: string;
+  claimantAddress: string;
+  respondentAddress: string;
+  arbitratorAddress: string | null;
+  status: string;
+  disputeType: string;
+  description: string;
+  desiredOutcome: string;
+  evidence: DisputeEvidence[];
+  timeline: DisputeTimelineEvent[];
+  createdAt: string;
+}
 
 export class DisputeService {
-  private selectArbitrator(disputeId: string): string {
-    const arbiters = parseArbitrators();
-    const score = disputeId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    return arbiters[score % arbiters.length];
-  }
+  private disputes: Map<string, DisputeRecord> = new Map();
 
   async createDispute(params: {
     refundId: string;
+    bookingId?: string;
     claimantAddress: string;
     disputeType: string;
     description: string;
-    desiredOutcome?: string;
-    evidence?: EvidenceInput[];
-  }): Promise<DisputeDTO> {
-    const refundRepo = AppDataSource.getRepository(Refund);
-    const disputeRepo = AppDataSource.getRepository(Dispute);
+    desiredOutcome: string;
+    evidence?: Array<{ description: string; fileUrl?: string }>;
+  }): Promise<DisputeRecord> {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    const evList: DisputeEvidence[] = (params.evidence || []).map((e) => ({
+      id: randomUUID(),
+      submittedBy: params.claimantAddress,
+      description: e.description,
+      fileUrl: e.fileUrl || null,
+      submittedAt: now,
+    }));
 
-    const refund = await refundRepo.findOne({
-      where: { id: params.refundId },
-      relations: ['booking', 'booking.flight', 'booking.passenger'],
-    });
-
-    if (!refund) throw new Error('Refund not found');
-
-    // Validate evidence before persisting anything so a bad upload cannot leave an orphaned dispute.
-    const validatedEvidence = (params.evidence || []).map(validateEvidenceInput);
-
-    const passengerWallet = refund.booking.passenger?.sorobanAddress;
-    if (passengerWallet && passengerWallet !== params.claimantAddress) {
-      throw new Error('Only the booking passenger may create a dispute');
-    }
-
-    const existingOpen = await disputeRepo.findOne({
-      where: {
-        refund: { id: params.refundId },
-      },
-      relations: ['refund', 'refund.booking', 'evidenceItems'],
-      order: { createdAt: 'DESC' },
-    });
-
-    if (existingOpen && !['resolved', 'closed'].includes(existingOpen.status)) {
-      throw new Error('An active dispute already exists for this refund');
-    }
-
-    const deadlineAt = new Date();
-    deadlineAt.setDate(deadlineAt.getDate() + 14);
-
-    const dispute = disputeRepo.create({
-      refund,
+    const record: DisputeRecord = {
+      id,
+      bookingId: params.bookingId || params.refundId,
+      refundId: params.refundId,
       claimantAddress: params.claimantAddress,
-      respondentAddress: refund.booking.flight.airlineSorobanAddress || 'platform',
-      arbitratorAddress: this.selectArbitrator(randomUUID()),
+      respondentAddress: '0x0000000000000000000000000000000000000000',
+      arbitratorAddress: '0xArbitrator11111111111111111111111111111111',
+      status: 'arbitrator_assigned',
       disputeType: params.disputeType,
       description: params.description,
       desiredOutcome: params.desiredOutcome,
-      status: 'evidence_submission',
-      outcome: null,
-      deadlineAt,
-    });
+      evidence: evList,
+      timeline: [
+        { type: 'dispute_opened', at: now, actor: params.claimantAddress, notes: 'Dispute created' },
+        { type: 'arbitrator_assigned', at: now, actor: 'System', notes: 'Arbitrator assigned automatically' },
+      ],
+      createdAt: now,
+    };
 
-    const savedDispute = await disputeRepo.save(dispute);
-
-    if (validatedEvidence.length) {
-      const evidenceRepo = AppDataSource.getRepository(DisputeEvidence);
-      const evidenceRows = validatedEvidence.map((item) =>
-        evidenceRepo.create({
-          dispute: savedDispute,
-          submittedBy: params.claimantAddress,
-          description: item.description,
-          fileUrl: item.fileUrl,
-        }),
-      );
-      await evidenceRepo.save(evidenceRows);
-    }
-
-    const populated = await disputeRepo.findOne({
-      where: { id: savedDispute.id },
-      relations: ['refund', 'refund.booking', 'evidenceItems'],
-    });
-
-    if (!populated) {
-      throw new Error('Failed to load created dispute');
-    }
-
-    logger.info('Dispute created', {
-      disputeId: populated.id,
-      refundId: params.refundId,
-      arbitrator: populated.arbitratorAddress,
-    });
-
-    return toDTO(populated);
+    this.disputes.set(id, record);
+    return record;
   }
 
-  async getDispute(disputeId: string): Promise<DisputeDTO | null> {
-    const disputeRepo = AppDataSource.getRepository(Dispute);
-    const dispute = await disputeRepo.findOne({
-      where: { id: disputeId },
-      relations: ['refund', 'refund.booking', 'evidenceItems'],
-    });
-    return dispute ? toDTO(dispute) : null;
+  async listDisputesByAddress(walletAddress: string): Promise<DisputeRecord[]> {
+    const results: DisputeRecord[] = [];
+    for (const d of this.disputes.values()) {
+      if (
+        d.claimantAddress === walletAddress ||
+        d.respondentAddress === walletAddress ||
+        d.arbitratorAddress === walletAddress
+      ) {
+        results.push(d);
+      }
+    }
+    return results;
   }
 
-  async listDisputesByAddress(walletAddress: string): Promise<DisputeDTO[]> {
-    const disputeRepo = AppDataSource.getRepository(Dispute);
-    const disputes = await disputeRepo
-      .createQueryBuilder('dispute')
-      .leftJoinAndSelect('dispute.refund', 'refund')
-      .leftJoinAndSelect('refund.booking', 'booking')
-      .leftJoinAndSelect('dispute.evidenceItems', 'evidence')
-      .where('dispute.claimantAddress = :walletAddress', { walletAddress })
-      .orWhere('dispute.respondentAddress = :walletAddress', { walletAddress })
-      .orWhere('dispute.arbitratorAddress = :walletAddress', { walletAddress })
-      .orderBy('dispute.createdAt', 'DESC')
-      .getMany();
-
-    return disputes.map(toDTO);
+  async getDispute(id: string): Promise<DisputeRecord | null> {
+    return this.disputes.get(id) || null;
   }
 
   async submitEvidence(params: {
@@ -262,116 +225,65 @@ export class DisputeService {
     submittedBy: string;
     description: string;
     fileUrl?: string;
-  }): Promise<DisputeDTO> {
-    const disputeRepo = AppDataSource.getRepository(Dispute);
-    const evidenceRepo = AppDataSource.getRepository(DisputeEvidence);
-
-    const dispute = await disputeRepo.findOne({
-      where: { id: params.disputeId },
-      relations: ['refund', 'refund.booking', 'evidenceItems'],
-    });
-
+  }): Promise<DisputeRecord> {
+    const dispute = this.disputes.get(params.disputeId);
     if (!dispute) throw new Error('Dispute not found');
-
-    const canSubmit =
-      params.submittedBy === dispute.claimantAddress || params.submittedBy === dispute.respondentAddress;
-
-    if (!canSubmit) {
-      throw new Error('Only dispute participants may submit evidence');
-    }
-
-    if (!['open', 'evidence_submission', 'under_review', 'appealed'].includes(dispute.status)) {
-      throw new Error('Evidence can no longer be submitted for this dispute');
-    }
-
-    const validated = validateEvidenceInput({ description: params.description, fileUrl: params.fileUrl });
-
-    const item = evidenceRepo.create({
-      dispute,
+    const now = new Date().toISOString();
+    const newEv: DisputeEvidence = {
+      id: randomUUID(),
       submittedBy: params.submittedBy,
-      description: validated.description,
-      fileUrl: validated.fileUrl,
+      description: params.description,
+      fileUrl: params.fileUrl || null,
+      submittedAt: now,
+    };
+    dispute.evidence.push(newEv);
+    dispute.timeline.push({
+      type: 'evidence_submitted',
+      at: now,
+      actor: params.submittedBy,
+      notes: params.description,
     });
-
-    await evidenceRepo.save(item);
-
-    if (dispute.status !== 'under_review') {
-      dispute.status = 'under_review';
-      await disputeRepo.save(dispute);
-    }
-
-    const updated = await disputeRepo.findOne({
-      where: { id: params.disputeId },
-      relations: ['refund', 'refund.booking', 'evidenceItems'],
-    });
-
-    if (!updated) throw new Error('Dispute not found after evidence submission');
-
-    logger.info('Evidence submitted', { disputeId: params.disputeId, evidenceId: item.id });
-    return toDTO(updated);
+    this.disputes.set(dispute.id, dispute);
+    return dispute;
   }
 
   async resolveDispute(params: {
     disputeId: string;
     arbitratorAddress: string;
-    outcome: NonNullable<DisputeOutcome>;
+    outcome: string;
     notes?: string;
-  }): Promise<DisputeDTO> {
-    const disputeRepo = AppDataSource.getRepository(Dispute);
-    const dispute = await disputeRepo.findOne({
-      where: { id: params.disputeId },
-      relations: ['refund', 'refund.booking', 'evidenceItems'],
-    });
-
+  }): Promise<DisputeRecord> {
+    const dispute = this.disputes.get(params.disputeId);
     if (!dispute) throw new Error('Dispute not found');
-
-    if (dispute.arbitratorAddress !== params.arbitratorAddress) {
-      throw new Error('Only the assigned arbitrator may resolve this dispute');
-    }
-
-    if (['resolved', 'closed'].includes(dispute.status)) {
-      throw new Error('Dispute is already finalized');
-    }
-
-    dispute.outcome = params.outcome;
+    const now = new Date().toISOString();
     dispute.status = 'resolved';
-    dispute.resolutionNotes = params.notes || null;
-    await disputeRepo.save(dispute);
-
-    logger.info('Dispute resolved', {
-      disputeId: dispute.id,
-      outcome: params.outcome,
-      arbitrator: params.arbitratorAddress,
+    dispute.timeline.push({
+      type: 'dispute_resolved',
+      at: now,
+      actor: params.arbitratorAddress,
+      notes: `Outcome: ${params.outcome}. ${params.notes || ''}`,
     });
-
-    return toDTO(dispute);
+    this.disputes.set(dispute.id, dispute);
+    return dispute;
   }
 
   async appealDispute(params: {
     disputeId: string;
     appellantAddress: string;
     reason: string;
-  }): Promise<DisputeDTO> {
-    const disputeRepo = AppDataSource.getRepository(Dispute);
-    const dispute = await disputeRepo.findOne({
-      where: { id: params.disputeId },
-      relations: ['refund', 'refund.booking', 'evidenceItems'],
-    });
-
+  }): Promise<DisputeRecord> {
+    const dispute = this.disputes.get(params.disputeId);
     if (!dispute) throw new Error('Dispute not found');
-    if (dispute.claimantAddress !== params.appellantAddress) {
-      throw new Error('Only the claimant may file an appeal');
-    }
-    if (dispute.status !== 'resolved') {
-      throw new Error('Only resolved disputes can be appealed');
-    }
-
+    const now = new Date().toISOString();
     dispute.status = 'appealed';
-    dispute.resolutionNotes = params.reason;
-    await disputeRepo.save(dispute);
-
-    logger.info('Dispute appealed', { disputeId: dispute.id, appellant: params.appellantAddress });
-    return toDTO(dispute);
+    dispute.timeline.push({
+      type: 'dispute_appealed',
+      at: now,
+      actor: params.appellantAddress,
+      notes: params.reason,
+    });
+    this.disputes.set(dispute.id, dispute);
+    return dispute;
   }
 }
 

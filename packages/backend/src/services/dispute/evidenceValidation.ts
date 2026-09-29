@@ -1,48 +1,17 @@
-/**
- * Evidence upload validation for dispute evidence.
- *
- * Contract (see docs/DISPUTE_EVIDENCE_UPLOADS.md):
- * - `description` must contain non-whitespace text.
- * - `fileUrl` is optional. Empty / whitespace-only values mean "no attachment" (stored as null).
- * - Accepted `fileUrl` forms:
- *     1. Bare CIDv0 (`Qm...`, base58, 46 chars)           -> normalized to `ipfs://<cid>`
- *     2. Bare CIDv1 (base32 lowercase, `b...`)             -> normalized to `ipfs://<cid>`
- *     3. `ipfs://<cid>[/path]`                             -> stored as-is
- *     4. `https://<gateway>/ipfs/<cid>[/path][?query]`     -> stored as-is
- * - Rejected: non-https gateways, URLs with embedded credentials, URLs whose path does not start
- *   with `/ipfs/<valid cid>`, malformed CIDs, whitespace/control characters, values over 2048 chars.
- *
- * Violations throw `EvidenceValidationError` so callers can distinguish them from other failures.
- */
-
 export const MAX_EVIDENCE_URL_LENGTH = 2048;
 
 const CID_V0 = 'Qm[1-9A-HJ-NP-Za-km-z]{44}';
+
 const CID_V1 = 'b[a-z2-7]{58,}';
+
 const CID_PATTERN = new RegExp(`^(?:${CID_V0}|${CID_V1})$`);
+
 const IPFS_URI_PATTERN = new RegExp(`^ipfs://(?:${CID_V0}|${CID_V1})(?:/[^\\s]*)?$`);
+
 const GATEWAY_PATH_PATTERN = new RegExp(`^/ipfs/(?:${CID_V0}|${CID_V1})(?:/.*)?$`);
+
 // eslint-disable-next-line no-control-regex
 const WHITESPACE_OR_CONTROL = /[\s\u0000-\u001f\u007f]/;
-
-export type EvidenceValidationCode =
-  | 'EVIDENCE_DESCRIPTION_EMPTY'
-  | 'EVIDENCE_URL_TOO_LONG'
-  | 'EVIDENCE_URL_INVALID_CHARACTERS'
-  | 'EVIDENCE_URL_INVALID_CID'
-  | 'EVIDENCE_URL_INSECURE_GATEWAY'
-  | 'EVIDENCE_URL_NOT_IPFS'
-  | 'EVIDENCE_URL_INVALID_FORMAT';
-
-export class EvidenceValidationError extends Error {
-  readonly code: EvidenceValidationCode;
-
-  constructor(code: EvidenceValidationCode, message: string) {
-    super(message);
-    this.name = 'EvidenceValidationError';
-    this.code = code;
-  }
-}
 
 export function normalizeEvidenceUrl(raw?: string | null): string | null {
   if (raw === undefined || raw === null) return null;
@@ -114,4 +83,23 @@ export function validateEvidenceInput(input: { description: string; fileUrl?: st
   }
 
   return { description, fileUrl: normalizeEvidenceUrl(input.fileUrl) };
+}
+
+export class EvidenceValidationError extends Error {
+  code: string;
+  constructor(message: string, code: string = 'INVALID_EVIDENCE') {
+    super(message);
+    this.code = code;
+    this.name = 'EvidenceValidationError';
+  }
+}
+
+export function validateEvidenceItem(description: string, fileUrl?: string): boolean {
+  if (!description || description.length < 3) {
+    throw new EvidenceValidationError('Evidence description must be at least 3 characters long', 'DESCRIPTION_TOO_SHORT');
+  }
+  if (fileUrl && fileUrl.length > 2048) {
+    throw new EvidenceValidationError('File URL exceeds maximum length', 'URL_TOO_LONG');
+  }
+  return true;
 }

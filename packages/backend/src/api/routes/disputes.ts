@@ -55,6 +55,8 @@ router.post(
 
     try {
       const dispute = await disputeService.createDispute({
+        bookingId: parsed.data.refundId,
+        refundId: parsed.data.refundId,
         refundId: parsed.data.refundId,
         claimantAddress: walletAddress,
         disputeType: parsed.data.disputeType,
