@@ -51,9 +51,14 @@ export class TierManager {
     const newTier = this.determineTier(account.totalPoints, account.lifetimeBookings);
 
     if (newTier !== previousTier) {
-      account.tier = newTier;
-      account.tierUpdatedAt = new Date();
-      this.store.updateAccount(account);
+      // Recompute from the account's points/bookings only. Updating a copy
+      // keeps a failed persistence operation from mutating the stored
+      // projection before the change has been committed.
+      this.store.updateAccount({
+        ...account,
+        tier: newTier,
+        tierUpdatedAt: new Date(),
+      });
 
       const direction =
         this.tierRank(newTier) > this.tierRank(previousTier)
