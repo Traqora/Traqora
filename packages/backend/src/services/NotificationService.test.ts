@@ -227,6 +227,24 @@ describe("NotificationService", () => {
       expect(notif.deliveries.length).toBeGreaterThan(0);
     });
 
+    it("should not dispatch the same event more than once", async () => {
+      const payload = {
+        id: "duplicate-event",
+        userId: "user-1",
+        category: "booking" as NotificationCategory,
+        title: "Flight Booked",
+        body: "Your flight has been confirmed",
+        timestamp: new Date(),
+      };
+
+      const first = await service.queueNotification("user-1", payload, ["inapp"]);
+      const duplicate = await service.queueNotification("user-1", payload, ["email", "push"]);
+
+      expect(duplicate).toBe(first);
+      expect((await service.getInAppNotifications("user-1"))).toHaveLength(1);
+      expect(duplicate.deliveries.map((delivery) => delivery.channel)).toEqual(["inapp"]);
+    });
+
     it("should exclude a channel disabled by preference", async () => {
       await service.updatePreference("user-1", {
         channel: "email",

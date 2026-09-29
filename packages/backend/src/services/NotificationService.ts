@@ -265,6 +265,14 @@ export class NotificationService {
     payload: NotificationPayload,
     channels: NotificationChannel[],
   ): Promise<Notification> {
+    const userNotifs = this.notifications.get(userId) || [];
+    const existing = userNotifs.find((notification) => notification.id === payload.id);
+    if (existing) {
+      // The payload id is the event id. Treat repeats as an already-queued
+      // event so retries cannot fan it out a second time across channels.
+      return existing;
+    }
+
     const notification: Notification = {
       id: payload.id,
       userId,
@@ -289,7 +297,6 @@ export class NotificationService {
       }
     }
 
-    const userNotifs = this.notifications.get(userId) || [];
     userNotifs.push(notification);
     this.notifications.set(userId, userNotifs);
 
