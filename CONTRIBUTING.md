@@ -55,7 +55,7 @@ npm run test
 ### Contracts Testing Approach
 
 - Use soroban-sdk testutils to create an Env and mock auth with `env.mock_all_auths()`.
-- Reuse shared fixtures in [common.rs](file:///Users/ew/waves2/Traqora/contracts/tests/common.rs) to register contracts and seed actors.
+- Reuse the shared fixtures in `contracts/packages/integration-tests/src/lib.rs` (`new_env`, `generate_actors`, `register_contracts`, `initialize_token`, …) instead of reimplementing env/register logic.
 - Write unit tests for every public function across contracts:
   - Token: initialize, mint, transfer, approve, transfer_from, queries
   - Booking: create, pay, release, refund, get, wrappers
@@ -67,6 +67,19 @@ npm run test
 - Add property-based tests with proptest to validate invariants (e.g., token transfer preserves total supply; allowance decreases correctly).
 - Fuzz inputs in constrained domains to avoid panics and maximize path coverage.
 - Adjust ledger time and sequence via testutils when needed (e.g., finalizing governance proposals).
+
+### Contracts formatting and lints
+
+Run the gate before opening a PR:
+
+```bash
+./scripts/fmt-clippy-check.sh   # or: make lint
+```
+
+It is the same script CI runs, so a green local run means a green
+`quality-contracts` job. `make fmt`, `make clippy` and `make lint-fix` are
+convenience wrappers around it. Full reference:
+[docs/operations/CONTRACTS_LINT_GATE.md](docs/operations/CONTRACTS_LINT_GATE.md).
 
 ### Coverage
 

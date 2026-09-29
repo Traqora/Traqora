@@ -373,7 +373,9 @@ cargo llvm-cov --summary-only --fail-under-lines 90
 | `event_assertions_test.rs` | Event schema validation across contracts. |
 | `advanced_property_tests.rs` | Critical invariant checks (supply, refund bounds, id sequencing, points scaling). |
 
-`packages/integration-tests/test_snapshots/` contains stored ledger snapshots (`Env`-serialized JSON) from earlier snapshot-based runs. The current suite assertions are functional (in-process state checks); snapshot serialization remains available through `soroban-sdk`'s `Env::to_snapshot` if you need golden-state comparisons.
+`packages/integration-tests/test_snapshots/` and `contracts/test_snapshots/` hold stored ledger snapshots (`Env`-serialized JSON). They are written by `soroban-sdk` relative to the current working directory, so **run the suite from `contracts/`** (`cargo test --locked`) to keep them in one place. They are diagnostic artifacts, not golden assertions — nothing reads them back.
+
+The suite's assertions are functional (in-process state checks). For upgrade work, the enforced check is the snapshot *review policy* in `packages/integration-tests/src/snapshot_review.rs`, which asserts that a change removes no durable ledger entry and does not rewrite the authorization log. See [docs/operations/CONTRACT_SNAPSHOT_REVIEW.md](../docs/operations/CONTRACT_SNAPSHOT_REVIEW.md).
 
 ---
 
@@ -387,10 +389,12 @@ cargo llvm-cov --summary-only --fail-under-lines 90
 6. Run locally:
    ```bash
    cargo test -p integration-tests --test <module>_test -- --nocapture
-   cargo fmt -- --check
-   cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
+   ./scripts/fmt-clippy-check.sh
    cargo llvm-cov --summary-only --fail-under-lines 90
    ```
+   `./scripts/fmt-clippy-check.sh` is the same gate CI runs (#743) — see
+   [docs/operations/CONTRACTS_LINT_GATE.md](../docs/operations/CONTRACTS_LINT_GATE.md).
+   Add `--all-targets` to also lint the test code you just wrote.
 7. It will run in CI (`cargo test --locked` + coverage gate) automatically on your PR to `main`.
 
 ---
