@@ -419,6 +419,7 @@ export default function BookFlightPage() {
             {currentStep === "seats" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <SeatSelector 
+                  flightId={flight.id}
                   cabinClass={flight.class} 
                   onSeatSelect={(seat) => selectSeat(seat.id, seat.price)}
                   selectedSeatId={selectedSeat?.id}
