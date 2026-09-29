@@ -85,6 +85,18 @@ export function validateEvidenceInput(input: { description: string; fileUrl?: st
   return { description, fileUrl: normalizeEvidenceUrl(input.fileUrl) };
 }
 
+export type EvidenceValidationCode = 
+  | 'EVIDENCE_URL_TOO_LONG'
+  | 'EVIDENCE_URL_INVALID_CHARACTERS'
+  | 'EVIDENCE_URL_INVALID_CID'
+  | 'EVIDENCE_URL_INVALID_FORMAT'
+  | 'EVIDENCE_URL_INSECURE_GATEWAY'
+  | 'EVIDENCE_URL_NOT_IPFS'
+  | 'EVIDENCE_DESCRIPTION_EMPTY'
+  | 'DESCRIPTION_TOO_SHORT'
+  | 'URL_TOO_LONG'
+  | 'INVALID_EVIDENCE';
+
 export class EvidenceValidationError extends Error {
   code: string;
   constructor(message: string, code: string = 'INVALID_EVIDENCE') {
