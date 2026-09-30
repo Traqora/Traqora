@@ -82,7 +82,7 @@ Built a comprehensive flight search interface for the Traqora Next.js applicatio
 
 ### State Management
 - **React Hooks**: useState, useEffect, useCallback for local state
-- **URL Synchronization**: Search parameters persist in browser URL
+- **URL Synchronization**: Search parameters persist in browser URL via `useSearchUrlState` hook for deep-linkable and shareable search filters
 - **Filter Coordination**: Centralized filter state management
 
 ### Data Flow
@@ -101,10 +101,10 @@ Built a comprehensive flight search interface for the Traqora Next.js applicatio
 
 ## 🚀 Usage
 
-### Basic Search
+### Basic Search & Deep-linkable Filters
 ```typescript
-// Navigate to search page with parameters
-/search?from=JFK&to=LAX&departure=2024-12-15&passengers=1&class=economy
+// Navigate to search page with parameters and filters deep-linked
+/search?from=JFK&to=LAX&departure=2024-12-15&passengers=1&class=economy&price_min=100&price_max=500&airlines=AA,DL&sort=price&sort_order=asc
 ```
 
 ### API Integration

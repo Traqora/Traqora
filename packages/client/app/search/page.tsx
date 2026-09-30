@@ -18,6 +18,7 @@ import { FlexibleDateSearchPanel } from "@/components/flight-search/FlexibleDate
 import { PriceTrendSparkline } from "@/components/flight-search/price-trend-sparkline"
 import { FlightComparison } from "@/components/flight-comparison"
 import { useFlightSearch } from "@/hooks/use-flight-search"
+import { useSearchUrlState } from "@/hooks/lib/useSearchUrlState"
 import { apiClient, SavedSearch, SearchHistoryEntry } from "@/lib/api"
 import { buildSearchShareLink, decodeSearchQueryFromUrl } from "@/lib/search-sharing"
 
@@ -89,9 +90,15 @@ export default function SearchPage() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const { getFiltersFromUrl, setFiltersToUrl } = useSearchUrlState(DEFAULT_FILTERS)
+
   useEffect(() => {
-    setFilters(loadStoredFilters())
-  }, [])
+    const initial = {
+      ...loadStoredFilters(),
+      ...getFiltersFromUrl(),
+    }
+    setFilters(initial)
+  }, [getFiltersFromUrl])
 
   useEffect(() => {
     let isMounted = true
@@ -185,6 +192,7 @@ export default function SearchPage() {
 
   const persistFilters = (next: FilterOptions) => {
     setFilters(next)
+    setFiltersToUrl(next)
     if (typeof window !== "undefined") {
       window.localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(next))
     }
