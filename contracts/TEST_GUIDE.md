@@ -340,13 +340,22 @@ The test inventory below is checked by `scripts/check-test-guide-parity.sh`, whi
 
 The contracts require **>= 90% line coverage** on contract code (CI runs `cargo llvm-cov --summary-only --fail-under-lines 90`). Coverage is measured over the contract crates themselves, not the integration-test crate.
 
-Locally, use the wrapper script in `contracts/`:
+Locally, use the wrapper script in `contracts/`. It runs the same gate as CI
+(`cargo test --locked` followed by `cargo llvm-cov --fail-under-lines 90`) and
+exits non-zero when line coverage drops below the threshold:
 
 ```bash
-./coverage.sh            # text summary
-./coverage.sh --html     # HTML report in target/coverage/
-./coverage.sh --html --open
+./coverage.sh                    # text summary, fails below 90% line coverage
+./coverage.sh --threshold 95     # enforce a different threshold
+./coverage.sh --no-fail          # report coverage without failing
+./coverage.sh --html             # HTML report in target/coverage/
+./coverage.sh --html --open      # HTML report, opened in a browser
+./coverage.sh --dry-run          # print the cargo commands without running
 ```
+
+Positional/unknown-option mistakes exit with code `2`, so the script never
+silently skips the gate. `scripts/test-coverage.sh` covers this behavior and
+runs in CI.
 
 Or invoke cargo-llvm-cov directly:
 
