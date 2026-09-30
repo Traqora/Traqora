@@ -24,6 +24,23 @@ export interface AuthResponse {
   }
 }
 
+export interface TwoFASetup {
+  setupId: string
+  method: "totp"
+  secret: string
+  qrCode: string
+  backupCodes: string[]
+  expiresAt: string
+}
+
+export interface TwoFAStatus {
+  userId: string
+  enabled: boolean
+  method?: "totp"
+  recoveryCodesRemaining: number
+  trustedDevices: number
+}
+
 export interface BiometricCredential {
   id: string
   credentialId: string
@@ -120,6 +137,12 @@ export class AuthService {
   private static readonly BIOMETRIC_AUTHORIZE_PAYMENT = '/api/v1/auth/biometric/authorize-payment'
   private static readonly BIOMETRIC_FALLBACK_BEGIN = '/api/v1/auth/biometric/authenticate/fallback/begin'
   private static readonly BIOMETRIC_FALLBACK_COMPLETE = '/api/v1/auth/biometric/authenticate/fallback/complete'
+  private static readonly TWO_FA_SETUP = '/api/v1/auth/2fa/setup'
+  private static readonly TWO_FA_CONFIRM = '/api/v1/auth/2fa/setup/confirm'
+  private static readonly TWO_FA_VERIFY = '/api/v1/auth/2fa/verify'
+  private static readonly TWO_FA_STATUS = '/api/v1/auth/2fa/status'
+  private static readonly TWO_FA_REGENERATE = '/api/v1/auth/2fa/recovery-codes/regenerate'
+  private static readonly TWO_FA_DISABLE = '/api/v1/auth/2fa/disable'
 
   static async getChallenge(walletAddress: string): Promise<AuthChallenge> {
     const response = await api.post(this.CHALLENGE_ENDPOINT, {
@@ -173,6 +196,45 @@ export class AuthService {
     if (!response.ok) {
       throw new Error('Logout failed')
     }
+  }
+
+  static async beginTwoFASetup(email: string): Promise<TwoFASetup> {
+    const response = await api.post(this.TWO_FA_SETUP, { email, method: "totp" }, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
+    if (!response.ok) throw new Error("Failed to start two-factor setup")
+    return response.json()
+  }
+
+  static async confirmTwoFASetup(setupId: string, code: string): Promise<void> {
+    const response = await api.post(this.TWO_FA_CONFIRM, { setupId, code }, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
+    if (!response.ok) throw new Error("Failed to confirm two-factor setup")
+  }
+
+  static async verifyTwoFA(code: string, recoveryCode = false, deviceId?: string): Promise<void> {
+    const response = await api.post(this.TWO_FA_VERIFY, {
+      code,
+      recoveryCode,
+      deviceId,
+      rememberDevice: Boolean(deviceId),
+    }, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
+    if (!response.ok) throw new Error("Two-factor verification failed")
+  }
+
+  static async getTwoFAStatus(): Promise<TwoFAStatus> {
+    const response = await api.get(this.TWO_FA_STATUS, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
+    if (!response.ok) throw new Error("Failed to load two-factor status")
+    return response.json()
+  }
+
+  static async regenerateTwoFARecoveryCodes(): Promise<string[]> {
+    const response = await api.post(this.TWO_FA_REGENERATE, {}, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
+    if (!response.ok) throw new Error("Failed to regenerate recovery codes")
+    const data = await response.json() as { codes: string[] }
+    return data.codes
+  }
+
+  static async disableTwoFA(): Promise<void> {
+    const response = await api.post(this.TWO_FA_DISABLE, {}, { headers: { Authorization: `Bearer ${getAccessToken()}` } })
+    if (!response.ok) throw new Error("Failed to disable two-factor authentication")
   }
 
   static async isWebAuthnSupported(): Promise<boolean> {

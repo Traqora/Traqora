@@ -5,6 +5,11 @@
 
 import { logger } from "../utils/logger";
 import type { PushSubscription } from "../types/notification";
+import {
+  auditAndLogPushCopy,
+  auditPushCopy,
+  type PushCopyAuditResult,
+} from "./pushCopyAudit";
 
 export type PushNotificationType =
   | "booking"
@@ -122,6 +127,8 @@ export class PushNotificationService {
       requireInteraction?: boolean;
     },
   ): Promise<{ successful: number; failed: number }> {
+    auditAndLogPushCopy({ title, body: options.body }, { userId, channel: "push" });
+
     const subscriptions = await this.getSubscriptions(userId);
 
     if (subscriptions.length === 0) {
@@ -170,6 +177,8 @@ export class PushNotificationService {
   ): Promise<{ successful: number; failed: number }> {
     const { title, body } = this.buildTypedMessage(type, data);
 
+    auditAndLogPushCopy({ title, body }, { userId, channel: "push", type });
+
     return this.sendPush(userId, title, {
       body,
       tag: type,
@@ -179,6 +188,17 @@ export class PushNotificationService {
           .map(([k, v]) => [k, String(v)]),
       ) as Record<string, string>,
     });
+  }
+
+  /**
+   * Audit the copy that `sendTypedPush` would deliver for `type`/`data`.
+   *
+   * Useful for template regression checks: the message is built and audited but
+   * nothing is sent.
+   */
+  auditTypedPush(type: PushNotificationType, data: TypedPushData): PushCopyAuditResult {
+    const { title, body } = this.buildTypedMessage(type, data);
+    return auditPushCopy({ title, body });
   }
 
   /**

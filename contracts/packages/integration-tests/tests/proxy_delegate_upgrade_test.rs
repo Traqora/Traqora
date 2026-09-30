@@ -629,7 +629,10 @@ fn test_invariant_exact_threshold_approval_required() {
     // Only 2 approvals (proposer = 1, one more = 2); threshold is 3
     client.approve_upgrade(&s.get(1).unwrap(), &pid);
     let result = client.try_upgrade_to(&s.get(0).unwrap(), &pid);
-    assert!(result.is_err(), "Should fail with only 2 of 3 required approvals");
+    assert!(
+        result.is_err(),
+        "Should fail with only 2 of 3 required approvals"
+    );
 
     // Third approval makes it pass
     client.approve_upgrade(&s.get(2).unwrap(), &pid);
