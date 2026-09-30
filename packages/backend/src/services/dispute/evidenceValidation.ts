@@ -85,7 +85,7 @@ export function validateEvidenceInput(input: { description: string; fileUrl?: st
   return { description, fileUrl: normalizeEvidenceUrl(input.fileUrl) };
 }
 
-export type EvidenceValidationCode = 
+export type EvidenceValidationCode =
   | 'EVIDENCE_URL_TOO_LONG'
   | 'EVIDENCE_URL_INVALID_CHARACTERS'
   | 'EVIDENCE_URL_INVALID_CID'
