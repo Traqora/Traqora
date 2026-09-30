@@ -150,7 +150,7 @@ export function JourneyTripPlanner() {
                   <div className="absolute top-2 left-2 text-xs font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded">
                     Leg {index + 1}
                   </div>
-                  
+
                   <div className="md:col-span-3 mt-4 md:mt-0">
                     <Label htmlFor={`origin-${index}`}>Origin</Label>
                     <Input
