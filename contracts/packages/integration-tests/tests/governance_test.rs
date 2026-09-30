@@ -1,5 +1,5 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, Vec};
 use governance::{GovernanceContract, GovernanceContractClient, Proposal};
+use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, Vec};
 
 use integration_tests::{new_env, register_contracts};
 
@@ -132,7 +132,9 @@ fn test_common_initialize_and_create_proposal() {
     contracts.governance.init_governance(&owner, &120);
 
     let voter = Address::generate(&env);
-    let proposal_id = contracts.governance.create_proposal(&voter, &Symbol::new(&env, "desc"));
+    let proposal_id = contracts
+        .governance
+        .create_proposal(&voter, &Symbol::new(&env, "desc"));
 
     let p = contracts.governance.get_proposal(&proposal_id).unwrap();
     assert_eq!(p.proposer, voter);

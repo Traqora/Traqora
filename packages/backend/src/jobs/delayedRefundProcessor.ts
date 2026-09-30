@@ -1,6 +1,7 @@
 import { RefundService } from '../services/refundService';
 import { logger } from '../utils/logger';
 import { initDataSource } from '../db/dataSource';
+import { createJobLogger } from './jobLogger';
 
 /**
  * Background job to process delayed refunds after timelock expiration
@@ -26,24 +27,28 @@ export class DelayedRefundProcessor {
    * Process all delayed refunds that are ready
    */
   public async processExpiredDelayedRefunds(): Promise<void> {
+    const log = createJobLogger('delayed-refund-processor');
+
     if (this.isProcessing) {
-      logger.info('Delayed refund processor already running, skipping this cycle');
+      log.step('cycle_skipped', { reason: 'already_running' });
       return;
     }
 
     this.isProcessing = true;
+    log.start();
 
     try {
       await initDataSource();
+      log.step('init_data_source');
 
       const readyRefunds = await this.refundService.getDelayedRefundsReadyForProcessing();
 
       if (readyRefunds.length === 0) {
-        logger.debug('No delayed refunds ready for processing');
+        log.complete({ ready: 0, succeeded: 0, failed: 0 });
         return;
       }
 
-      logger.info(`Processing ${readyRefunds.length} expired delayed refunds`);
+      log.step('load_ready_refunds', { ready: readyRefunds.length });
 
       let successCount = 0;
       let failureCount = 0;
@@ -52,22 +57,24 @@ export class DelayedRefundProcessor {
         try {
           await this.refundService.processDelayedRefund(refund.id);
           successCount++;
-          logger.info(`Successfully processed delayed refund ${refund.id}`);
+          log.step('process_refund', { refundId: refund.id, outcome: 'success' });
         } catch (error: any) {
           failureCount++;
-          logger.error(`Failed to process delayed refund ${refund.id}`, {
-            error: error.message,
+          log.step('process_refund', {
+            outcome: 'failure',
             refundId: refund.id,
             bookingId: refund.booking.id,
+            error: error.message,
           });
         }
       }
 
-      logger.info(
-        `Delayed refund processing complete: ${successCount} succeeded, ${failureCount} failed`
-      );
+      log.complete({ ready: readyRefunds.length, succeeded: successCount, failed: failureCount });
     } catch (error: any) {
-      logger.error('Error in delayed refund processor', { error: error.message });
+      log.fail({
+        step: 'load_ready_refunds',
+        error: error.message,
+      });
     } finally {
       this.isProcessing = false;
     }

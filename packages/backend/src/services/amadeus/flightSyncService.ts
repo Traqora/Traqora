@@ -7,6 +7,7 @@
 import { DataSource } from 'typeorm';
 import { logger } from '../../utils/logger';
 import { Flight } from '../../db/entities/Flight';
+import { invalidateFlightSearchCacheForFlight } from '../cache';
 import {
   AirlineFlightData,
   SyncFlightRequest,
@@ -447,9 +448,14 @@ export class FlightSynchronizationService {
       }
 
       // Update flight
+      const previousScope = { fromAirport: flight.fromAirport, toAirport: flight.toAirport, departureTime: flight.departureTime };
       (flight as any)[conflict.field] = resolvedValue;
       flight.syncStatus = 'EXACT_MATCH';
       await flightRepo.save(flight);
+
+      // A resolved conflict can carry a schedule or price change.
+      await invalidateFlightSearchCacheForFlight(previousScope);
+      await invalidateFlightSearchCacheForFlight(flight);
 
       logger.info('Conflict resolved', {
         flightNumber: conflict.flightNumber,
@@ -659,6 +665,16 @@ export class FlightSynchronizationService {
     flight.rawData = data;
 
     flight = await flightRepo.save(flight);
+
+    // Airline pushes move schedules and prices, so the cached searches that
+    // already contain this flight are now stale. Invalidate the scope the
+    // flight left as well as its current one.
+    await invalidateFlightSearchCacheForFlight({
+      fromAirport: oldValues.fromAirport,
+      toAirport: oldValues.toAirport,
+      departureTime: oldValues.departureTime,
+    });
+    await invalidateFlightSearchCacheForFlight(flight);
 
     // Emit webhook if there were changes
     if (this.hasChanges(oldValues, flight)) {

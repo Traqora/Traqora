@@ -1,0 +1,73 @@
+name: Rollback Drill
+
+# Issue #589: verifies the "unhealthy deploy -> rollback + alert" runbook
+# end-to-end without ever touching a real environment. Runs whenever the
+# rollback script/runbook change, and on a monthly schedule so drift is
+# caught even when nobody edits those files.
+on:
+  pull_request:
+    paths:
+      - "scripts/rollback-backend.sh"
+      - "docs/DEPLOYMENT_CHECKLIST.md"
+      - ".github/workflows/rollback-drill.yml"
+  schedule:
+    - cron: "0 6 1 * *" # monthly, 1st @ 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  drill:
+    name: Dry-run rollback drill
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shellcheck the rollback script
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck scripts/rollback-backend.sh
+
+      - name: Scenario 1 — unhealthy target triggers a rollback plan (dry-run)
+        run: |
+          chmod +x scripts/rollback-backend.sh
+          set +e
+          OUTPUT=$(./scripts/rollback-backend.sh staging abc1234 \
+            --api-url "http://127.0.0.1:1" --dry-run 2>&1)
+          CODE=$?
+          echo "$OUTPUT"
+          set -e
+          [ "$CODE" -eq 0 ] || { echo "::error::expected exit 0 for a valid dry-run"; exit 1; }
+          echo "$OUTPUT" | grep -q "UNHEALTHY" || { echo "::error::did not detect the unreachable target as unhealthy"; exit 1; }
+          echo "$OUTPUT" | grep -q "Would send alert" || { echo "::error::dry-run did not report the alert it would send"; exit 1; }
+          echo "$OUTPUT" | grep -q "Dry run complete: rollback plan is valid" || { echo "::error::dry-run did not confirm a valid plan"; exit 1; }
+
+      - name: Scenario 2 — healthy target is a no-op
+        run: |
+          mkdir -p /tmp/fake-backend
+          echo "ok" > /tmp/fake-backend/health
+          python3 -m http.server 8123 --directory /tmp/fake-backend &
+          SERVER_PID=$!
+          # Serving a static `health` file makes GET /health return 200,
+          # good enough to stand in for a passing health check in this drill.
+          sleep 1
+          set +e
+          OUTPUT=$(./scripts/rollback-backend.sh staging abc1234 \
+            --api-url "http://127.0.0.1:8123" --dry-run 2>&1)
+          CODE=$?
+          kill "$SERVER_PID" 2>/dev/null || true
+          echo "$OUTPUT"
+          set -e
+          [ "$CODE" -eq 0 ] || { echo "::error::expected exit 0 when already healthy"; exit 1; }
+          echo "$OUTPUT" | grep -q "is healthy" || { echo "::error::did not detect the healthy target as healthy"; exit 1; }
+          echo "$OUTPUT" | grep -q "Nothing to do" || { echo "::error::did not skip rollback for a healthy target"; exit 1; }
+
+      - name: Scenario 3 — usage error is rejected
+        run: |
+          set +e
+          ./scripts/rollback-backend.sh 2>/dev/null
+          CODE=$?
+          set -e
+          [ "$CODE" -eq 2 ] || { echo "::error::expected exit 2 for missing arguments, got $CODE"; exit 1; }
+
+      - name: Summary
+        if: always()
+        run: echo "Rollback drill exercised the unhealthy, healthy, and usage-error paths of scripts/rollback-backend.sh in dry-run mode." >> "$GITHUB_STEP_SUMMARY"

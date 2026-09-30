@@ -40,6 +40,13 @@ interface GroupMember {
   status: 'pending' | 'confirmed' | 'paid' | 'failed' | 'cancelled';
   role: 'organizer' | 'member';
   isInvited: boolean;
+  employeeId?: string;
+  department?: string;
+}
+
+interface CorporateAccountOption {
+  id: string;
+  companyName: string;
 }
 
 interface GroupBookingData {
@@ -53,6 +60,10 @@ interface GroupBookingData {
   members: GroupMember[];
   organizerEmail: string;
   sharedItinerary?: string;
+  corporateAccountId?: string;
+  approvalStatus?: string;
+  costCenter?: string;
+  department?: string;
 }
 
 export default function GroupBookingPage() {
@@ -71,8 +82,28 @@ export default function GroupBookingPage() {
   const [groupBooking, setGroupBooking] = useState<GroupBookingData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [inviteLink, setInviteLink] = useState('');
+  const [corporateAccounts, setCorporateAccounts] = useState<CorporateAccountOption[]>([]);
+  const [selectedCorporateAccountId, setSelectedCorporateAccountId] = useState('');
+  const [costCenter, setCostCenter] = useState('');
+  const [department, setDepartment] = useState('');
 
   const selectedFlight = flights.find((f) => f.id === selectedFlightId);
+
+  useEffect(() => {
+    const fetchCorporateAccounts = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/v1/corporate/accounts', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (data.success) {
+          setCorporateAccounts(data.data.accounts || []);
+        }
+      } catch { /* silent fail */ }
+    };
+    fetchCorporateAccounts();
+  }, []);
 
   // Calculate total amount
   const totalAmount = selectedFlight ? selectedFlight.price * (memberEmails.length + 1) : 0;
@@ -108,20 +139,27 @@ export default function GroupBookingPage() {
     setIsLoading(true);
 
     try {
+      const body: any = {
+        groupName,
+        flightId: selectedFlightId,
+        organizerEmail,
+        memberEmails,
+        splitMethod,
+        splitConfig: Object.keys(splitConfig).length > 0 ? splitConfig : undefined,
+      };
+      if (selectedCorporateAccountId) {
+        body.corporateAccountId = selectedCorporateAccountId;
+        body.costCenter = costCenter || undefined;
+        body.department = department || undefined;
+      }
+
       const response = await fetch('/api/v1/group-bookings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('token')}`,
         },
-        body: JSON.stringify({
-          groupName,
-          flightId: selectedFlightId,
-          organizerEmail,
-          memberEmails,
-          splitMethod,
-          splitConfig: Object.keys(splitConfig).length > 0 ? splitConfig : undefined,
-        }),
+        body: JSON.stringify(body),
       });
 
       const result = await response.json();
@@ -234,6 +272,41 @@ export default function GroupBookingPage() {
                 {selectedFlight.airline} • {selectedFlight.fromCity} → {selectedFlight.toCity} • ${selectedFlight.price} per person
               </AlertDescription>
             </Alert>
+          )}
+
+          <div>
+            <label className="text-sm font-medium mb-1 block">Corporate Account (optional)</label>
+            <select
+              className="w-full p-2 rounded-md border border-input bg-background"
+              value={selectedCorporateAccountId}
+              onChange={(e) => setSelectedCorporateAccountId(e.target.value)}
+            >
+              <option value="">Personal booking (no corporate account)</option>
+              {corporateAccounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>{acc.companyName}</option>
+              ))}
+            </select>
+          </div>
+
+          {selectedCorporateAccountId && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Cost Center</label>
+                <Input
+                  placeholder="e.g., ENG-2024"
+                  value={costCenter}
+                  onChange={(e) => setCostCenter(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block">Department</label>
+                <Input
+                  placeholder="e.g., Engineering"
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                />
+              </div>
+            </div>
           )}
 
           <div className="flex justify-end">

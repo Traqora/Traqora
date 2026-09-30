@@ -16,6 +16,7 @@ import { SearchHistoryEntry } from '../db/entities/SearchHistoryEntry';
 import { FlightSearchService, createDefaultFlightSearchService } from '../services/flightSearchService';
 import { FlightSearchCriteria } from '../types/flight';
 import { logger } from '../utils/logger';
+import { createJobLogger } from './jobLogger';
 
 const CRON_EXPRESSION = process.env.CACHE_WARMING_CRON || '*/30 * * * *';
 const LOOKBACK_HOURS = Number.parseInt(process.env.CACHE_WARMING_LOOKBACK_HOURS || '24', 10);
@@ -80,6 +81,9 @@ export class CacheWarmingJob {
 
   /** Runs one warming pass immediately (also invoked by the cron tick). */
   async runNow(): Promise<{ warmed: number; failed: number }> {
+    const log = createJobLogger('cache-warming');
+    log.start();
+
     let warmed = 0;
     let failed = 0;
 
@@ -87,11 +91,13 @@ export class CacheWarmingJob {
     try {
       routes = await this.findFrequentRoutes();
     } catch (err) {
-      logger.error('cacheWarmingJob: failed to load frequent routes', {
+      log.fail({
+        step: 'load_frequent_routes',
         error: err instanceof Error ? err.message : String(err),
       });
       return { warmed, failed };
     }
+    log.step('load_frequent_routes', { candidates: routes.length });
 
     for (const route of routes) {
       const criteria: FlightSearchCriteria = {
@@ -112,7 +118,8 @@ export class CacheWarmingJob {
         warmed += 1;
       } catch (err) {
         failed += 1;
-        logger.warn('cacheWarmingJob: failed to warm route', {
+        log.step('warm_route', {
+          outcome: 'failure',
           from: route.fromAirport,
           to: route.toAirport,
           date: route.departureDate,
@@ -121,7 +128,7 @@ export class CacheWarmingJob {
       }
     }
 
-    logger.info('cacheWarmingJob: pass complete', { warmed, failed, candidates: routes.length });
+    log.complete({ warmed, failed, candidates: routes.length });
     return { warmed, failed };
   }
 

@@ -18,8 +18,10 @@ jest.mock('rate-limiter-flexible', () => ({
 jest.mock('ioredis', () => jest.fn().mockImplementation(() => ({})));
 
 // Import AFTER mocking so the limiter cache picks up the stubs
-import { analyticsRateLimit } from '../../../src/middleware/analytics-rate-limit';
-import { TIER_QUOTAS } from '../../../src/config/tiers';
+import { analyticsRateLimit } from '../../src/middleware/analytics-rate-limit';
+import { buildTierQuotas } from '../../src/config/tiers';
+
+const TIER_QUOTAS = buildTierQuotas();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -38,7 +40,7 @@ function makeRes(): Response {
   const headers: Record<string, string> = {};
   let statusCode = 200;
   let body: unknown;
-  return {
+  const res = {
     setHeader: jest.fn((k: string, v: string) => { headers[k] = v; }),
     status: jest.fn((code: number) => { statusCode = code; return res; }),
     json: jest.fn((data: unknown) => { body = data; }),
@@ -46,6 +48,7 @@ function makeRes(): Response {
     _status: () => statusCode,
     _body: () => body,
   } as unknown as Response;
+  return res;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────

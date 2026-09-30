@@ -120,7 +120,7 @@ router.post(
       logger.warn('Could not fetch current price for flight', { flightId: parsed.data.flightId });
     }
 
-    const alert = await PriceAlert.create({
+    const alert = new PriceAlert({
       userId,
       flightId: parsed.data.flightId,
       targetPrice: parsed.data.targetPrice,
@@ -128,6 +128,7 @@ router.post(
       notificationMethod: parsed.data.notificationMethod,
       currentPrice,
     });
+    await alert.save();
 
     logger.info(`Price alert created: ${alert.id} for user ${userId}`);
 

@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { NextFunction, Router, Request, Response } from "express";
 import { asyncHandler } from "../../utils/errorHandler";
 import { AppDataSource } from "../../db/dataSource";
 import { Flight } from "../../db/entities/Flight";
@@ -7,6 +7,7 @@ import { FlightSearchService } from "../../services/flightSearchService";
 import { CurrencyService } from "../../services/currencyService";
 import { FareRulesService, FareClass } from "../../services/fareRulesService";
 import { BadRequestError } from "../../utils/errors";
+import { invalidateFlightSearchCacheForFlight } from "../../services/cache";
 import { requireAuth } from "../../middleware/authMiddleware";
 import { SearchHistoryEntry } from "../../db/entities/SearchHistoryEntry";
 import { SavedSearch } from "../../db/entities/SavedSearch";
@@ -15,6 +16,18 @@ import {
   MAX_SEGMENTS,
   createFlexibleSearchService,
 } from "../../services/multi-city-search";
+import {
+  buildSearchDataExport,
+  clearSavedSearches,
+  clearSearchHistory,
+  createSavedSearch,
+  deleteSavedSearch,
+  deleteSearchHistoryEntry,
+  recordSearchHistory,
+  updateSavedSearch,
+  SavedSearchLimitReachedError,
+  SearchMemoryRepositories,
+} from "../../services/searchMemoryService";
 
 const searchQuerySchema = z
   .object({
@@ -103,12 +116,10 @@ const savedSearchSchema = searchMemoryPayloadSchema.extend({
 });
 
 const HISTORY_LIMIT = 10;
-const HISTORY_PRUNE_KEEP = 50;
-const SAVED_SEARCH_LIMIT = 25;
 
 export const createFlightRoutes = (
   flightSearchService: FlightSearchService,
-  searchRateLimitMiddleware?: any,
+  searchRateLimitMiddleware?: (req: Request, res: Response, next: NextFunction) => Promise<void>,
   flexibleSearchService: FlexibleSearchService = createFlexibleSearchService(flightSearchService),
 ) => {
   const router = Router();
@@ -121,9 +132,49 @@ export const createFlightRoutes = (
     return walletAddress;
   };
 
+  const getMemoryRepos = (): SearchMemoryRepositories => ({
+    history: AppDataSource.getRepository(SearchHistoryEntry),
+    savedSearches: AppDataSource.getRepository(SavedSearch),
+  });
+
   if (searchRateLimitMiddleware) {
-    router.use("/search", searchRateLimitMiddleware);
+    // Wrapped in asyncHandler (#550): searchRateLimitMiddleware is now
+    // SEARCH_LIMITS-driven and async (see rate-limit-tiers.ts), and a
+    // rejected promise must reach next(err) rather than become an
+    // unhandled rejection — the same reasoning as bookings.ts's
+    // equivalent wiring.
+    router.use("/search", asyncHandler(searchRateLimitMiddleware));
   }
+
+  router.get("/airports", asyncHandler(async (req, res) => {
+    const q = (req.query.q as string || "").toLowerCase();
+    const allAirports = [
+      { code: "JFK", city: "New York", name: "John F. Kennedy International" },
+      { code: "LAX", city: "Los Angeles", name: "Los Angeles International" },
+      { code: "ORD", city: "Chicago", name: "O'Hare International" },
+      { code: "MIA", city: "Miami", name: "Miami International" },
+      { code: "SFO", city: "San Francisco", name: "San Francisco International" },
+      { code: "LAS", city: "Las Vegas", name: "McCarran International" },
+      { code: "SEA", city: "Seattle", name: "Seattle-Tacoma International" },
+      { code: "DEN", city: "Denver", name: "Denver International" },
+      { code: "LHR", city: "London", name: "Heathrow Airport" },
+      { code: "CDG", city: "Paris", name: "Charles de Gaulle" },
+      { code: "FRA", city: "Frankfurt", name: "Frankfurt Airport" },
+      { code: "HND", city: "Tokyo", name: "Haneda Airport" },
+      { code: "DXB", city: "Dubai", name: "Dubai International" },
+      { code: "SYD", city: "Sydney", name: "Sydney Airport" },
+      { code: "YYZ", city: "Toronto", name: "Toronto Pearson" },
+    ];
+    if (!q) {
+      return res.json({ success: true, data: allAirports.slice(0, 8) });
+    }
+    const filtered = allAirports.filter(a => 
+      a.code.toLowerCase().includes(q) || 
+      a.city.toLowerCase().includes(q) || 
+      a.name.toLowerCase().includes(q)
+    );
+    res.json({ success: true, data: filtered });
+  }));
 
   router.get("/search", asyncHandler(async (req, res) => {
     const parsed = searchQuerySchema.safeParse(req.query);
@@ -167,7 +218,6 @@ export const createFlightRoutes = (
             const xlmPrice = flight.pricing.xlm;
             try {
               const conversion = await currencyService.convert(usdPrice, "USD", targetCurrency);
-              const xlmConversion = await currencyService.convert(xlmPrice, "USD", targetCurrency);
               return {
                 ...flight,
                 price: conversion.total,
@@ -249,46 +299,8 @@ export const createFlightRoutes = (
         throw new BadRequestError("Validation error", parsed.error.flatten());
       }
 
-      const historyRepo = AppDataSource.getRepository(SearchHistoryEntry);
-      const payload = parsed.data;
-      const existing = await historyRepo.findOne({
-        where: {
-          userId: walletAddress,
-          fromAirport: payload.from,
-          toAirport: payload.to,
-          departureDate: payload.date,
-          passengers: payload.passengers,
-          cabinClass: payload.class,
-        },
-      });
-
-      if (existing) {
-        await historyRepo.remove(existing);
-      }
-
-      const historyEntry = historyRepo.create({
-        userId: walletAddress,
-        fromAirport: payload.from,
-        toAirport: payload.to,
-        departureDate: payload.date,
-        passengers: payload.passengers,
-        cabinClass: payload.class,
-      });
-      const saved = await historyRepo.save(historyEntry);
-
-      const allIds = await historyRepo.find({
-        where: { userId: walletAddress },
-        select: { id: true },
-        order: { createdAt: "DESC" },
-      });
-      if (allIds.length > HISTORY_PRUNE_KEEP) {
-        const staleIds = allIds.slice(HISTORY_PRUNE_KEEP).map((entry) => entry.id);
-        if (staleIds.length > 0) {
-          await historyRepo.delete(staleIds);
-        }
-      }
-
-      res.status(201).json({ success: true, data: saved });
+      const { entry } = await recordSearchHistory(getMemoryRepos(), walletAddress, parsed.data);
+      res.status(201).json({ success: true, data: entry });
     }),
   );
 
@@ -297,13 +309,33 @@ export const createFlightRoutes = (
     requireAuth,
     asyncHandler(async (req: Request, res: Response) => {
       const walletAddress = ensureAuthenticatedUser(req);
-      const historyRepo = AppDataSource.getRepository(SearchHistoryEntry);
-      const entry = await historyRepo.findOne({ where: { id: req.params.id, userId: walletAddress } });
-      if (!entry) {
+      const removed = await deleteSearchHistoryEntry(getMemoryRepos(), walletAddress, req.params.id);
+      if (!removed) {
         return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Search history entry not found" } });
       }
-      await historyRepo.remove(entry);
       return res.status(204).send();
+    }),
+  );
+
+  router.delete(
+    "/search/history",
+    requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const walletAddress = ensureAuthenticatedUser(req);
+      const deletedCount = await clearSearchHistory(getMemoryRepos(), walletAddress);
+      return res.json({ success: true, data: { deletedCount } });
+    }),
+  );
+
+  router.get(
+    "/search/history/export",
+    requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const walletAddress = ensureAuthenticatedUser(req);
+      const payload = await buildSearchDataExport(getMemoryRepos(), walletAddress);
+      res.setHeader("Content-Disposition", 'attachment; filename="traqora-search-data.json"');
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.send(JSON.stringify(payload, null, 2));
     }),
   );
 
@@ -331,24 +363,15 @@ export const createFlightRoutes = (
         throw new BadRequestError("Validation error", parsed.error.flatten());
       }
 
-      const savedSearchRepo = AppDataSource.getRepository(SavedSearch);
-      const existingCount = await savedSearchRepo.count({ where: { userId: walletAddress } });
-      if (existingCount >= SAVED_SEARCH_LIMIT) {
-        throw new BadRequestError(`Saved search limit reached (${SAVED_SEARCH_LIMIT})`);
+      try {
+        const saved = await createSavedSearch(getMemoryRepos(), walletAddress, parsed.data);
+        res.status(201).json({ success: true, data: saved });
+      } catch (error: unknown) {
+        if (error instanceof SavedSearchLimitReachedError) {
+          throw new BadRequestError(error.message);
+        }
+        throw error;
       }
-
-      const payload = parsed.data;
-      const savedSearch = savedSearchRepo.create({
-        userId: walletAddress,
-        name: payload.name?.trim() || null,
-        fromAirport: payload.from,
-        toAirport: payload.to,
-        departureDate: payload.date,
-        passengers: payload.passengers,
-        cabinClass: payload.class,
-      });
-      const saved = await savedSearchRepo.save(savedSearch);
-      res.status(201).json({ success: true, data: saved });
     }),
   );
 
@@ -362,21 +385,11 @@ export const createFlightRoutes = (
         throw new BadRequestError("Validation error", parsed.error.flatten());
       }
 
-      const savedSearchRepo = AppDataSource.getRepository(SavedSearch);
-      const savedSearch = await savedSearchRepo.findOne({ where: { id: req.params.id, userId: walletAddress } });
-      if (!savedSearch) {
+      const updated = await updateSavedSearch(getMemoryRepos(), walletAddress, req.params.id, parsed.data);
+      if (!updated) {
         return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Saved search not found" } });
       }
-
-      const payload = parsed.data;
-      savedSearch.name = payload.name?.trim() || null;
-      savedSearch.fromAirport = payload.from;
-      savedSearch.toAirport = payload.to;
-      savedSearch.departureDate = payload.date;
-      savedSearch.passengers = payload.passengers;
-      savedSearch.cabinClass = payload.class;
-      const updated = await savedSearchRepo.save(savedSearch);
-      res.json({ success: true, data: updated });
+      return res.json({ success: true, data: updated });
     }),
   );
 
@@ -385,13 +398,21 @@ export const createFlightRoutes = (
     requireAuth,
     asyncHandler(async (req: Request, res: Response) => {
       const walletAddress = ensureAuthenticatedUser(req);
-      const savedSearchRepo = AppDataSource.getRepository(SavedSearch);
-      const savedSearch = await savedSearchRepo.findOne({ where: { id: req.params.id, userId: walletAddress } });
-      if (!savedSearch) {
+      const removed = await deleteSavedSearch(getMemoryRepos(), walletAddress, req.params.id);
+      if (!removed) {
         return res.status(404).json({ success: false, error: { code: "NOT_FOUND", message: "Saved search not found" } });
       }
-      await savedSearchRepo.remove(savedSearch);
       return res.status(204).send();
+    }),
+  );
+
+  router.delete(
+    "/saved-searches",
+    requireAuth,
+    asyncHandler(async (req: Request, res: Response) => {
+      const walletAddress = ensureAuthenticatedUser(req);
+      const deletedCount = await clearSavedSearches(getMemoryRepos(), walletAddress);
+      return res.json({ success: true, data: { deletedCount } });
     }),
   );
 
@@ -431,6 +452,8 @@ export const createFlightRoutes = (
       const repo = AppDataSource.getRepository(Flight);
       const flight = repo.create(req.body);
       const saved = await repo.save(flight);
+      // A newly created flight is immediately searchable.
+      await invalidateFlightSearchCacheForFlight(saved);
       res.status(201).json({ success: true, data: saved });
     }),
   );

@@ -10,7 +10,9 @@ import { bookingRoutes } from './api/routes/bookings';
 import { refundRoutes } from './api/routes/refunds';
 import { insuranceRoutes } from './api/routes/insurance';
 import { groupBookingRoutes } from './api/routes/group-bookings';
+import { corporateRoutes } from './api/routes/corporate';
 import { securityRoutes } from './api/routes/security';
+import { adminRoutes } from './api/routes/admin';
 import { adminAuthRoutes } from './api/routes/admin/auth';
 import { adminFlightRoutes } from './api/routes/admin/flights';
 import { adminUserRoutes } from './api/routes/admin/users';
@@ -23,9 +25,11 @@ import { collaborationRoutes } from './api/routes/collaboration';
 import { authRoutes } from './api/routes/auth';
 import disputeRoutes from './api/routes/disputes';
 import serviceRoutes from './api/routes/services';
+import ancillaryRoutes from './api/routes/ancillary';
 import contractEventRoutes from './api/routes/contract-events';
 import transactionRoutes from './api/routes/transactions';
 import checkinRoutes from './api/routes/checkin';
+import notificationRoutes from './api/routes/notifications';
 import journeyRoutes from './api/routes/journeys';
 import { documentRoutes } from './api/routes/documents';
 import { alertRoutes } from './api/routes/alerts';
@@ -38,7 +42,9 @@ import { createCurrencyRoutes } from './api/routes/currencies';
 import { referralRoutes } from './api/routes/referrals';
 import { recommendationRoutes } from './api/routes/recommendations';
 import { flightStatusRoutes } from './api/routes/flightStatus';
+import { stellarExpertRoutes } from './api/routes/stellarExpert';
 import { analyticsRoutes } from './api/routes/analytics';
+import { auditRoutes } from './api/routes/audit';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
@@ -66,11 +72,13 @@ import {
   IpRateLimitOptions,
   TieredRateLimitOptions,
 } from './utils/rateLimiter';
+import { searchRateLimit } from './middleware/rate-limit-tiers';
 import { requireAuth } from './middleware/authMiddleware';
 import { NotFoundError } from './utils/errors';
 import { AppError } from './services/ErrorHandlingService';
 import { requestLogger } from './middleware/requestLogger';
 import { analyticsAuditLogger } from './middleware/audit-logger';
+import { auditLog as auditLogger } from './middleware/audit';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
@@ -129,12 +137,16 @@ export const createApp = async (options: AppOptions = {}) => {
         ...options.tieredRateLimit,
       });
 
-  const searchRateLimitMiddleware = createIpRateLimiter({
-    points: 100,
-    durationSeconds: 60,
-    keyPrefix: 'traqora-flight-search-rate-limit',
-    ...options.searchRateLimit,
-  });
+  // Per-tier search rate limiting (#550): replaces the flat IP-based
+  // limiter with SEARCH_LIMITS from rate-limit-tiers.ts, the same config
+  // the admin dashboard (admin.ts, #305) already reads and lets admins
+  // adjust — previously that config existed but was never actually wired
+  // into request-blocking middleware. `options.searchRateLimit === false`
+  // still disables it entirely, matching the pre-existing escape hatch
+  // tests and local dev may rely on; a partial IpRateLimitOptions override
+  // isn't meaningful for the tiered limiter, so it's not threaded through.
+  const searchRateLimitMiddleware =
+    options.searchRateLimit === false ? undefined : searchRateLimit;
 
   app.use(cspMiddleware);
   app.use(rateLimitMiddleware);
@@ -157,6 +169,7 @@ export const createApp = async (options: AppOptions = {}) => {
   }
 
   app.use(requestLogger);
+  app.use('/api', auditLogger);
   app.use(metricsMiddleware);
   app.use(morgan('combined', { stream: { write: (message: string) => logger.info(message.trim()) } }));
 
@@ -199,10 +212,15 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/auth', validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
+  app.use('/api/v1/flight-status', requireAuth, createFlightRoutes(flightSearchService));
+  app.use('/api/v1/bookings', requireAuth, validateRequest('/api/v1/bookings'), bookingRoutes);
+  app.use('/api/v1/refunds', requireAuth, validateRequest('/api/v1/refunds/request'), refundRoutes);
+  app.use('/api/v1/security', requireAuth, securityRoutes);
   app.use('/api/v1/bookings', requireAuth, bookingRoutes);
   app.use('/api/v1/refunds', requireAuth, refundRoutes);
   app.use('/api/v1/insurance', insuranceRoutes);
   app.use('/api/v1/group-bookings', requireAuth, groupBookingRoutes); // <-- Added group booking routes
+  app.use('/api/v1/corporate', requireAuth, corporateRoutes);
   app.use('/api/v1/security', securityRoutes);
   app.use('/api/v1/documents', requireAuth, documentRoutes);
   app.use('/api/v1/referrals', referralRoutes);
@@ -218,17 +236,23 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/admin/analytics', analyticsAuditLogger);
   app.use('/api/v1/admin/analytics', adminAnalyticsRoutes);
   app.use('/api/v1/admin/analytics', tenantAnalyticsRoutes);
+  app.use('/api/v1', auditRoutes);
   app.use('/api/v1/admin/refunds', adminRefundRoutes);
+  app.use('/api/v1/admin', adminRoutes);
+  app.use('/admin', adminRoutes);
   app.use('/api/v1/collaboration', collaborationRoutes);
   app.use('/api/v1/disputes', disputeRoutes);
   app.use('/api/v1/services', serviceRoutes);
+  app.use('/api/v1/ancillary', ancillaryRoutes);
   app.use('/api/v1/contract-events', contractEventRoutes);
+  app.use('/api/v1/stellar-expert', stellarExpertRoutes);
   app.use('/api/v1/transactions', transactionRoutes);
   app.use('/api/v1/checkin', requireAuth, checkinRoutes);
   app.use('/api/v1/journeys', journeyRoutes);
   app.use('/api/v1/carbon', carbonRoutes);
   app.use('/api/v1/tracking', requireAuth, trackingRoutes);
   app.use('/api/v1/feedback', feedbackRoutes);
+  app.use('/api/v1/notifications', requireAuth, notificationRoutes);
   app.use('/api/v1/currencies', createCurrencyRoutes());
 
   app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => {

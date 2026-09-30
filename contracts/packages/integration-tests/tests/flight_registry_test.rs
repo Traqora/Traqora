@@ -1,8 +1,8 @@
+use flight_registry::{FlightRegistryContract, FlightRegistryContractClient};
 use soroban_sdk::{
     testutils::{Address as _, Events},
     Address, Env, IntoVal, Map, String, Symbol, TryFromVal, Val,
 };
-use flight_registry::{FlightRegistryContract, FlightRegistryContractClient};
 
 fn setup_registry<'a>(env: &'a Env, owner: &Address) -> FlightRegistryContractClient<'a> {
     let contract_id = env.register(FlightRegistryContract, ());
@@ -75,7 +75,12 @@ fn test_same_airline_admin_can_update_flight_metadata() {
     let airline_id = Symbol::new(&env, "SKY");
     let flight_id = Symbol::new(&env, "SKY200");
 
-    client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "SkyBridge"));
+    client.register_airline(
+        &owner,
+        &airline_admin,
+        &airline_id,
+        &Symbol::new(&env, "SkyBridge"),
+    );
     client.add_flight(
         &airline_admin,
         &flight_id,
@@ -166,7 +171,12 @@ fn test_register_airline_and_add_flight_emit_events() {
     let airline_id = Symbol::new(&env, "EVNT");
     let flight_id = Symbol::new(&env, "EVNT900");
 
-    client.register_airline(&owner, &airline_admin, &airline_id, &Symbol::new(&env, "EventAir"));
+    client.register_airline(
+        &owner,
+        &airline_admin,
+        &airline_id,
+        &Symbol::new(&env, "EventAir"),
+    );
     client.add_flight(
         &airline_admin,
         &flight_id,

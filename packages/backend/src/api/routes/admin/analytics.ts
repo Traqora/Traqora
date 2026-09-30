@@ -10,6 +10,7 @@ import { requireAdmin, requireRole } from '../../../middleware/adminAuth';
 import { BadRequestError, NotFoundError, TooManyRequestsError } from '../../../utils/errors';
 import { emailService } from '../../../services/EmailService';
 import { SelectQueryBuilder } from 'typeorm';
+import { FunnelWindowError, getBookingFunnel } from '../../../services/analytics/bookingFunnelService';
 
 const router = Router();
 const MAX_EXPORT_ROWS = 100000;
@@ -50,6 +51,11 @@ const exportQuerySchema = z.object({
     limit: z.coerce.number().int().min(1).max(MAX_EXPORT_ROWS).default(10000),
 });
 
+const funnelQuerySchema = z.object({
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+});
+
 const exportJobRequestSchema = exportQuerySchema.extend({
     notifyEmail: z.string().email().optional(),
 });
@@ -64,7 +70,7 @@ const distributionAnalyticsQuerySchema = z.object({
 });
 
 function checkExportRateLimit(req: Request) {
-    const key = req.admin?.adminId || req.ip;
+    const key = req.admin?.adminId || req.ip || 'unknown';
     const day = new Date().toISOString().slice(0, 10);
     const current = exportUsage.get(key);
 
@@ -519,7 +525,7 @@ async function processExportJob(
         if (params.notifyEmail) {
             job.notification = { email: params.notifyEmail, status: 'pending' };
             try {
-                await emailService.send(params.notifyEmail, 'analytics-export', {
+                await emailService.sendTemplate(params.notifyEmail, 'analytics-export', {
                     dataset: job.dataset,
                     format: job.format,
                     rowCount: job.rowCount,
@@ -628,6 +634,24 @@ router.get('/distributions', requireAdmin, requireRole('admin'), asyncHandler(as
             },
         },
     });
+}));
+
+// GET /api/v1/admin/analytics/funnel
+router.get('/funnel', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+    const parsed = funnelQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+        throw new BadRequestError('Validation Error', parsed.error.flatten());
+    }
+
+    try {
+        const report = await getBookingFunnel(parsed.data);
+        return res.json({ success: true, data: report });
+    } catch (err) {
+        if (err instanceof FunnelWindowError) {
+            throw new BadRequestError(err.message);
+        }
+        throw err;
+    }
 }));
 
 // GET /api/v1/admin/analytics/export

@@ -18,6 +18,7 @@ import FlightStatusAlert from '../models/FlightStatusAlert';
 import { FlightStatusService } from '../services/FlightStatusService';
 import { notifyFlightStatusChange } from '../services/flightStatusNotifier';
 import { logger } from '../utils/logger';
+import { createJobLogger } from './jobLogger';
 
 const CRON_EXPRESSION = process.env.FLIGHT_STATUS_POLLING_CRON || '*/5 * * * *';
 
@@ -31,19 +32,25 @@ export class FlightStatusPollingJob {
 
   /** Runs one polling pass immediately (also invoked by the cron tick). */
   async runNow(): Promise<{ polled: number; changed: number; notified: number }> {
+    const log = createJobLogger('flight-status-polling');
+    log.start();
+
     let flightIds: string[];
     try {
       flightIds = await FlightStatusAlert.distinct('flightId', { isActive: true }).exec();
     } catch (err) {
-      logger.error('flightStatusPollingJob: failed to load actively-followed flights', {
+      log.fail({
+        step: 'load_active_flights',
         error: err instanceof Error ? err.message : String(err),
       });
       return { polled: 0, changed: 0, notified: 0 };
     }
 
     if (flightIds.length === 0) {
+      log.complete({ polled: 0, changed: 0, notified: 0 });
       return { polled: 0, changed: 0, notified: 0 };
     }
+    log.step('load_active_flights', { polled: flightIds.length });
 
     let changed = 0;
     let notified = 0;
@@ -52,7 +59,9 @@ export class FlightStatusPollingJob {
     try {
       updates = await this.statusService.fetchStatuses(flightIds);
     } catch (err) {
-      logger.error('flightStatusPollingJob: fetchStatuses failed', {
+      log.fail({
+        step: 'fetch_statuses',
+        polled: flightIds.length,
         error: err instanceof Error ? err.message : String(err),
       });
       return { polled: flightIds.length, changed: 0, notified: 0 };
@@ -67,14 +76,15 @@ export class FlightStatusPollingJob {
         const { notifiedCount } = await notifyFlightStatusChange(update);
         notified += notifiedCount;
       } catch (err) {
-        logger.warn('flightStatusPollingJob: failed to notify subscribers', {
+        log.step('notify_subscribers', {
+          outcome: 'failure',
           flightId: update.flightId,
           error: err instanceof Error ? err.message : String(err),
         });
       }
     }
 
-    logger.info('flightStatusPollingJob: pass complete', { polled: flightIds.length, changed, notified });
+    log.complete({ polled: flightIds.length, changed, notified });
     return { polled: flightIds.length, changed, notified };
   }
 

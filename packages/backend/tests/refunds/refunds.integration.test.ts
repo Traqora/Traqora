@@ -575,4 +575,124 @@ describe('Refunds API Integration Tests', () => {
       expect(response.body.data.totalRefunds).toBe(0);
     });
   });
+
+  describe('POST /api/v1/refunds/partial-calculation', () => {
+    it('should calculate partial refund breakdown', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/partial-calculation')
+        .send({
+          bookingId: testBooking.id,
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('originalAmountCents');
+      expect(response.body.data).toHaveProperty('baseRefundPercentage');
+      expect(response.body.data).toHaveProperty('finalRefundAmountCents');
+      expect(response.body.data).toHaveProperty('appliedRules');
+      expect(Array.isArray(response.body.data.appliedRules)).toBe(true);
+    });
+
+    it('should return 404 for non-existent booking', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/partial-calculation')
+        .send({
+          bookingId: '00000000-0000-0000-0000-000000000000',
+        });
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('should return 400 for invalid booking ID', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/partial-calculation')
+        .send({
+          bookingId: 'invalid-id',
+        });
+
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe('Partial refund requests', () => {
+    it('should accept partial refund by percentage', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 50,
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.requestedAmountCents).toBe(Math.floor(testBooking.amountCents * 0.5));
+    });
+
+    it('should accept partial refund by amount', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundAmountCents: 10000,
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.requestedAmountCents).toBe(10000);
+    });
+
+    it('should reject both percentage and amount together', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 50,
+          requestedRefundAmountCents: 10000,
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('should reject percentage out of range', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 150,
+        });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('should reject negative amount', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundAmountCents: -1000,
+        });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('should handle 0% refund request', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 0,
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.requestedAmountCents).toBe(0);
+    });
+  });
 });

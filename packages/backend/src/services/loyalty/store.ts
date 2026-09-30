@@ -23,6 +23,7 @@ export class LoyaltyStore {
   private transactions: PointsTransaction[] = [];
   private campaigns = new Map<string, Campaign>();
   private expiredTxIds = new Set<string>();
+  private expirationRemindersSent = new Set<string>();
   private tierHistory = new Map<string, Array<{ tier: LoyaltyTier; changedAt: Date }>>();
 
   private constructor() {}
@@ -157,6 +158,14 @@ export class LoyaltyStore {
 
   markTransactionExpired(txId: string): void {
     this.expiredTxIds.add(txId);
+  }
+
+  hasExpirationReminderBeenSent(txId: string, daysBeforeExpiry: number): boolean {
+    return this.expirationRemindersSent.has(`${txId}:${daysBeforeExpiry}`);
+  }
+
+  markExpirationReminderSent(txId: string, daysBeforeExpiry: number): void {
+    this.expirationRemindersSent.add(`${txId}:${daysBeforeExpiry}`);
   }
 
   // ---------------------------------------------------------------------------

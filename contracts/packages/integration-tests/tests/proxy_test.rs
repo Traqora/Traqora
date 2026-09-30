@@ -185,7 +185,8 @@ fn test_upgrade_rollback_restores_previous_version() {
 
     client.init_proxy(&admin, &implementation, &signers, &2);
 
-    let proposal_id = client.propose_upgrade(&signers.get(0).unwrap(), &new_implementation, &Some(2u32));
+    let proposal_id =
+        client.propose_upgrade(&signers.get(0).unwrap(), &new_implementation, &Some(2u32));
     client.approve_upgrade(&signers.get(1).unwrap(), &proposal_id);
     let now = env.ledger().timestamp();
     env.ledger().set_timestamp(now + 48 * 60 * 60 + 1);
