@@ -60,7 +60,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Typecheck
         run: npm run typecheck --workspace=packages/backend
@@ -83,7 +83,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Lint
         run: npm run lint --workspace=packages/client || true
@@ -147,7 +147,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Run tests
         # Fails when coverage drops below the thresholds configured in
@@ -183,10 +183,30 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Run tests
         run: npm test --workspace=packages/client
+
+  perf-backend:
+    name: Performance Tests - Backend
+    runs-on: ubuntu-latest
+    needs: [quality-backend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: '**/package.json'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run performance tests
+        run: npm run test:perf --workspace=packages/backend
 
   test-contracts:
     name: Unit Tests - Contracts
@@ -265,7 +285,7 @@ jobs:
   integration-backend:
     name: Integration Tests - Backend
     runs-on: ubuntu-latest
-    needs: [test-backend]
+    needs: [test-backend, perf-backend]
     services:
       redis:
         image: redis:7-alpine
@@ -294,7 +314,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Run integration tests (Auth)
         env:
@@ -371,7 +391,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts
+        run: npm install --ignore-scripts
 
       # Playwright browser binaries are cached by the built-in store path.
       - name: Cache Playwright browsers
@@ -472,7 +492,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts
+        run: npm install --ignore-scripts
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
@@ -491,7 +511,6 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: "1"
         run: npx playwright test tests/a11y --reporter=list
-        continue-on-error: true
 
   # ==========================================================================
   # STAGE 5 — Builds (parallel, gated only on their own test job)
@@ -562,7 +581,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Build backend
         run: npm run build --workspace=packages/backend
@@ -582,7 +601,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Build client
         run: npm run build --workspace=packages/client
