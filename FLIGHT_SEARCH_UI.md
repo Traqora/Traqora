@@ -5,7 +5,9 @@ Built a comprehensive flight search interface for the Traqora Next.js applicatio
 
 ## ✅ Completed Features
 
-### 1. Search Form (`/components/flight-search/search-form.tsx`)
+### 1. Search Form & Flexible Date Search (`/components/flight-search/search-form.tsx`, `/components/flight-search/date-flex-search.tsx`)
+- **Date-Flex Search**: Allows operators and travelers to search flights within a flexibility window (+/- 1, 3, or 7 days) around a target departure date.
+- **Input Validation**: Automatically trims and uppercases airport codes, blocks identical origin/destination queries, and validates date formats.
 - **Origin/Destination Input**: 3-letter airport code validation with autocomplete suggestions
 - **Date Selection**: Departure and optional return date pickers with validation
 - **Passenger Count**: Dropdown selector (1-9 passengers)
