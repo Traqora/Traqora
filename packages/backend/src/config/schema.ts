@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_TRACING_SAMPLER, TRACING_SAMPLERS } from './tracing-samplers';
 
 export const configSchema = z.object({
   port: z.number().default(3001),
@@ -50,6 +51,8 @@ export const configSchema = z.object({
   otlpTraceUrl: z.string().url().default('http://localhost:4318/v1/traces'),
   otlpTraceHeaders: z.string().optional(),
   tracingSampleRate: z.number().min(0).max(1).default(1),
+  // Sampler strategy, keyed to the standard OTEL_TRACES_SAMPLER values.
+  tracingSampler: z.enum(TRACING_SAMPLERS).default(DEFAULT_TRACING_SAMPLER),
 
   sentryDsn: z.string().optional(),
   sentryTracesSampleRate: z.number().min(0).max(1).default(0.1),

@@ -9,7 +9,7 @@ export function useTierComparison() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch('/api/loyalty/tiers', { cache: 'force-cache' });
+        const res = await fetch('/api/loyalty/tiers', { cache: 'force-cache', next: { revalidate: 3600 } } as RequestInit);
         if (!res.ok) throw new Error('Failed to load tiers');
         setData(await res.json());
       } catch (e) {

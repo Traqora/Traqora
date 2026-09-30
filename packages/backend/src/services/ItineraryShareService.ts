@@ -74,6 +74,20 @@ export class ItineraryShareService {
       createdAt: new Date(),
     };
 
+    // Keep the pending invitation until it is accepted. Without this record,
+    // the token sent by email cannot be resolved by the acceptance endpoint.
+    this.shareCache.set(`${itineraryId}:${recipientEmail}`, {
+      id: invitation.id,
+      itineraryId,
+      ownerId,
+      sharedWith: recipientEmail,
+      permissionLevel,
+      status: "pending",
+      shareToken: invitationToken,
+      createdAt: invitation.createdAt,
+      expiresAt,
+    });
+
     // Send email invitation
     const invitationLink = `${process.env.CLIENT_URL}/itinerary/${itineraryId}/accept?token=${invitationToken}`;
     await emailService.sendShareInvitation(
@@ -104,7 +118,12 @@ export class ItineraryShareService {
   ): Promise<SharedItinerary> {
     // Verify token is valid
     const cache = this.shareCache.get(`${itineraryId}:${collaboratorEmail}`);
-    if (!cache || cache.shareToken !== invitationToken) {
+    if (!cache || cache.status !== "pending" || cache.shareToken !== invitationToken) {
+      throw new BadRequestError("Invalid or expired invitation token");
+    }
+    if (cache.expiresAt && cache.expiresAt <= new Date()) {
+      cache.status = "revoked";
+      this.shareCache.set(`${itineraryId}:${collaboratorEmail}`, cache);
       throw new BadRequestError("Invalid or expired invitation token");
     }
 

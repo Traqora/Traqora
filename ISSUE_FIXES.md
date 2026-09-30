@@ -1,5 +1,43 @@
 # Issue Fixes Documentation
 
+## #715 Issue Template Triage
+
+**Area**: docs / client
+
+### Problem
+The repository had no GitHub issue templates (no `.github/ISSUE_TEMPLATE/` directory), so contributors submitted issues in inconsistent free-text formats (see `fix.md`, `issue.md`). There was also no programmatic way to parse or classify issue headings into structured metadata (area, labels), meaning triage was entirely manual and error-prone.
+
+### Solution
+Three narrowly scoped deliverables — no unrelated changes made:
+
+**1. GitHub issue templates** (`.github/ISSUE_TEMPLATE/`)
+- `bug_report.yml` — structured bug report with area dropdown, severity, reproduction steps
+- `feature_request.yml` — feature proposal with area, acceptance criteria, out-of-scope section
+- `config.yml` — disables blank issues; routes ad-hoc questions to GitHub Discussions
+
+Both templates automatically apply the `triage` label plus an area-specific label (e.g. `client`, `backend`, `contracts`) on submission.
+
+**2. Triage utility module** (`packages/client/lib/issue-triage.ts`)
+- `parseIssueMarkdown(raw)` — parses the `#<number> <title>` heading format used in `fix.md`/`issue.md` into a typed `TriagedIssue`; throws `IssueTriageError` on malformed input
+- `classifyArea(title)` — keyword-based area classification; never throws
+- `formatTriageSummary(issue)` — serialises a `TriagedIssue` to a single-line changelog string
+
+**3. Standalone validation script** (`scripts/validate-issue-triage.js`) — runnable with plain `node` when the full test stack is unavailable.
+
+### Contract
+| Function | Input | Output | Error |
+|---|---|---|---|
+| `parseIssueMarkdown` | raw markdown string | `TriagedIssue` | `IssueTriageError` if blank or heading malformed |
+| `classifyArea` | title string | `IssueArea` | never throws; returns `"unknown"` |
+| `formatTriageSummary` | `TriagedIssue` | single-line string | never throws |
+
+### Testing
+- Added Jest unit tests in `packages/client/tests/unit/issue-triage.test.ts`:
+  - Happy path: parses `fix.md` headings, `issue.md` headings, leading-blank-line input, single-line input
+  - Failure modes: empty string, whitespace-only, missing `#number`, number-only (no title), non-numeric number
+  - Round-trip: `parseIssueMarkdown` → `formatTriageSummary` deterministic output
+- Added `scripts/validate-issue-triage.js` (32 assertions, runs with bare `node`): `node scripts/validate-issue-triage.js`
+
 ## #732 Stablecoin XLM Fee Display
 
 **Area**: Client payments fees

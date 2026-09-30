@@ -3,36 +3,9 @@ import path from 'path';
 import winston, { Logger } from 'winston';
 import { AsyncLocalStorage } from 'async_hooks';
 import { Config } from '../config/schema';
+import { deriveEventName, redactLogRecord, resolveLogFormat } from './structuredLogger';
 
 export const asyncLocalStorage = new AsyncLocalStorage<Map<string, string>>();
-
-const SENSITIVE_LOG_KEY = /authorization|cookie|set-cookie|password|token|secret|api[_-]?key|jwt|refresh_token/i;
-
-const sanitizeLogValue = (value: unknown): unknown => {
-  if (value === null || value === undefined) return value;
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return value;
-  }
-  if (value instanceof Error) {
-    return {
-      message: value.message,
-      stack: value.stack ?? null,
-    };
-  }
-  if (Array.isArray(value)) {
-    return value.map(sanitizeLogValue);
-  }
-  if (typeof value === 'object') {
-    const sanitized: Record<string, unknown> = {};
-    for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-      sanitized[key] = SENSITIVE_LOG_KEY.test(key)
-        ? '[REDACTED]'
-        : sanitizeLogValue(nestedValue);
-    }
-    return sanitized;
-  }
-  return value;
-};
 
 const addCorrelationId = winston.format((info) => {
   const store = asyncLocalStorage.getStore();
@@ -47,17 +20,55 @@ const addCorrelationId = winston.format((info) => {
   return info;
 });
 
-const maskSensitiveFields = winston.format((info) => {
-  return sanitizeLogValue(info) as winston.Logform.TransformableInfo;
+/**
+ * Guarantee the `event` key of the structured envelope (issue #738). Callers
+ * that already pass `event` keep it; otherwise it is derived from the message.
+ */
+const attachEvent = winston.format((info) => {
+  if (typeof info.event !== 'string' || info.event.length === 0) {
+    info.event = deriveEventName(info.message);
+  }
+  return info;
 });
 
-const jsonLogFormat = winston.format.combine(
-  addCorrelationId(),
-  winston.format.errors({ stack: true }),
-  winston.format.timestamp(),
-  maskSensitiveFields(),
-  winston.format.json(),
-);
+/**
+ * Recursive, cycle-safe redaction shared with the rest of the codebase. Total
+ * function: a payload that cannot be serialised must never throw out of a log
+ * call and take the request handler with it.
+ */
+const maskSensitiveFields = winston.format((info) => {
+  return redactLogRecord(info);
+});
+
+const prettyFormat = winston.format.printf((info: winston.Logform.TransformableInfo) => {
+  const { level, message, timestamp, event, ...rest } = info;
+  const corr = info.correlationId ? ` (${String(info.correlationId)})` : '';
+  const extra = Object.keys(rest).length ? ` ${JSON.stringify(rest)}` : '';
+  return `${String(timestamp)} ${String(level)} [${String(event ?? 'log')}]${corr}: ${String(message)}${extra}`;
+});
+
+/**
+ * Build the output format for the resolved {@link resolveLogFormat} value.
+ * `LOG_FORMAT=json` forces the JSON envelope in every environment, which is
+ * what staging, CI and log shippers require.
+ */
+const buildOutputFormat = (environment?: string) =>
+  resolveLogFormat(process.env, environment) === 'pretty'
+    ? winston.format.combine(winston.format.colorize(), prettyFormat)
+    : winston.format.json();
+
+/** Full format chain: correlation → errors → timestamp → event → redaction → render. */
+const buildLogFormat = (environment?: string) =>
+  winston.format.combine(
+    addCorrelationId(),
+    winston.format.errors({ stack: true }),
+    winston.format.timestamp(),
+    attachEvent(),
+    maskSensitiveFields(),
+    buildOutputFormat(environment),
+  );
+
+const jsonLogFormat = buildLogFormat();
 
 const consoleTransport = new winston.transports.Console();
 let productionFileTransportsConfigured = false;
@@ -106,6 +117,10 @@ export const configureLogger = (runtimeConfig: Pick<Config, 'logLevel' | 'enviro
   for (const transport of logger.transports) {
     transport.level = runtimeConfig.logLevel;
   }
+
+  // Re-resolve the output format so that LOG_FORMAT exported by the process
+  // supervisor (which is loaded after this module) is honoured.
+  logger.format = buildLogFormat(runtimeConfig.environment);
 
   if (runtimeConfig.environment === 'production' && !productionFileTransportsConfigured) {
     const logDirectory = path.resolve(process.cwd(), 'logs');

@@ -42,6 +42,7 @@ import { createCurrencyRoutes } from './api/routes/currencies';
 import { referralRoutes } from './api/routes/referrals';
 import { recommendationRoutes } from './api/routes/recommendations';
 import { flightStatusRoutes } from './api/routes/flightStatus';
+import { stellarExpertRoutes } from './api/routes/stellarExpert';
 import { analyticsRoutes } from './api/routes/analytics';
 import { auditRoutes } from './api/routes/audit';
 // @ts-ignore
@@ -244,6 +245,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/services', serviceRoutes);
   app.use('/api/v1/ancillary', ancillaryRoutes);
   app.use('/api/v1/contract-events', contractEventRoutes);
+  app.use('/api/v1/stellar-expert', stellarExpertRoutes);
   app.use('/api/v1/transactions', transactionRoutes);
   app.use('/api/v1/checkin', requireAuth, checkinRoutes);
   app.use('/api/v1/journeys', journeyRoutes);

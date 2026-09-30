@@ -222,6 +222,7 @@ export class AuthService {
 
     /*
      * Refresh the token pair using a valid refresh token.
+     * Supports JWT rotation without logout by ensuring token re-use detection.
      */
     async refreshTokens(refreshToken: string): Promise<VerifyResponse> {
         let payload: any;
@@ -239,8 +240,10 @@ export class AuthService {
         const refreshHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
         const storedHash = await this.redis.get(`auth:refresh:${walletAddress}`);
 
-        if (storedHash !== refreshHash) {
-            throw new Error('Refresh token revoked or mismatched');
+        if (!storedHash || storedHash !== refreshHash) {
+            // Replay detection: if a stale or mismatched token is presented, revoke all active tokens for the wallet
+            await this.redis.del(`auth:refresh:${walletAddress}`);
+            throw new Error('Refresh token reuse detected. Session revoked.');
         }
 
         // We fetch user to know the walletType
@@ -249,7 +252,7 @@ export class AuthService {
             throw new Error('User not found');
         }
 
-        // Issue new token pair (rotates refresh token)
+        // Issue new token pair (rotates refresh token and overrides old one)
         return this.issueTokens(walletAddress, user.walletType);
     }
 
