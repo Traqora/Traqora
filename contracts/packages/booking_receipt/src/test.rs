@@ -120,3 +120,59 @@ fn test_token_metadata() {
     assert_eq!(client.sbt_symbol(), Symbol::new(&env, "TREC"));
     assert_eq!(client.sbt_decimals(), 0);
 }
+
+#[test]
+fn test_booking_receipt_schema_validation_and_consistency() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1672531200);
+
+    let admin = Address::generate(&env);
+    let passenger = Address::generate(&env);
+    let client = create_receipt_contract(&env, &admin);
+
+    let flight_number = Symbol::new(&env, "TRQ999");
+    let from_airport = Symbol::new(&env, "JFK");
+    let to_airport = Symbol::new(&env, "LAX");
+    let seat = String::from_str(&env, "14C");
+    let price = 750_0000000i128;
+    let booking_id = 9001u64;
+
+    let receipt_id = client.mint_receipt(
+        &passenger,
+        &booking_id,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &seat,
+        &price,
+    );
+
+    let metadata = client.get_receipt_metadata(&receipt_id);
+    assert_eq!(metadata.booking_id, booking_id);
+    assert_eq!(metadata.flight_number, flight_number);
+    assert_eq!(metadata.from_airport, from_airport);
+    assert_eq!(metadata.to_airport, to_airport);
+    assert_eq!(metadata.seat, seat);
+    assert_eq!(metadata.price, price);
+    assert_eq!(metadata.timestamp, 1672531200);
+
+    assert!(client.verify_receipt(&passenger, &receipt_id));
+
+    // Verify non-existent receipt metadata panics or returns default/fails validation gracefully
+    // (Soroban storage get on missing key returns uninitialized/panic depending on contract implementation)
+}
+
+#[test]
+#[should_panic]
+fn test_booking_receipt_missing_or_inconsistent_fields_guard() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let passenger = Address::generate(&env);
+    let client = create_receipt_contract(&env, &admin);
+
+    // Attempting to query non-existent receipt metadata should cause a panic or assertion failure
+    let _metadata = client.get_receipt_metadata(&9999);
+}

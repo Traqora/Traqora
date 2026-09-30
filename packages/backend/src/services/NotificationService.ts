@@ -259,6 +259,13 @@ export class NotificationService {
   /**
    * Queue a notification for the user and immediately dispatch to all
    * enabled channels (email, sms, push, inapp).
+   *
+   * De-duplication: if a notification with the same `payload.id` is already
+   * stored for this user, the existing record is returned and no new deliveries
+   * are added.  When the notification exists but a requested channel has no
+   * delivery entry yet (and passes preference gating), a new delivery is appended
+   * so the caller can extend an existing notification to additional channels
+   * without creating a full duplicate.
    */
   async queueNotification(
     userId: string,
@@ -266,10 +273,23 @@ export class NotificationService {
     channels: NotificationChannel[],
   ): Promise<Notification> {
     const userNotifs = this.notifications.get(userId) || [];
-    const existing = userNotifs.find((notification) => notification.id === payload.id);
+
+    // --- Deduplication: return existing notification if the ID is already known ---
+    const existing = userNotifs.find((n) => n.id === payload.id);
     if (existing) {
-      // The payload id is the event id. Treat repeats as an already-queued
-      // event so retries cannot fan it out a second time across channels.
+      logger.info("Notification already queued – skipping duplicate", {
+        userId,
+        notificationId: payload.id,
+      });
+      // Still add missing channel deliveries that pass preference gating.
+      for (const channel of channels) {
+        const alreadyScheduled = existing.deliveries.some(
+          (d) => d.channel === channel && d.status !== "failed",
+        );
+        if (!alreadyScheduled && (await this.shouldDeliver(userId, channel, payload.category))) {
+          existing.deliveries.push({ channel, status: "pending", retryCount: 0 });
+        }
+      }
       return existing;
     }
 

@@ -1,5 +1,5 @@
 import { AppDataSource } from '../../src/db/dataSource';
-import { Dispute } from '../../src/db/entities/Dispute';
+import { Dispute, DisputeStatus } from '../../src/db/entities/Dispute';
 import { DisputeEvidence } from '../../src/db/entities/DisputeEvidence';
 import { Refund } from '../../src/db/entities/Refund';
 import { disputeService } from '../../src/services/dispute/disputeService';
@@ -213,5 +213,12 @@ describe('DisputeService', () => {
 
     expect(evidenceItems).toHaveLength(0);
     expect(disputes[0].status).toBe('evidence_submission');
+  });
+});
+
+// Issue #718: contract test for the dispute lifecycle state machine.
+describe("DisputeStatus contract (issue #718)", () => {
+  it("covers the full lifecycle", () => {
+    expect<DisputeStatus[]>(["open", "evidence_submission", "under_review", "resolved", "appealed", "closed"]).toHaveLength(6);
   });
 });

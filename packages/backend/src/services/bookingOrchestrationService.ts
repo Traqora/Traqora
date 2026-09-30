@@ -22,6 +22,7 @@ import type {
   SeasonalFareOverride,
 } from "./fareRulesService";
 import { getWebSocketServer } from "../websockets/server";
+import { executeIdempotentOperation, hashObject } from "./idempotency";
 
 // ── Booking cancel policy engine (#785) ────────────────────────────────────
 //
@@ -291,68 +292,94 @@ export class BookingOrchestrationService {
     idempotencyKey: string;
     walletAddress?: string;
   }): Promise<Booking> {
-    const flight = await this.flightRepo.findOne({
-      where: { id: params.flightId },
+    const requestHash = hashObject({
+      flightId: params.flightId,
+      passenger: params.passenger,
+      walletAddress: params.walletAddress,
     });
-    if (!flight) throw new Error("Flight not found");
-    if (flight.seatsAvailable <= 0) throw new Error("Flight sold out");
 
-    const updated = await this.flightRepo
-      .createQueryBuilder()
-      .update(Flight)
-      .set({ seatsAvailable: () => "seatsAvailable - 1" })
-      .where("id = :id", { id: flight.id })
-      .andWhere("seatsAvailable > 0")
-      .execute();
-
-    if (!updated.affected) throw new Error("Flight sold out");
-
-    const passenger = this.passengerRepo.create(params.passenger);
-    await this.passengerRepo.save(passenger);
-
-    try {
-      const result = await signAndSubmitCreateBooking({
-        passenger: passenger.sorobanAddress,
-        airline: flight.airlineSorobanAddress,
-        flightNumber: flight.flightNumber,
-        fromAirport: flight.fromAirport,
-        toAirport: flight.toAirport,
-        departureTime: Math.floor(flight.departureTime.getTime() / 1000),
-        price: BigInt(flight.priceCents),
-        token: config.contracts.token,
-      });
-
-      const booking = this.bookingRepo.create({
-        idempotencyKey: params.idempotencyKey,
-        walletAddress: params.walletAddress ?? null,
-        flight,
-        passenger,
-        status: "onchain_submitted",
-        amountCents: flight.priceCents,
-        sorobanTxHash: result.txHash,
-      });
-
-      const savedBooking = await this.bookingRepo.save(booking);
-
-      this.pollTransactionStatus(savedBooking.id, result.txHash).catch(
-        (err) => {
-          logger.error("Error polling transaction status", {
-            bookingId: savedBooking.id,
-            error: err.message,
+    const { result: booking, isCached } = await executeIdempotentOperation(
+      {
+        key: params.idempotencyKey,
+        method: 'POST',
+        path: '/api/v1/bookings',
+        requestHash,
+        execute: async () => {
+          const flight = await this.flightRepo.findOne({
+            where: { id: params.flightId },
           });
+          if (!flight) throw new Error("Flight not found");
+          if (flight.seatsAvailable <= 0) throw new Error("Flight sold out");
+
+          const updated = await this.flightRepo
+            .createQueryBuilder()
+            .update(Flight)
+            .set({ seatsAvailable: () => "seatsAvailable - 1" })
+            .where("id = :id", { id: flight.id })
+            .andWhere("seatsAvailable > 0")
+            .execute();
+
+          if (!updated.affected) throw new Error("Flight sold out");
+
+          const passenger = this.passengerRepo.create(params.passenger);
+          await this.passengerRepo.save(passenger);
+
+          try {
+            const result = await signAndSubmitCreateBooking({
+              passenger: passenger.sorobanAddress,
+              airline: flight.airlineSorobanAddress,
+              flightNumber: flight.flightNumber,
+              fromAirport: flight.fromAirport,
+              toAirport: flight.toAirport,
+              departureTime: Math.floor(flight.departureTime.getTime() / 1000),
+              price: BigInt(flight.priceCents),
+              token: config.contracts.token,
+            });
+
+            const booking = this.bookingRepo.create({
+              idempotencyKey: params.idempotencyKey,
+              walletAddress: params.walletAddress ?? null,
+              flight,
+              passenger,
+              status: "onchain_submitted",
+              amountCents: flight.priceCents,
+              sorobanTxHash: result.txHash,
+            });
+
+            const savedBooking = await this.bookingRepo.save(booking);
+
+            this.pollTransactionStatus(savedBooking.id, result.txHash).catch(
+              (err) => {
+                logger.error("Error polling transaction status", {
+                  bookingId: savedBooking.id,
+                  error: err.message,
+                });
+              },
+            );
+
+            return { result: savedBooking, resourceId: savedBooking.id };
+          } catch (error: any) {
+            logger.error("Booking orchestration failed during submission", {
+              error: error.message,
+            });
+
+            await this.flightRepo.increment({ id: flight.id }, "seatsAvailable", 1);
+
+            throw error;
+          }
         },
-      );
+      },
+      AppDataSource,
+    );
 
-      return savedBooking;
-    } catch (error: any) {
-      logger.error("Booking orchestration failed during submission", {
-        error: error.message,
+    if (isCached) {
+      logger.info("Returning cached booking from idempotency store", {
+        bookingId: booking.id,
+        idempotencyKey: params.idempotencyKey,
       });
-
-      await this.flightRepo.increment({ id: flight.id }, "seatsAvailable", 1);
-
-      throw error;
     }
+
+    return booking;
   }
 
   private async pollTransactionStatus(bookingId: string, txHash: string) {

@@ -1,4 +1,7 @@
 import { Keypair } from '@stellar/stellar-base';
+import { getLogger } from './logger';
+
+const logger = getLogger({ component: 'wallet-signature-adapter' });
 
 /**
  * Interface for wallet-specific signature extraction logic.
@@ -20,7 +23,7 @@ export class StandardXdrAdapter implements IWalletSignatureAdapter {
             // Logic to extract signature from the XDR decoration would go here
             return true;
         } catch (e) {
-            console.error('StandardXdrAdapter verification failed:', e);
+            logger.error('StandardXdrAdapter verification failed', { error: e });
             return false;
         }
     }
@@ -36,7 +39,7 @@ export class AlbedoAdapter implements IWalletSignatureAdapter {
             // Albedo signatures are typically base64 encoded
             return keypair.verify(Buffer.from(message), Buffer.from(signature, 'base64'));
         } catch (e) {
-            console.error('AlbedoAdapter verification failed:', e);
+            logger.error('AlbedoAdapter verification failed', { error: e });
             return false;
         }
     }
