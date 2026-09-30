@@ -2,13 +2,11 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { loyaltyService } from '../../services/loyalty/loyaltyService';
-import { LoyaltyStore } from '../../services/loyalty/store';
 import { BadRequestError, NotFoundError } from '../../utils/errors';
 import { loyaltyTierSchema, loyaltyActionSchema } from '../schemas';
 
 const router = Router();
 
-const loyaltyStore = LoyaltyStore.getInstance();
 
 router.get(
   '/balance',

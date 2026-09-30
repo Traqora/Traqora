@@ -1,0 +1,374 @@
+{
+  "dashboard": {
+    "uid": "traqora-slo",
+    "title": "Traqora - Booking Funnel SLO",
+    "tags": ["traqora", "slo", "booking"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 0,
+    "refresh": "1m",
+    "time": { "from": "now-24h", "to": "now" },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Booking Funnel (24h)",
+        "type": "row",
+        "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+        "collapsed": false,
+        "panels": []
+      },
+      {
+        "id": 2,
+        "title": "Searches",
+        "type": "stat",
+        "gridPos": { "x": 0, "y": 1, "w": 4, "h": 5 },
+        "targets": [
+          {
+            "expr": "sum(increase(traqora_slo_events_total{operation=\"search\"}[24h]))",
+            "legendFormat": "searches",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "palette-classic" }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 3,
+        "title": "Bookings Created",
+        "type": "stat",
+        "gridPos": { "x": 4, "y": 1, "w": 4, "h": 5 },
+        "targets": [
+          {
+            "expr": "sum(increase(traqora_bookings_created_total[24h]))",
+            "legendFormat": "created",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "palette-classic" }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 4,
+        "title": "Bookings Confirmed",
+        "type": "stat",
+        "gridPos": { "x": 8, "y": 1, "w": 4, "h": 5 },
+        "targets": [
+          {
+            "expr": "sum(increase(traqora_bookings_confirmed_total[24h]))",
+            "legendFormat": "confirmed",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": { "mode": "palette-classic" }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 5,
+        "title": "Search → Created",
+        "type": "stat",
+        "gridPos": { "x": 12, "y": 1, "w": 6, "h": 5 },
+        "targets": [
+          {
+            "expr": "traqora:booking_funnel_search_to_created:ratio24h",
+            "legendFormat": "conversion",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": 0.01 },
+                { "color": "green", "value": 0.05 }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 6,
+        "title": "Created → Confirmed",
+        "type": "stat",
+        "gridPos": { "x": 18, "y": 1, "w": 6, "h": 5 },
+        "targets": [
+          {
+            "expr": "traqora:booking_funnel_created_to_confirmed:ratio24h",
+            "legendFormat": "conversion",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "justifyMode": "auto",
+          "orientation": "auto",
+          "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+          "textMode": "auto"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "color": "red", "value": null },
+                { "color": "yellow", "value": 0.5 },
+                { "color": "green", "value": 0.8 }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 7,
+        "title": "SLO Latency (p95 vs target)",
+        "type": "row",
+        "gridPos": { "x": 0, "y": 6, "w": 24, "h": 1 },
+        "collapsed": false,
+        "panels": []
+      },
+      {
+        "id": 8,
+        "title": "Search Latency (p95, target 2s)",
+        "type": "timeseries",
+        "gridPos": { "x": 0, "y": 7, "w": 8, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(traqora_slo_observed_latency_seconds_bucket{operation=\"search\"}[5m])))",
+            "legendFormat": "p95",
+            "refId": "A"
+          },
+          {
+            "expr": "vector(2)",
+            "legendFormat": "SLO target (2s)",
+            "refId": "B"
+          }
+        ],
+        "options": {
+          "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+          "tooltip": { "mode": "multi", "sort": "desc" }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "spanNulls": false,
+              "showPoints": "never"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 2 },
+                { "color": "red", "value": 4 }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 9,
+        "title": "Booking Processing Latency (p95, target 300s)",
+        "type": "timeseries",
+        "gridPos": { "x": 8, "y": 7, "w": 8, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(traqora_slo_observed_latency_seconds_bucket{operation=\"booking\"}[5m])))",
+            "legendFormat": "p95",
+            "refId": "A"
+          },
+          {
+            "expr": "vector(300)",
+            "legendFormat": "SLO target (300s)",
+            "refId": "B"
+          }
+        ],
+        "options": {
+          "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+          "tooltip": { "mode": "multi", "sort": "desc" }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "spanNulls": false,
+              "showPoints": "never"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 300 },
+                { "color": "red", "value": 600 }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 10,
+        "title": "Refund Processing Latency (p95, target 3600s)",
+        "type": "timeseries",
+        "gridPos": { "x": 16, "y": 7, "w": 8, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum by (le) (rate(traqora_slo_observed_latency_seconds_bucket{operation=\"refund\"}[5m])))",
+            "legendFormat": "p95",
+            "refId": "A"
+          },
+          {
+            "expr": "vector(3600)",
+            "legendFormat": "SLO target (3600s)",
+            "refId": "B"
+          }
+        ],
+        "options": {
+          "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+          "tooltip": { "mode": "multi", "sort": "desc" }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "spanNulls": false,
+              "showPoints": "never"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 3600 },
+                { "color": "red", "value": 7200 }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      },
+      {
+        "id": 11,
+        "title": "SLO Error Budget",
+        "type": "row",
+        "gridPos": { "x": 0, "y": 15, "w": 24, "h": 1 },
+        "collapsed": false,
+        "panels": []
+      },
+      {
+        "id": 12,
+        "title": "Error Budget Remaining (30d)",
+        "type": "timeseries",
+        "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+        "targets": [
+          {
+            "expr": "traqora:slo_error_budget_remaining",
+            "legendFormat": "{{operation}}",
+            "refId": "A"
+          },
+          {
+            "expr": "vector(0.5)",
+            "legendFormat": "Warning threshold (50% spent)",
+            "refId": "B"
+          }
+        ],
+        "options": {
+          "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+          "tooltip": { "mode": "multi", "sort": "desc" }
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "spanNulls": false,
+              "showPoints": "never"
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 0.5 },
+                { "color": "red", "value": 0.2 }
+              ]
+            }
+          },
+          "overrides": []
+        }
+      }
+    ]
+  }
+}

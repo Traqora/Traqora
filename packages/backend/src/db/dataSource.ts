@@ -12,6 +12,9 @@ import { AdminUser } from "./entities/AdminUser";
 import { AdminAuditLog } from "./entities/AdminAuditLog";
 import { Refund } from "./entities/Refund";
 import { User } from "./entities/User";
+import { ChatMessage } from "./entities/ChatMessage";
+import { FlightFollower } from "./entities/FlightFollower";
+import { FlightStatusEvent } from "./entities/FlightStatusEvent";
 import { TravelDocument } from "./entities/TravelDocument";
 import { Tenant } from "./entities/Tenant";
 import { DashboardShare } from "./entities/DashboardShare";
@@ -36,6 +39,13 @@ import { CarbonOffset } from "./entities/CarbonOffset";
 import { OffsetProject } from "./entities/OffsetProject";
 import { TrackedFlight } from "./entities/TrackedFlight";
 import { PriceObservation } from "./entities/PriceObservation";
+import { GroupBooking } from "./entities/GroupBooking";
+import { GroupMember } from "./entities/GroupMember";
+import { CorporateAccount } from "./entities/CorporateAccount";
+import { CorporateUser } from "./entities/CorporateUser";
+import { CorporateBookingPolicy } from "./entities/CorporateBookingPolicy";
+import { BookingApproval } from "./entities/BookingApproval";
+import { AncillaryPurchase } from "./entities/AncillaryPurchase";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -57,6 +67,9 @@ export const AppDataSource = new DataSource(
         AdminAuditLog,
         Refund,
         User,
+        ChatMessage,
+        FlightFollower,
+        FlightStatusEvent,
         TravelDocument,
         Tenant,
         DashboardShare,
@@ -81,6 +94,13 @@ export const AppDataSource = new DataSource(
         OffsetProject,
         TrackedFlight,
         PriceObservation,
+        GroupBooking,
+        GroupMember,
+        CorporateAccount,
+        CorporateUser,
+        CorporateBookingPolicy,
+        BookingApproval,
+        AncillaryPurchase,
       ],
       logging: false,
     }
@@ -100,6 +120,9 @@ export const AppDataSource = new DataSource(
         AdminAuditLog,
         Refund,
         User,
+        ChatMessage,
+        FlightFollower,
+        FlightStatusEvent,
         TravelDocument,
         Tenant,
         DashboardShare,
@@ -124,6 +147,13 @@ export const AppDataSource = new DataSource(
         OffsetProject,
         TrackedFlight,
         PriceObservation,
+        GroupBooking,
+        GroupMember,
+        CorporateAccount,
+        CorporateUser,
+        CorporateBookingPolicy,
+        BookingApproval,
+        AncillaryPurchase,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:
@@ -151,8 +181,23 @@ export const initDataSource = async () => {
   }
 
   await AppDataSource.initialize();
+};
 
+// Startup migration check, wrapped in an async IIFE instead of using
+// top-level await so the module stays valid CommonJS under ts-jest.
+// Skipped in test mode: no DB connection exists at import time there.
+//
+// Exported so one-shot entrypoints (notably the staging seeder) can await the
+// schema instead of racing it (issue #749).
+export const startupMigrations: Promise<void> = (async () => {
+  if (isTest) return;
   try {
+    // The connection must exist before `showMigrations` can run. Without this
+    // the first call rejects with CannotExecuteNotConnectedError and the
+    // rethrow below becomes an unhandled rejection that kills the process.
+    await initDataSource();
+    if (!AppDataSource.isInitialized) return;
+
     logger.info("Checking database migrations...");
     const hasPending = await AppDataSource.showMigrations();
     if (hasPending) {
@@ -166,4 +211,4 @@ export const initDataSource = async () => {
     logger.error("Failed to run database migrations on startup:", error as Error);
     throw error;
   }
-};
+})();

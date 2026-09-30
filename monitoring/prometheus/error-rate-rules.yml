@@ -1,0 +1,128 @@
+# -------------------------------------------------------------------
+# API Error-Rate Tracking & Alerting  (Issue #598)
+# -------------------------------------------------------------------
+# Tracks 4xx and 5xx error rates per route and in aggregate.
+# Alerts when the error budget is exceeded.
+#
+# Runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#4-high-error-rate
+# -------------------------------------------------------------------
+
+groups:
+  - name: error_rate
+    rules:
+      # ── Recording rules ──────────────────────────────────────────
+      # 5xx error rate per route over 5 minutes
+      - record: traqora:http_5xx_rate_per_route:5m
+        expr: >
+          sum by (method, route) (
+            rate(traqora_http_request_errors_total{code=~"5.."}[5m])
+          )
+
+      # 4xx error rate per route over 5 minutes
+      - record: traqora:http_4xx_rate_per_route:5m
+        expr: >
+          sum by (method, route) (
+            rate(traqora_http_request_errors_total{code=~"4.."}[5m])
+          )
+
+      # Total request rate per route over 5 minutes
+      - record: traqora:http_requests_total_rate_per_route:5m
+        expr: >
+          sum by (method, route) (
+            rate(traqora_http_requests_total[5m])
+          )
+
+      # Combined error ratio (4xx + 5xx) per route
+      - record: traqora:http_error_ratio_per_route:5m
+        expr: >
+          (
+            traqora:http_5xx_rate_per_route:5m + traqora:http_4xx_rate_per_route:5m
+          )
+          /
+          traqora:http_requests_total_rate_per_route:5m
+
+      # 5xx error ratio per route (server errors only)
+      - record: traqora:http_5xx_ratio_per_route:5m
+        expr: >
+          traqora:http_5xx_rate_per_route:5m
+          /
+          traqora:http_requests_total_rate_per_route:5m
+
+      # Aggregate error rate across all routes (5 minutes)
+      - record: traqora:http_error_ratio_total:5m
+        expr: >
+          sum(rate(traqora_http_request_errors_total{code=~"[45].."}[5m]))
+          /
+          sum(rate(traqora_http_requests_total[5m]))
+
+      # Aggregate 5xx rate across all routes (30 minutes, for SLO)
+      - record: traqora:http_5xx_ratio_total:30m
+        expr: >
+          sum(rate(traqora_http_request_errors_total{code=~"5.."}[30m]))
+          /
+          sum(rate(traqora_http_requests_total[30m]))
+
+      # ── Alert rules ──────────────────────────────────────────────
+      # Warning: aggregate error ratio > 5% for 5 minutes
+      - alert: HighErrorRateWarning
+        expr: traqora:http_error_ratio_total:5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "API error rate above 5% ({{ $value | humanizePercentage }})"
+          description: >
+            The aggregate API error rate (4xx + 5xx) has exceeded 5%
+            of total requests sustained for 5 minutes.  Investigate
+            logs for common failure patterns.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#4-high-error-rate
+
+      # Critical: aggregate error ratio > 15% for 5 minutes
+      - alert: HighErrorRateCritical
+        expr: traqora:http_error_ratio_total:5m > 0.15
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "API error rate above 15% — user-facing impact ({{ $value | humanizePercentage }})"
+          description: >
+            The aggregate API error rate has exceeded 15% of total
+            requests.  Users are experiencing significant failures.
+            Escalate immediately and review recent deployments.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#4-high-error-rate
+
+      # Per-route error spike: any single route > 50% error rate for 5 minutes
+      - alert: PerRouteHighErrorRate
+        expr: traqora:http_error_ratio_per_route:5m > 0.50
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Route {{ $labels.route }} error rate above 50%"
+          description: >
+            Route {{ $labels.method }} {{ $labels.route }} is
+            returning errors on more than 50% of requests for
+            the last 5 minutes.  Check upstream dependencies and
+            input validation.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#4-high-error-rate
+
+      # 5xx-only alert: server error budget burn > 2% over 30 minutes
+      # (equivalent to ~2% error budget consumed in a 30-minute window
+      #  for a monthly SLO target of 99.5%)
+      - alert: ErrorBudgetBurnRateHigh
+        expr: traqora:http_5xx_ratio_total:30m > 0.02
+        for: 30m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Error budget burn rate elevated: {{ $value | humanizePercentage }} 5xx over 30m"
+          description: >
+            The 30-minute 5xx error ratio exceeds 2%, indicating
+            the monthly error budget is being consumed faster than
+            sustainable.  Review recent changes and roll back if
+            needed.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#4-high-error-rate

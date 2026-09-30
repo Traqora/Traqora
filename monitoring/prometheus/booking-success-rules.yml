@@ -1,0 +1,102 @@
+# -------------------------------------------------------------------
+# Booking Success-Rate Alert Rules  (Issue #595)
+# -------------------------------------------------------------------
+# Fires when the booking success rate drops below threshold over
+# a rolling window.  Uses the SLO metric introduced in #593:
+#   traqora_slo_events_total{operation="booking", result="good|bad"}
+#
+# Runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#5-booking-failure-surge
+# -------------------------------------------------------------------
+
+groups:
+  - name: booking_success_rate
+    rules:
+      # ── Recording rules ──────────────────────────────────────────
+      # Good/bad event rates over the last 5 minutes
+      - record: traqora:booking_good_rate:5m
+        expr: >
+          sum(rate(traqora_slo_events_total{operation="booking", result="good"}[5m]))
+        labels:
+          operation: booking
+
+      - record: traqora:booking_bad_rate:5m
+        expr: >
+          sum(rate(traqora_slo_events_total{operation="booking", result="bad"}[5m]))
+        labels:
+          operation: booking
+
+      # Success ratio = good / (good + bad) over the last 5 minutes
+      - record: traqora:booking_success_ratio:5m
+        expr: >
+          traqora:booking_good_rate:5m
+          /
+          (traqora:booking_good_rate:5m + traqora:booking_bad_rate:5m)
+        labels:
+          operation: booking
+
+      # ── Alert rules ──────────────────────────────────────────────
+      # Warning: success rate < 95 % sustained for 5 minutes
+      - alert: BookingSuccessRateWarning
+        expr: traqora:booking_success_ratio:5m < 0.95
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Booking success rate below 95% ({{ $value | humanizePercentage }})"
+          description: >
+            The booking success rate has dropped below 95% over the
+            last 5 minutes.  This may indicate degraded payment
+            gateway, Stellar RPC latency, or contract execution
+            failures.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#5-booking-failure-surge
+
+      # Critical: success rate < 90 % sustained for 5 minutes
+      - alert: BookingSuccessRateCritical
+        expr: traqora:booking_success_ratio:5m < 0.90
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Booking success rate below 90% — immediate action required ({{ $value | humanizePercentage }})"
+          description: >
+            The booking success rate has dropped below 90% over the
+            last 5 minutes.  Customers are significantly impacted.
+            Escalate immediately.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#5-booking-failure-surge
+
+      # High failure volume: > 20 booking failures per second for 5 minutes
+      - alert: HighBookingFailureVolume
+        expr: traqora:booking_bad_rate:5m > 20
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High booking failure volume: {{ $value | humanize }} failures/sec"
+          description: >
+            Booking failures are occurring at a rate exceeding 20
+            per second sustained over 5 minutes.  This likely
+            indicates an upstream outage or contract regression.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#5-booking-failure-surge
+
+      # Sudden drop in booking volume (possible silent failure)
+      - alert: BookingVolumeDrop
+        expr: >
+          (
+            sum(rate(traqora_slo_events_total{operation="booking"}[5m]))
+            /
+            sum(rate(traqora_slo_events_total{operation="booking"}[1h] offset 1d))
+          ) < 0.30
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Booking volume dropped to <30% of yesterday's rate"
+          description: >
+            The total booking event rate has fallen to less than 30%
+            compared to the same time yesterday.  This may indicate
+            a silent upstream failure or front-end regression.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#5-booking-failure-surge

@@ -1,0 +1,45 @@
+# Standalone secret-scan workflow (issue #601).
+# Runs early on every PR/push and weekly so baselines stay current even
+# when nothing else triggers CI. Uses the versioned .gitleaks.toml at the
+# repo root; see "Updating the gitleaks baseline" in
+# docs/security/secrets-management.md before editing allowlists.
+
+name: Gitleaks Secret Scan
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 06:00 UTC — full-history scan to catch newly
+    # disclosed rule matches in already-merged history.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can scan every commit, not just HEAD
+          fetch-depth: 0
+
+      - name: Install gitleaks (pinned)
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sSLo gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan full history (repo config)
+        run: gitleaks detect --source . --config .gitleaks.toml --verbose --redact --log-opts="--all"
+
+      - name: Scan working tree only
+        run: gitleaks detect --source . --config .gitleaks.toml --verbose --redact --no-git

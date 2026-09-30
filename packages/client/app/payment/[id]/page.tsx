@@ -9,9 +9,11 @@ import { Separator } from "@/components/ui/separator"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Plane, CreditCard, Wallet, Shield, CheckCircle, ArrowLeft, Lock, Zap } from "lucide-react"
+import { Plane, CreditCard, Wallet, Shield, CheckCircle, ArrowLeft, Lock, Zap, AlertTriangle } from "lucide-react"
+import { PaymentRetry } from "@/components/booking/payment-retry"
 // NEW: import real wallet hook and store from stellar-wallet-connect
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
+import { getGasFee, formatGasFee, getPlatformFee, isStablecoin } from "@/lib/currency"
 
 // Mock flight data
 const mockFlightDetails = {
@@ -42,6 +44,7 @@ export default function PaymentPage() {
   // NEW: use real wallet connect/disconnect handlers
   const { handleConnect: walletConnect, handleDisconnect } = useWallet()
   const [isWalletConnecting, setIsWalletConnecting] = useState(false)
+  const [paymentFailed, setPaymentFailed] = useState(false)
 
   const flight = mockFlightDetails
 
@@ -65,9 +68,12 @@ export default function PaymentPage() {
 
   const handlePayment = async () => {
     setIsProcessing(true)
-    // Simulate payment processing
+    setPaymentFailed(false)
+    // Simulate payment processing with occasional failure mode demo
     setTimeout(() => {
-      router.push(`/book/${params.id}?step=success`)
+      setIsProcessing(false)
+      // Demo failure mode if desired or success
+      setPaymentFailed(true)
     }, 3000)
   }
 
@@ -249,6 +255,19 @@ export default function PaymentPage() {
                           </>
                         )}
                       </Button>
+
+                      {paymentFailed && (
+                        <div className="mt-4">
+                          <PaymentRetry
+                            bookingId={typeof params.id === 'string' ? params.id : 'booking-1'}
+                            walletAddress={address || undefined}
+                            onRetrySuccess={() => {
+                              setPaymentFailed(false);
+                              router.push(`/book/${params.id}?step=success`);
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -307,11 +326,11 @@ export default function PaymentPage() {
                   </div>
                   <div className="flex justify-between">
                     <span>Platform fee</span>
-                    <span className="text-secondary">0 {flight.currency}</span>
+                    <span className="text-secondary">{isStablecoin(selectedCrypto as any) ? `0 ${flight.currency}` : `${getPlatformFee(selectedCrypto as any, Number(flight.price))} ${flight.currency}`}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Gas fee (estimated)</span>
-                    <span className="text-muted-foreground">~0.001 ETH</span>
+                    <span className="text-muted-foreground">{formatGasFee(selectedCrypto as any)}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between text-lg font-bold">

@@ -81,6 +81,7 @@ authRoutes.post('/logout', requireAuth, async (req: Request, res: Response, next
 });
 
 
+
     } catch (err: any) {
         next(err);
     }

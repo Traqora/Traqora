@@ -1,6 +1,5 @@
-use soroban_sdk::Symbol;
 use refund::RefundContract;
-
+use soroban_sdk::Symbol;
 
 use integration_tests::{generate_actors, new_env, register_contracts};
 

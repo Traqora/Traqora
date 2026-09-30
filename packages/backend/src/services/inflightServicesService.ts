@@ -20,7 +20,6 @@ import type {
   ServicePricingBreakdown,
   ServicesCatalog,
   SeatType,
-  ServiceDelivery,
 } from "../types/services";
 
 /**

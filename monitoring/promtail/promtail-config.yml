@@ -22,7 +22,114 @@ scrape_configs:
             level: level
             timestamp: timestamp
             message: message
+            service: service
             component: component
+            correlationId: correlationId
+            requestId: requestId
+            userId: userId
+            adminId: adminId
+            sessionId: sessionId
+            durationMs: durationMs
+            error: error
+            statusCode: statusCode
+            method: method
+            path: path
+            # issue #594 — background job structured fields. `job` is mapped
+            # to the `jobName` label so it does not clobber the scrape-level
+            # `job` label ({job="traqora-backend"}). jobId stays in the JSON
+            # body (high cardinality — filter it with `| json | jobId="..."`).
+            jobName: job
+            jobId: jobId
+            step: step
+            outcome: outcome
+            event: event
+      - labels:
+          level:
+          service:
+          component:
+          statusCode:
+          method:
+          jobName:
+          step:
+          outcome:
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+      - metrics:
+          loki_log_entries_total:
+            type: Counter
+            description: "Total log entries by level, component and job outcome"
+            prefix: traqora_
+            max_idle_duration: 24h
+            match:
+              - level: error
+              - level: warn
+            config:
+              action: inc
+              labels:
+                - level
+                - component
+          loki_job_events_total:
+            type: Counter
+            description: "Total background job log events by job, step and outcome"
+            prefix: traqora_
+            max_idle_duration: 24h
+            match:
+              - jobName: .*
+            config:
+              action: inc
+              labels:
+                - jobName
+                - step
+                - outcome
+
+  - job_name: traqora-audit
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: traqora-audit
+          __path__: /var/log/traqora/audit*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            timestamp: timestamp
+            message: message
+            action: action
+            resource: resource
+            resourceId: resourceId
+            actorType: actorType
+            actorId: actorId
+            component: component
+            correlationId: correlationId
+            ipAddress: ipAddress
+            logId: logId
+      - labels:
+          level:
+          action:
+          resource:
+          actorType:
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+  - job_name: traqora-client
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: traqora-client
+          __path__: /var/log/traqora/client*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            timestamp: timestamp
+            message: message
+            component: component
+            action: action
+            resource: resource
       - labels:
           level:
           component:

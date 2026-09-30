@@ -81,6 +81,26 @@ export const userProfileSchema = z
     message: 'At least one field must be provided',
   });
 
+// GDPR consent schemas (#549). consentType mirrors
+// db/entities/ConsentRecord.ts's ConsentType union exactly — kept as a
+// literal enum here (not imported) since zod needs its own runtime enum
+// value, but the two must be changed together.
+export const consentGrantSchema = z.object({
+  consentType: z.enum([
+    'marketing',
+    'analytics',
+    'data_processing',
+    'third_party_sharing',
+    'profiling',
+  ]),
+  consentDetails: z.string().trim().min(1).max(2000),
+  expiresAt: z.coerce.date().optional(),
+});
+
+export const consentWithdrawSchema = z.object({
+  reason: z.string().trim().max(1000).optional(),
+});
+
 export const createAirlineSchema = z.object({
   airlineCode: z.string().min(2).max(10),
   airlineName: z.string().min(1),

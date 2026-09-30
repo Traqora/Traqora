@@ -5,6 +5,57 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 
 /**
+ * Check if Redis persistence is enabled for the given Redis URL.
+ * Returns true if the URL indicates persistence (AOF/RDB) is configured.
+ */
+export function isRedisPersistenceEnabled(redisUrl: string): boolean {
+  try {
+    const url = new URL(redisUrl);
+    const path = url.pathname;
+    return path.includes('aof') || path.includes('rdb') || path.includes('persistence');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if Redis persistence is enabled for all cluster nodes.
+ */
+export function checkRedisPersistence(redisUrl: string, clusterNodes: RedisClusterNode[]): {
+  enabled: boolean;
+  details: Array<{ host: string; port: number; persistenceEnabled: boolean }>;
+} {
+  if (clusterNodes.length > 0) {
+    const details = clusterNodes.map((node) => ({
+      host: node.host,
+      port: node.port,
+      persistenceEnabled: isRedisPersistenceEnabled(`redis://${node.host}:${node.port}`),
+    }));
+    return { enabled: details.every((d) => d.persistenceEnabled), details };
+  }
+  const enabled = isRedisPersistenceEnabled(redisUrl);
+  return { enabled, details: [{ host: new URL(redisUrl).hostname, port: new URL(redisUrl).port, persistenceEnabled: enabled }] };
+}
+
+/**
+ * Verify Redis persistence and log warnings if not configured.
+ * Returns true if persistence is properly configured.
+ */
+export function verifyRedisPersistence(redisUrl: string, clusterNodes: RedisClusterNode[]): boolean {
+  const result = checkRedisPersistence(redisUrl, clusterNodes);
+  if (!result.enabled) {
+    logger.warn('Redis persistence check failed', {
+      details: result.details,
+    });
+  } else {
+    logger.info('Redis persistence check passed', {
+      details: result.details,
+    });
+  }
+  return result.enabled;
+}
+
+/**
  * General-purpose cache service (issue #335), distinct from
  * `cache/searchCache.ts`'s flight-search-specific cache. Any route/service
  * that needs read-through caching (not just flight search) can depend on

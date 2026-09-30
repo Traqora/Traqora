@@ -43,6 +43,15 @@ export class GroupMember {
   @Column({ type: 'varchar', length: 56, nullable: true })
   stellarAddress?: string | null;
 
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  employeeId?: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  department?: string | null;
+
+  @Column({ type: 'json', nullable: true })
+  travelPolicy?: Record<string, unknown> | null;
+
   @Column({ type: 'varchar', length: 32, default: 'pending' })
   status!: GroupMemberStatus;
 

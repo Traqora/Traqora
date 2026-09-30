@@ -1,9 +1,8 @@
+use oracle::{FlightOracle, FlightOracleClient};
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     Address, Bytes, Env, Symbol,
 };
-use oracle::{FlightOracle, FlightOracleClient};
-
 
 use integration_tests::{generate_actors, initialize_token, new_env, register_contracts};
 

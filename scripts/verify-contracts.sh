@@ -36,6 +36,11 @@ cargo build --locked --target wasm32-unknown-unknown --release 2>/dev/null
 VERIFICATION_STATUS="PASS"
 VERIFICATION_REPORT="| Contract | Status | Deployed Hash | Local Hash | Match |\n|---|---|---|---|---|\n"
 
+# Recorded checksums published at deploy time (issue #592). When present they
+# are authoritative: a mismatch against the deployed binary means the
+# deployment artifacts were tampered with or the record drifted.
+RECORDED_HASHES="$ARTIFACTS_DIR/wasm-hashes.json"
+
 for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
     name=$(basename "$wasm" .wasm)
     deployed_wasm="$ARTIFACTS_DIR/$name/$(basename "$wasm")"
@@ -48,9 +53,16 @@ for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
 
     local_hash=$(sha256sum "$wasm" | cut -d' ' -f1)
     deployed_hash=$(sha256sum "$deployed_wasm" | cut -d' ' -f1)
+    recorded_hash=$(jq -r ".[\"$name\"] // empty" "$RECORDED_HASHES" 2>/dev/null || echo "")
 
-    if [ "$local_hash" = "$deployed_hash" ]; then
-        echo "  ✓ $name: HASHS MATCH"
+    if [ -n "$recorded_hash" ] && [ "$deployed_hash" != "$recorded_hash" ]; then
+        echo "  ✗ $name: RECORDED CHECKSUM MISMATCH (deployment artifacts drifted)"
+        echo "    Deployed:  $deployed_hash"
+        echo "    Recorded:  $recorded_hash"
+        VERIFICATION_STATUS="FAIL"
+        VERIFICATION_REPORT+="| $name | ❌ FAIL | \`$deployed_hash\` | \`$local_hash\` | ❌ |\n"
+    elif [ "$local_hash" = "$deployed_hash" ]; then
+        echo "  ✓ $name: HASHES MATCH"
         VERIFICATION_REPORT+="| $name | ✅ PASS | \`$deployed_hash\` | \`$local_hash\` | ✅ |\n"
     else
         echo "  ✗ $name: HASH MISMATCH"

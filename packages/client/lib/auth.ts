@@ -30,6 +30,23 @@ export interface AuthResponse {
   }
 }
 
+export interface TwoFASetup {
+  setupId: string
+  method: "totp"
+  secret: string
+  qrCode: string
+  backupCodes: string[]
+  expiresAt: string
+}
+
+export interface TwoFAStatus {
+  userId: string
+  enabled: boolean
+  method?: "totp"
+  recoveryCodesRemaining: number
+  trustedDevices: number
+}
+
 export interface BiometricCredential {
   id: string
   credentialId: string
@@ -38,6 +55,22 @@ export interface BiometricCredential {
   enrolledAt: string
   lastUsedAt: string | null
 }
+
+export interface PaymentAuthorizationResult {
+  paymentToken: string
+  expiresIn: number
+  amount: string
+  destination: string
+}
+
+export interface FallbackAuthOptions {
+  challenge: string
+  expiresIn: number
+  message: string
+  walletAddress: string
+}
+
+export type BiometricPlatformType = "fingerprint" | "face" | "unknown"
 
 export interface WebAuthnRegistrationOptions {
   challenge: string
@@ -103,7 +136,6 @@ export class AuthService {
   private static readonly VERIFY_2FA_ENDPOINT = '/api/v1/auth/verify-2fa'
   private static readonly REFRESH_ENDPOINT = '/api/v1/auth/refresh'
   private static readonly LOGOUT_ENDPOINT = '/api/v1/auth/logout'
-
 
   static async getChallenge(walletAddress: string): Promise<AuthChallenge> {
     const response = await api.post(this.CHALLENGE_ENDPOINT, {

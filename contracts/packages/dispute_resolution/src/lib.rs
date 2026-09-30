@@ -1,7 +1,6 @@
 #![no_std]
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Symbol, Vec,
-};
+use contract_events::{Action, Domain};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, BytesN, Env, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone)]
@@ -47,10 +46,13 @@ pub struct DisputeResolutionContract;
 impl DisputeResolutionContract {
     pub fn initialize(env: Env, admin: Address, arbiters: Vec<Address>) {
         assert!(
-            env.storage().instance().get::<_, Address>(&DataKey::Admin).is_none(),
+            env.storage()
+                .instance()
+                .get::<_, Address>(&DataKey::Admin)
+                .is_none(),
             "Already initialized"
         );
-        assert!(arbiters.len() > 0, "At least one arbiter required");
+        assert!(!arbiters.is_empty(), "At least one arbiter required");
 
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -69,7 +71,9 @@ impl DisputeResolutionContract {
             i += 1;
         }
 
-        env.storage().instance().set(&DataKey::ArbiterCount, &arbiters.len());
+        env.storage()
+            .instance()
+            .set(&DataKey::ArbiterCount, &arbiters.len());
     }
 
     pub fn set_arbiter(env: Env, admin: Address, arbiter: Address, enabled: bool) {
@@ -86,9 +90,17 @@ impl DisputeResolutionContract {
             .set(&DataKey::Arbiter(arbiter.clone()), &enabled);
 
         if enabled && !Self::arbiter_in_slots(env.clone(), arbiter.clone()) {
-            let count: u32 = env.storage().instance().get(&DataKey::ArbiterCount).unwrap_or(0);
-            env.storage().instance().set(&DataKey::ArbiterSlot(count), &arbiter);
-            env.storage().instance().set(&DataKey::ArbiterCount, &(count + 1));
+            let count: u32 = env
+                .storage()
+                .instance()
+                .get(&DataKey::ArbiterCount)
+                .unwrap_or(0);
+            env.storage()
+                .instance()
+                .set(&DataKey::ArbiterSlot(count), &arbiter);
+            env.storage()
+                .instance()
+                .set(&DataKey::ArbiterCount, &(count + 1));
         }
     }
 
@@ -182,8 +194,10 @@ impl DisputeResolutionContract {
             .persistent()
             .set(&DataKey::BookingToDispute(booking_id), &dispute_id);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("opened")),
+        contract_events::emit(
+            &env,
+            Domain::Dispute,
+            Action::Opened,
             (dispute_id, claimant),
         );
 
@@ -203,7 +217,10 @@ impl DisputeResolutionContract {
             .get(&DataKey::Dispute(dispute_id))
             .expect("Dispute not found");
         assert!(!dispute.resolved, "Dispute already resolved");
-        assert!(dispute.claimant != respondent, "Claimant cannot be respondent");
+        assert!(
+            dispute.claimant != respondent,
+            "Claimant cannot be respondent"
+        );
         assert!(
             dispute.respondent_evidence_hash.is_none(),
             "Counter evidence already submitted"
@@ -235,15 +252,20 @@ impl DisputeResolutionContract {
         env.storage()
             .persistent()
             .set(&DataKey::Dispute(dispute_id), &dispute);
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("counter")),
+        contract_events::emit(
+            &env,
+            Domain::Dispute,
+            Action::Counter,
             (dispute_id, respondent),
         );
     }
 
     pub fn resolve_dispute(env: Env, dispute_id: u32, arbiter: Address, ruling: bool) {
         arbiter.require_auth();
-        assert!(Self::is_arbiter(env.clone(), arbiter.clone()), "Not authorized arbiter");
+        assert!(
+            Self::is_arbiter(env.clone(), arbiter.clone()),
+            "Not authorized arbiter"
+        );
 
         let mut dispute: Dispute = env
             .storage()
@@ -292,8 +314,10 @@ impl DisputeResolutionContract {
             .persistent()
             .set(&DataKey::Dispute(dispute_id), &dispute);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("resolved")),
+        contract_events::emit(
+            &env,
+            Domain::Dispute,
+            Action::Resolved,
             (dispute_id, arbiter, winner, payout_amount),
         );
     }
@@ -306,7 +330,9 @@ impl DisputeResolutionContract {
     }
 
     pub fn get_dispute(env: Env, dispute_id: u32) -> Option<Dispute> {
-        env.storage().persistent().get(&DataKey::Dispute(dispute_id))
+        env.storage()
+            .persistent()
+            .get(&DataKey::Dispute(dispute_id))
     }
 
     pub fn get_escrow(env: Env, booking_id: Symbol) -> Option<Escrow> {
@@ -314,10 +340,18 @@ impl DisputeResolutionContract {
     }
 
     fn arbiter_in_slots(env: Env, arbiter: Address) -> bool {
-        let count: u32 = env.storage().instance().get(&DataKey::ArbiterCount).unwrap_or(0);
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ArbiterCount)
+            .unwrap_or(0);
         let mut i = 0u32;
         while i < count {
-            if let Some(candidate) = env.storage().instance().get::<_, Address>(&DataKey::ArbiterSlot(i)) {
+            if let Some(candidate) = env
+                .storage()
+                .instance()
+                .get::<_, Address>(&DataKey::ArbiterSlot(i))
+            {
                 if candidate == arbiter {
                     return true;
                 }

@@ -1,9 +1,10 @@
 #![no_std]
+use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contractmeta, contracttype, symbol_short, Address, BytesN, Env, Symbol,
     Vec,
 };
-use access::{AccessControl, Role};
 
 // Contract meta for version tracking
 contractmeta!(key = "version", val = "1.0.0");
@@ -153,10 +154,7 @@ impl ContractProxy {
             ProxyStorage::get_config(&env).is_none(),
             "Already initialized"
         );
-        assert!(
-            signers.len() >= threshold as u32,
-            "Threshold exceeds signer count"
-        );
+        assert!(signers.len() >= threshold, "Threshold exceeds signer count");
         assert!(threshold > 0, "Threshold must be > 0");
 
         // Initialize shared access control owner
@@ -179,8 +177,10 @@ impl ContractProxy {
         ProxyStorage::set_config(&env, &config);
         ProxyStorage::set_multisig(&env, &multisig);
 
-        env.events().publish(
-            (symbol_short!("proxy"), symbol_short!("init")),
+        contract_events::emit(
+            &env,
+            Domain::Proxy,
+            Action::Init,
             (admin, implementation, threshold),
         );
     }
@@ -217,8 +217,10 @@ impl ContractProxy {
         ProxyStorage::set_upgrade_proposal(&env, proposal_count, &proposal);
         ProxyStorage::record_approval(&env, proposal_count, &proposer);
 
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("proposed")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Proposed,
             (proposal_count, new_implementation),
         );
 
@@ -247,8 +249,10 @@ impl ContractProxy {
         ProxyStorage::set_upgrade_proposal(&env, proposal_id, &proposal);
         ProxyStorage::record_approval(&env, proposal_id, &signer);
 
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("approved")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Approved,
             (proposal_id, signer),
         );
     }
@@ -299,8 +303,10 @@ impl ContractProxy {
         config.state = ProxyState::Active;
         ProxyStorage::set_config(&env, &config);
 
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("executed")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Executed,
             (
                 proposal_id,
                 config.version,
@@ -322,8 +328,7 @@ impl ContractProxy {
         config.state = ProxyState::Paused;
         ProxyStorage::set_config(&env, &config);
 
-        env.events()
-            .publish((symbol_short!("proxy"), symbol_short!("paused")), admin);
+        contract_events::emit(&env, Domain::Proxy, Action::Paused, admin);
     }
 
     pub fn unpause_contract(env: Env, admin: Address) {
@@ -337,8 +342,7 @@ impl ContractProxy {
         config.state = ProxyState::Active;
         ProxyStorage::set_config(&env, &config);
 
-        env.events()
-            .publish((symbol_short!("proxy"), symbol_short!("unpaused")), admin);
+        contract_events::emit(&env, Domain::Proxy, Action::Unpaused, admin);
     }
 
     pub fn migrate_storage(env: Env, migrator: Address, from_version: u32, to_version: u32) {
@@ -362,8 +366,10 @@ impl ContractProxy {
         migration.completed = true;
         ProxyStorage::set_storage_migration(&env, &migration);
 
-        env.events().publish(
-            (symbol_short!("storage"), symbol_short!("migrated")),
+        contract_events::emit(
+            &env,
+            Domain::Storage,
+            Action::Migrated,
             (from_version, to_version),
         );
     }
@@ -382,7 +388,7 @@ impl ContractProxy {
         }
 
         assert!(
-            new_signers.len() >= new_threshold as u32,
+            new_signers.len() >= new_threshold,
             "Threshold exceeds signer count"
         );
         assert!(new_threshold > 0, "Threshold must be > 0");
@@ -393,10 +399,7 @@ impl ContractProxy {
 
         ProxyStorage::set_multisig(&env, &multisig);
 
-        env.events().publish(
-            (symbol_short!("multisig"), symbol_short!("updated")),
-            new_threshold,
-        );
+        contract_events::emit(&env, Domain::Multisig, Action::Updated, new_threshold);
     }
 
     // Role management helpers integrated with shared AccessControl
