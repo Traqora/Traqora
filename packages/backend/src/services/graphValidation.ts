@@ -1,4 +1,3 @@
-import { logger } from '../utils/logger';
 
 /**
  * Represents a directed edge in the graph.

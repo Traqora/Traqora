@@ -19,6 +19,8 @@ export type GroupBookingStatus =
   | 'failed'
   | 'cancelled';
 
+export type GroupApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected';
+
 export type SplitPaymentMethod = 'equal' | 'custom' | 'percentage';
 
 @Entity({ name: 'group_bookings' })
@@ -62,6 +64,27 @@ export class GroupBooking {
 
   @Column({ type: 'text', nullable: true })
   notes?: string | null;
+
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  corporateAccountId?: string | null;
+
+  @Column({ type: 'varchar', length: 32, default: 'not_required' })
+  approvalStatus!: GroupApprovalStatus;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  billingReference?: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  costCenter?: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  department?: string | null;
+
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  bookingPolicyId?: string | null;
+
+  @Column({ type: 'json', nullable: true })
+  invoiceData?: Record<string, unknown> | null;
 
   @Column({ type: 'boolean', default: false })
   isDeleted!: boolean;

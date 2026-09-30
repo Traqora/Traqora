@@ -1,6 +1,7 @@
 // src/middleware/csp.ts
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+import { config } from '../config';
 
 // Default CSP directives – includes a nonce placeholder
 const CSP_DIRECTIVES = [
@@ -24,7 +25,7 @@ export function cspMiddleware(req: Request, res: Response, next: NextFunction) {
   (res.locals as any).cspNonce = nonce;
 
   const headerValue = CSP_DIRECTIVES.map(d => d.replace('${nonce}', nonce)).join('; ');
-  const reportOnly = process.env.CSP_REPORT_ONLY !== 'false';
+  const reportOnly = config.cspReportOnly;
   const headerName = reportOnly ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy';
   res.setHeader(headerName, headerValue);
 

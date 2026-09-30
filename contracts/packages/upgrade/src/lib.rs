@@ -1,8 +1,7 @@
 #![cfg_attr(not(test), no_std)]
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env,
-};
-use access::{AccessControl, Role};
+use access::AccessControl;
+use contract_events::{Action, Domain};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env};
 
 // Upgrade module for safe contract updates with 48-hour timelock
 
@@ -106,8 +105,10 @@ impl UpgradeContract {
         UpgradeStorage::set_scheduled_upgrade(&env, &upgrade);
 
         // Emit event
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("scheduled")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Scheduled,
             (new_wasm_hash, current_time, admin),
         );
     }
@@ -126,8 +127,7 @@ impl UpgradeContract {
         // Verify admin authorization
         AccessControl::require_admin(&env, &admin);
 
-        let upgrade = UpgradeStorage::get_scheduled_upgrade(&env)
-            .expect("No upgrade scheduled");
+        let upgrade = UpgradeStorage::get_scheduled_upgrade(&env).expect("No upgrade scheduled");
 
         // Check if already executed
         assert!(!upgrade.executed, "Upgrade already executed");
@@ -148,8 +148,10 @@ impl UpgradeContract {
         UpgradeStorage::set_scheduled_upgrade(&env, &executed_upgrade);
 
         // Emit event
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("executed")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Executed,
             (executed_upgrade.new_wasm_hash, current_time, admin),
         );
     }
@@ -168,7 +170,7 @@ impl UpgradeContract {
 
     /// Set a custom timelock duration
     /// Only callable by owner
-    /// 
+    ///
     /// # Arguments
     /// * `env` - The Soroban environment
     /// * `owner` - The owner address
@@ -177,10 +179,7 @@ impl UpgradeContract {
         AccessControl::require_owner(&env, &owner);
         UpgradeStorage::set_timelock_duration(&env, duration);
 
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("timelock")),
-            (duration, owner),
-        );
+        contract_events::emit(&env, Domain::Upgrade, Action::Timelock, (duration, owner));
     }
 
     /// Cancel a pending upgrade
@@ -188,15 +187,16 @@ impl UpgradeContract {
     pub fn cancel_upgrade(env: Env, owner: Address) {
         AccessControl::require_owner(&env, &owner);
 
-        let upgrade = UpgradeStorage::get_scheduled_upgrade(&env)
-            .expect("No upgrade scheduled");
+        let upgrade = UpgradeStorage::get_scheduled_upgrade(&env).expect("No upgrade scheduled");
 
         assert!(!upgrade.executed, "Cannot cancel an executed upgrade");
 
         UpgradeStorage::clear_scheduled_upgrade(&env);
 
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("cancelled")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Cancelled,
             (upgrade.new_wasm_hash, owner),
         );
     }
@@ -213,11 +213,7 @@ impl UpgradeContract {
             let timelock_duration = UpgradeStorage::get_timelock_duration(&env);
             let time_elapsed = current_time.saturating_sub(upgrade.scheduled_at);
 
-            if time_elapsed >= timelock_duration {
-                0
-            } else {
-                timelock_duration - time_elapsed
-            }
+            timelock_duration.saturating_sub(time_elapsed)
         } else {
             0
         }
@@ -234,12 +230,12 @@ mod tests {
         let contract_id = env.register_contract(None, UpgradeContract);
         let client = UpgradeContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
-        
+
         env.as_contract(&contract_id, || {
             AccessControl::init_owner(env, &admin);
             AccessControl::set_role(env, &admin, &admin, Role::Admin, true);
         });
-        
+
         (client, admin)
     }
 
@@ -248,7 +244,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (client, admin) = setup_test(&env);
-        
+
         let new_hash = BytesN::from_array(&env, &[1u8; 32]);
 
         // Schedule upgrade
@@ -266,7 +262,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (client, admin) = setup_test(&env);
-        
+
         let new_hash = BytesN::from_array(&env, &[2u8; 32]);
 
         // Schedule upgrade
@@ -281,7 +277,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (client, admin) = setup_test(&env);
-        
+
         let new_hash = BytesN::from_array(&env, &[3u8; 32]);
 
         // Schedule upgrade at time 0
@@ -303,7 +299,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (client, admin) = setup_test(&env);
-        
+
         let new_hash = BytesN::from_array(&env, &[4u8; 32]);
 
         // Schedule upgrade
@@ -323,7 +319,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (client, admin) = setup_test(&env);
-        
+
         let hash1 = BytesN::from_array(&env, &[5u8; 32]);
         let hash2 = BytesN::from_array(&env, &[6u8; 32]);
 
@@ -339,7 +335,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (client, admin) = setup_test(&env);
-        
+
         let new_hash = BytesN::from_array(&env, &[7u8; 32]);
 
         // Schedule upgrade at time 1000
@@ -362,7 +358,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (client, admin) = setup_test(&env);
-        
+
         let new_timelock = 86400; // 24 hours
 
         // Set custom timelock
@@ -379,7 +375,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (client, _admin) = setup_test(&env);
-        
+
         let non_admin = soroban_sdk::Address::generate(&env);
         let new_hash = BytesN::from_array(&env, &[8u8; 32]);
 
@@ -393,7 +389,7 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let (client, admin) = setup_test(&env);
-        
+
         let new_hash = BytesN::from_array(&env, &[9u8; 32]);
 
         // Schedule and execute upgrade

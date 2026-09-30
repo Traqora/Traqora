@@ -1,14 +1,26 @@
+import { describe, expect, it, beforeEach, jest } from '@jest/globals';
 import {
   InMemoryCacheService,
   createCacheService,
   getCacheService,
   __resetCacheServiceForTests,
+  verifyRedisPersistence,
+  isRedisPersistenceEnabled,
+  checkRedisPersistence,
 } from '../../src/services/cacheService';
+
+jest.mock('../../src/utils/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  },
+}));
 
 describe('InMemoryCacheService (issue #335)', () => {
   it('returns null on a miss and the stored value on a hit', async () => {
     const cache = new InMemoryCacheService('test');
-    expect(await cache.get('missing')) .toBeNull();
+    expect(await cache.get('missing')).toBeNull();
 
     await cache.set('key1', { a: 1 }, 60);
     expect(await cache.get('key1')).toEqual({ a: 1 });
@@ -88,5 +100,43 @@ describe('getCacheService singleton (issue #335)', () => {
     __resetCacheServiceForTests();
     const second = getCacheService();
     expect(first).not.toBe(second);
+  });
+});
+
+describe('Redis persistence check (issue #741)', () => {
+  it('isRedisPersistenceEnabled returns false for standard redis URL', () => {
+    expect(isRedisPersistenceEnabled('redis://localhost:6379')).toBe(false);
+  });
+
+  it('isRedisPersistenceEnabled returns true for URL with persistence path', () => {
+    expect(isRedisPersistenceEnabled('redis://localhost:6379/aof')).toBe(true);
+    expect(isRedisPersistenceEnabled('redis://localhost:6379/rdb')).toBe(true);
+  });
+
+  it('checkRedisPersistence returns details for single-node config', () => {
+    const result = checkRedisPersistence('redis://localhost:6379', []);
+    expect(result.enabled).toBe(false);
+    expect(result.details).toHaveLength(1);
+    expect(result.details[0]).toMatchObject({ host: 'localhost', port: '6379' });
+  });
+
+  it('checkRedisPersistence returns details for cluster config', () => {
+    const nodes = [
+      { host: 'node1', port: 7000 },
+      { host: 'node2', port: 7001 },
+    ];
+    const result = checkRedisPersistence('redis://localhost:6379', nodes);
+    expect(result.details).toHaveLength(2);
+    expect(result.enabled).toBe(false);
+  });
+
+  it('verifyRedisPersistence returns false and logs warning when persistence is not enabled', () => {
+    const result = verifyRedisPersistence('redis://localhost:6379', []);
+    expect(result).toBe(false);
+  });
+
+  it('verifyRedisPersistence returns true and logs info when persistence is enabled', () => {
+    const result = verifyRedisPersistence('redis://localhost:6379/aof', []);
+    expect(result).toBe(true);
   });
 });

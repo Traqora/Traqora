@@ -2,16 +2,16 @@
  * Unit tests for Seat Availability Service
  */
 
-import { describe, it, expect, beforeEach, vi } from "@jest/globals";
+import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import { SeatAvailabilityService } from "./seatAvailabilityService";
 import type { SeatType } from "../types/services";
 
 // Mock AppDataSource
-vi.mock("../db/dataSource", () => ({
+jest.mock("../db/dataSource", () => ({
   AppDataSource: {
-    getRepository: vi.fn(() => ({
-      findOne: vi.fn(),
-      find: vi.fn(),
+    getRepository: jest.fn(() => ({
+      findOne: jest.fn(),
+      find: jest.fn(),
     })),
   },
 }));
@@ -32,9 +32,10 @@ describe("SeatAvailabilityService", () => {
     });
 
     it("should reject invalid seat number format", async () => {
+      const isValid = (seat: string) => /^(?:[1-9]|1[0-9]|20)[A-F]$/.test(seat);
       const invalidSeats = ["A1", "1G", "25A", "0A", "1AA"];
       for (const seat of invalidSeats) {
-        expect(/^\d{1,2}[A-F]$/.test(seat)).toBeFalsy();
+        expect(isValid(seat)).toBeFalsy();
       }
     });
 

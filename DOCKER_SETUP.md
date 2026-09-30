@@ -38,6 +38,13 @@ This setup provides a complete local development environment for Traqora using D
    - Stellar Horizon: [http://localhost:8000](http://localhost:8000)
    - Stellar Soroban RPC: [http://localhost:8000/soroban/rpc](http://localhost:8000/soroban/rpc)
 
+## Smoke Test
+
+Verify the stack is healthy end to end:
+```bash
+bash scripts/health-check.sh
+```
+
 ## Development
 
 ### Hot-Reloading

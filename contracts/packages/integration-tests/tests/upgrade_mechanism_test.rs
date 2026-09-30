@@ -1,19 +1,22 @@
 // Comprehensive tests for the upgrade mechanism with timelock
 #[cfg(test)]
 mod upgrade_mechanism_tests {
-    use soroban_sdk::{testutils::{Address as _, Ledger}, Address, BytesN, Env};
-    use upgrade::{UpgradeContract, UpgradeStorage, ScheduledUpgrade};
     use access::{AccessControl, Role};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Address, BytesN, Env,
+    };
+    use upgrade::{ScheduledUpgrade, UpgradeContract, UpgradeStorage};
 
     // Test helper to set up environment with admin
     fn setup_env() -> (Env, Address) {
         let env = Env::default();
         env.mock_all_auths();
-        
+
         let admin = Address::generate(&env);
         AccessControl::init_owner(&env, &admin);
         AccessControl::set_role(&env, &admin, &admin, Role::Admin, true);
-        
+
         (env, admin)
     }
 
@@ -30,7 +33,10 @@ mod upgrade_mechanism_tests {
         // Verify upgrade was scheduled
         let scheduled = UpgradeStorage::get_scheduled_upgrade(&env).expect("No upgrade found");
         assert_eq!(scheduled.new_wasm_hash, new_hash, "WASM hash mismatch");
-        assert!(!scheduled.executed, "Upgrade should not be marked as executed");
+        assert!(
+            !scheduled.executed,
+            "Upgrade should not be marked as executed"
+        );
     }
 
     #[test]
@@ -42,7 +48,10 @@ mod upgrade_mechanism_tests {
         UpgradeContract::schedule_upgrade(env.clone(), admin, new_hash);
 
         let scheduled = UpgradeStorage::get_scheduled_upgrade(&env).unwrap();
-        assert_eq!(scheduled.scheduled_at, 5000, "Timestamp should match scheduling time");
+        assert_eq!(
+            scheduled.scheduled_at, 5000,
+            "Timestamp should match scheduling time"
+        );
     }
 
     #[test]
@@ -237,7 +246,10 @@ mod upgrade_mechanism_tests {
         let (env, _admin) = setup_env();
 
         let duration = UpgradeContract::get_timelock_duration(env);
-        assert_eq!(duration, 172800, "Default timelock should be 48 hours (172800 seconds)");
+        assert_eq!(
+            duration, 172800,
+            "Default timelock should be 48 hours (172800 seconds)"
+        );
     }
 
     #[test]

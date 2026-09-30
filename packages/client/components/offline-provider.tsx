@@ -73,6 +73,44 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         setIsServiceWorkerReady(false);
       }
     }
+
+    const handleSync = async (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const syncs = customEvent.detail.pendingSyncs;
+      if (!syncs || syncs.length === 0) return;
+
+      console.log("Processing pending syncs...");
+      const { clearPendingSyncs } = await import("@/lib/offline-storage");
+      const { apiClient } = await import("@/lib/api");
+
+      for (const sync of syncs) {
+        try {
+          if (sync.type === "booking") {
+             // Basic retry logic, could be expanded
+             if (sync.data.bookingId && sync.data.signedXdr) {
+               await apiClient.submitSignedTransaction(sync.data.bookingId, sync.data.signedXdr);
+             } else {
+               await apiClient.createBooking(sync.data);
+             }
+          }
+        } catch (err) {
+          console.error("Failed to sync pending action", err);
+        }
+      }
+      clearPendingSyncs();
+      setHasPendingSyncs(false);
+      
+      const { toast } = await import("sonner");
+      toast.success("Offline data synced", {
+        description: "Your pending actions have been processed.",
+      });
+    };
+
+    window.addEventListener("offline:sync-needed", handleSync);
+
+    return () => {
+      window.removeEventListener("offline:sync-needed", handleSync);
+    }
   }, []);
 
   return (

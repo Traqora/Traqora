@@ -11,17 +11,29 @@ import {
   hashObject,
 } from "../../services/idempotency";
 import { BookingOrchestrationService } from "../../services/bookingOrchestrationService";
-import { stripe, stripeWebhookSecret } from "../../services/stripe";
-import {
-  submitSignedSorobanXdr,
-  getTransactionStatus,
-} from "../../services/soroban";
+import { getStripe, stripeWebhookSecret } from "../../services/stripe";
+import { submitSignedSorobanXdr } from "../../services/soroban";
+import { confirmBookingTx } from "../../services/bookingConfirmRetry";
 import { withRetries } from "../../services/retry";
 import { getWebSocketServer } from "../../websockets/server";
 import { logger } from "../../utils/logger";
 import { baggageService, RESTRICTION_NOTES } from "../../services/baggageService";
+import {
+  specialAssistanceService,
+  mapPassengerToRequest,
+} from "../../services/specialAssistanceService";
+import type { SpecialAssistanceRequest } from "../../types/specialAssistance";
+import { bookingRateLimit, excludingPaths } from "../../middleware/rate-limit-tiers";
 
 const router = Router();
+
+// Per-tier booking rate limiting (#550), applied to every route on this
+// router except the Stripe webhook — see excludingPaths's doc comment.
+// Wrapped in asyncHandler (the project's existing pattern) so a rejected
+// promise inside the rate limiter — e.g. a Redis error surfacing through
+// rate-limiter-flexible — reaches Express's error handler via next(err)
+// instead of becoming an unhandled rejection.
+router.use(asyncHandler(excludingPaths(bookingRateLimit, ["/webhook/stripe"])));
 
 // IATA name format: letters, spaces, hyphens, and apostrophes only
 const iatanameRegex = /^[A-Za-z\s'\-]+$/;
@@ -228,7 +240,7 @@ router.post(
 
     let event;
     try {
-      event = stripe.webhooks.constructEvent(
+      event = getStripe().webhooks.constructEvent(
         req.body as Buffer,
         sig,
         stripeWebhookSecret,
@@ -282,29 +294,15 @@ router.get(
       });
     }
 
-    const txStatus = await getTransactionStatus(booking.sorobanTxHash);
+    // #784: single idempotent confirm transition — re-polling an already
+    // settled transaction no longer re-saves or re-broadcasts.
+    const { outcome, changed, booking: updated, transactionStatus: txStatus } =
+      await confirmBookingTx(booking.id);
 
-    if (txStatus.status === "success" && booking.status !== "confirmed") {
-      booking.status = "confirmed";
-      if (txStatus.result) {
-        booking.sorobanBookingId = txStatus.result.bookingId || null;
-      }
-      await bookingRepo.save(booking);
+    if (changed) {
       try {
         const ws = getWebSocketServer();
-        ws.broadcastBookingStatus(booking.id, booking.status);
-      } catch (e) {
-        logger.warn(
-          "WebSocket server not ready - skipping booking status broadcast",
-        );
-      }
-    } else if (txStatus.status === "failed" && booking.status !== "failed") {
-      booking.status = "failed";
-      booking.lastError = txStatus.error || "Transaction failed";
-      await bookingRepo.save(booking);
-      try {
-        const ws = getWebSocketServer();
-        ws.broadcastBookingStatus(booking.id, booking.status);
+        ws.broadcastBookingStatus(updated.id, updated.status);
       } catch (e) {
         logger.warn(
           "WebSocket server not ready - skipping booking status broadcast",
@@ -315,8 +313,9 @@ router.get(
     return res.json({
       success: true,
       data: {
-        bookingStatus: booking.status,
+        bookingStatus: updated.status,
         transactionStatus: txStatus,
+        confirmOutcome: outcome,
       },
     });
   }),
@@ -471,6 +470,57 @@ router.get(
   }),
 );
 
+router.get(
+  "/:id/fare-rules/parsed",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.getBookingFareRulesWithParsing(req.params.id);
+    return res.json({ success: true, data: result });
+  }),
+);
+
+router.get(
+  "/:id/change-fee-tiers",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const tiers = await orchestrationService.getChangeFeeTiers(req.params.id);
+    return res.json({ success: true, data: tiers });
+  }),
+);
+
+router.get(
+  "/:id/cancellation-tiers",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const tiers = await orchestrationService.getCancellationTiers(req.params.id);
+    return res.json({ success: true, data: tiers });
+  }),
+);
+
+const changeFlightSchema = z.object({
+  newFlightId: z.string().uuid("Must be a valid flight UUID"),
+});
+
+router.post(
+  "/:id/change-quote",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = changeFlightSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+    const orchestrationService = new BookingOrchestrationService();
+    const quote = await orchestrationService.calculateBookingChangeFeeWithFlight(
+      req.params.id,
+      parsed.data.newFlightId,
+    );
+    return res.json({ success: true, data: quote });
+  }),
+);
+
 const changeFeeQuerySchema = z.object({
   newDate: z.string().min(1, "newDate query parameter is required"),
 });
@@ -550,6 +600,76 @@ router.post(
   }),
 );
 
+// Group Booking schemas
+const createGroupBookingSchema = z.object({
+  groupName: z.string().min(1).max(255),
+  flightId: z.string().uuid(),
+  organizerEmail: z.string().email(),
+  memberEmails: z.array(z.string().email()).min(1).max(50),
+  splitMethod: z.enum(['equal', 'custom', 'percentage']).default('equal'),
+  corporateAccountId: z.string().uuid().optional(),
+  costCenter: z.string().optional(),
+  department: z.string().optional(),
+  bookingPolicyId: z.string().uuid().optional(),
+});
+
+const groupCheckInSchema = z.object({
+  seatAllocations: z.record(z.string()).optional(),
+});
+
+router.post(
+  '/group',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = createGroupBookingSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const groupBooking = await orchestrationService.createGroupBooking(parsed.data);
+
+    return res.status(201).json({
+      success: true,
+      data: groupBooking,
+    });
+  }),
+);
+
+router.post(
+  '/:id/group-checkin',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = groupCheckInSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const orchestrationService = new BookingOrchestrationService();
+    const result = await orchestrationService.groupCheckIn(
+      req.params.id,
+      parsed.data.seatAllocations,
+    );
+
+    return res.json({ success: true, data: result });
+  }),
+);
+
+router.get(
+  '/group/:id',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const orchestrationService = new BookingOrchestrationService();
+    const groupBooking = await orchestrationService.getGroupBooking(req.params.id);
+
+    if (!groupBooking) {
+      throw new NotFoundError('Group booking not found');
+    }
+
+    return res.json({ success: true, data: groupBooking });
+  }),
+);
+
 const baggageQuerySchema = z.object({
   class: z.enum(["economy", "premium_economy", "business", "first"]).optional(),
   bags: z.coerce.number().int().min(0).max(10).optional(),
@@ -599,6 +719,130 @@ router.get(
     return res.json({
       success: true,
       data: { allowance, cabinClass, restrictions: RESTRICTION_NOTES },
+    });
+  }),
+);
+
+const wheelchairSchema = z.object({
+  type: z.enum(['ramp', 'boarding', 'cabin', 'stretcher'] as const),
+  notes: z.string().max(500).optional(),
+});
+
+const medicalOxygenSchema = z.object({
+  type: z.enum(['portable_concentrator', 'cylinder'] as const),
+  flowRateLpm: z.number().int().positive().max(15).optional(),
+  quantity: z.number().int().positive().max(10).optional(),
+  notes: z.string().max(500).optional(),
+});
+
+const specialMealSchema = z.object({
+  mealType: z.string().min(2).max(10),
+  notes: z.string().max(500).optional(),
+});
+
+const serviceAnimalSchema = z.object({
+  animalType: z.enum(['guide_dog', 'hearing_dog', 'emotional_support', 'psychiatric', 'other'] as const),
+  breed: z.string().max(100).optional(),
+  weightKg: z.number().int().positive().max(200).optional(),
+  notes: z.string().max(500).optional(),
+});
+
+const accessibilityPreferenceSchema = z.object({
+  priorityBoarding: z.boolean().default(false),
+  extraLegroomPreferred: z.boolean().default(false),
+  bulkheadSeatRequired: z.boolean().default(false),
+  aisleChairRequired: z.boolean().default(false),
+  deafOrHardOfHearing: z.boolean().default(false),
+  blindOrLowVision: z.boolean().default(false),
+  cognitiveAssistance: z.boolean().default(false),
+  notes: z.string().max(1000).optional(),
+});
+
+const specialAssistanceSchema = z.object({
+  requiresWheelchair: z.boolean().default(false),
+  wheelchair: wheelchairSchema.optional(),
+  requiresMedicalOxygen: z.boolean().default(false),
+  medicalOxygen: medicalOxygenSchema.optional(),
+  specialMeal: z.boolean().default(false),
+  meal: specialMealSchema.optional(),
+  hasServiceAnimal: z.boolean().default(false),
+  serviceAnimal: serviceAnimalSchema.optional(),
+  accessibilityNeeds: accessibilityPreferenceSchema.optional(),
+  otherNeeds: z.string().max(2000).optional(),
+});
+
+router.put(
+  '/:id/passengers/:passengerId/special-assistance',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = specialAssistanceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
+    if (!booking) throw new NotFoundError('Booking not found');
+
+    const passengerRepo = AppDataSource.getRepository(Passenger);
+    const passenger = await passengerRepo.findOne({ where: { id: req.params.passengerId } });
+    if (!passenger) throw new NotFoundError('Passenger not found');
+
+    const request = parsed.data as SpecialAssistanceRequest;
+    const validationErrors = specialAssistanceService.validateAssistanceRequest(request);
+    if (validationErrors.length > 0) {
+      throw new BadRequestError('Invalid assistance request', validationErrors);
+    }
+
+    const result = await specialAssistanceService.updateAssistance(
+      req.params.id,
+      req.params.passengerId,
+      request,
+    );
+
+    res.json({
+      success: true,
+      data: {
+        assistance: mapPassengerToRequest(result.passenger),
+        notification: result.notification,
+      },
+    });
+  }),
+);
+
+router.get(
+  '/:id/passengers/:passengerId/special-assistance',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const passengerRepo = AppDataSource.getRepository(Passenger);
+    const passenger = await passengerRepo.findOne({ where: { id: req.params.passengerId } });
+    if (!passenger) throw new NotFoundError('Passenger not found');
+
+    const result = await specialAssistanceService.getAssistance(passenger);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  }),
+);
+
+router.post(
+  '/:id/passengers/:passengerId/special-assistance/validate',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = specialAssistanceSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const errors = specialAssistanceService.validateAssistanceRequest(
+      parsed.data as SpecialAssistanceRequest,
+    );
+
+    res.json({
+      success: true,
+      data: { valid: errors.length === 0, errors },
     });
   }),
 );

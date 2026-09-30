@@ -1,160 +1,177 @@
-"use client"
+'use client';
 
-import { useEffect, useState, useCallback } from "react"
-import { useParams } from "next/navigation"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Skeleton } from "@/components/ui/skeleton"
-import { CheckCircle, AlertCircle, PlaneTakeoff } from "lucide-react"
-import { toast } from "sonner"
-import { apiClient, CheckInRecord, CheckInWindow } from "@/lib/api"
-import { BoardingPassCard } from "@/components/booking/boarding-pass-card"
+import React, { useEffect, useState, use } from 'react';
+import { useRouter } from 'next/navigation';
 
-export default function CheckInPage() {
-  const params = useParams<{ bookingId: string }>()
-  const bookingId = params.bookingId
+interface CheckInWindow {
+  isOpen: boolean;
+  opensAt?: string;
+  closesAt?: string;
+  message?: string;
+}
 
-  const [window_, setWindowInfo] = useState<CheckInWindow | null>(null)
-  const [checkIn, setCheckIn] = useState<CheckInRecord | null>(null)
-  const [seatNumber, setSeatNumber] = useState("")
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+interface CheckInData {
+  id: string;
+  bookingId: string;
+  seatNumber?: string;
+  status: string;
+  checkedInAt?: string;
+}
 
-  const load = useCallback(async () => {
-    setIsLoading(true)
-    const [windowRes, checkInRes] = await Promise.all([
-      apiClient.getCheckInWindow(bookingId),
-      apiClient.getCheckIn(bookingId),
-    ])
+export default function CheckInPage({ params }: { params: Promise<{ bookingId: string }> }) {
+  const resolvedParams = use(params);
+  const bookingId = resolvedParams.bookingId;
+  const router = useRouter();
 
-    if (windowRes.success) {
-      setWindowInfo(windowRes.data)
-    }
-    if (checkInRes.success) {
-      setCheckIn(checkInRes.data)
-      setSeatNumber(checkInRes.data.seatNumber || "")
-    }
-    setIsLoading(false)
-  }, [bookingId])
+  const [windowInfo, setWindowInfo] = useState<CheckInWindow | null>(null);
+  const [checkInResult, setCheckInResult] = useState<CheckInData | null>(null);
+  const [seatNumber, setSeatNumber] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    load()
-  }, [load])
-
-  const handleCheckIn = async () => {
-    setIsSubmitting(true)
-    setError(null)
-    const response = await apiClient.checkIn(bookingId, seatNumber || undefined)
-    if (response.success) {
-      setCheckIn(response.data)
-      toast.success("Checked in successfully")
+    async function fetchCheckInState() {
+      try {
+        setLoading(true);
+        setError(null);
+        const windowRes = await fetch(`/api/v1/check-in/${bookingId}/window`);
+        const windowJson = await windowRes.json();
+        if (windowJson.success) {
+          setWindowInfo(windowJson.data);
     } else {
-      setError(response.error?.message || "Check-in failed")
+          setError(windowJson.error?.message || 'Failed to fetch check-in window.');
     }
-    setIsSubmitting(false)
-  }
 
-  const handleSeatUpdate = async () => {
-    if (!seatNumber) return
-    setIsSubmitting(true)
-    const response = await apiClient.reselectSeat(bookingId, seatNumber)
-    if (response.success) {
-      setCheckIn(response.data)
-      toast.success("Seat updated")
+        const statusRes = await fetch(`/api/v1/check-in/${bookingId}`);
+        const statusJson = await statusRes.json();
+        if (statusJson.success && statusJson.data) {
+          setCheckInResult(statusJson.data);
+          if (statusJson.data.seatNumber) {
+            setSeatNumber(statusJson.data.seatNumber);
+  }
+        }
+      } catch (err: any) {
+        setError(err.message || 'Network error while loading check-in details.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    if (bookingId) {
+      fetchCheckInState();
+    }
+  }, [bookingId]);
+
+  const handleCheckIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/v1/check-in/${bookingId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seatNumber: seatNumber.trim() || undefined,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        setCheckInResult(json.data);
     } else {
-      toast.error(response.error?.message || "Failed to update seat")
+        setError(json.error?.message || 'Check-in failed. Please verify your details and try again.');
     }
-    setIsSubmitting(false)
+    } catch (err: any) {
+      setError(err.message || 'An error occurred during check-in.');
+    } finally {
+      setSubmitting(false);
   }
+  };
 
-  if (isLoading) {
+  if (loading) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-12 space-y-4">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-48 w-full" />
-      </div>
-    )
+      <main className="min-h-screen p-8 max-w-2xl mx-auto" aria-busy="true" aria-label="Loading check-in details">
+        <h1 className="text-2xl font-bold mb-4">Flight Check-In</h1>
+        <p className="text-gray-600">Loading your trip details...</p>
+      </main>
+    );
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-12 space-y-6">
-      <div>
-        <h1 className="font-serif font-bold text-3xl mb-2 flex items-center gap-2">
-          <PlaneTakeoff className="h-7 w-7 text-primary" />
-          Online Check-In
-        </h1>
-        <p className="text-muted-foreground">Booking ID: {bookingId}</p>
-      </div>
+    <main className="min-h-screen p-8 max-w-2xl mx-auto">
+      <header className="mb-6">
+        <h1 className="text-3xl font-extrabold tracking-tight text-gray-900">Flight Check-In</h1>
+        <p className="text-sm text-gray-600 mt-1">Booking Reference: <span className="font-mono font-medium">{bookingId}</span></p>
+      </header>
 
       {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <div role="alert" className="mb-6 p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg">
+          <p className="font-semibold">Error</p>
+          <p className="text-sm mt-1">{error}</p>
+        </div>
       )}
 
-      {checkIn?.status === "checked_in" ? (
-        <BoardingPassCard bookingId={bookingId} checkIn={checkIn} />
+      {checkInResult && checkInResult.status === 'checked_in' ? (
+        <section aria-labelledby="success-heading" className="bg-green-50 border border-green-200 rounded-xl p-6 text-green-900">
+          <h2 id="success-heading" className="text-xl font-bold text-green-800 mb-2">You are Checked In!</h2>
+          <p className="text-sm mb-4">Your boarding pass has been successfully issued.</p>
+          <div className="bg-white rounded-lg p-4 border border-green-100 shadow-sm space-y-2 mb-6">
+            <p><strong className="text-gray-700">Seat Number:</strong> <span className="font-mono">{checkInResult.seatNumber || 'Unassigned'}</span></p>
+            <p><strong className="text-gray-700">Status:</strong> <span className="uppercase text-xs bg-green-100 text-green-800 px-2 py-1 rounded font-semibold">Confirmed</span></p>
+          </div>
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard')}
+            className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+          >
+            Return to Dashboard
+          </button>
+        </section>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Check In</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {window_ && !window_.isOpen && (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  {new Date() < new Date(window_.opensAt)
-                    ? `Check-in opens at ${new Date(window_.opensAt).toLocaleString()}`
-                    : "Check-in window has closed for this flight."}
-                </AlertDescription>
-              </Alert>
+        <div className="space-y-6">
+          {windowInfo && (
+            <section aria-labelledby="window-heading" className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <h2 id="window-heading" className="text-lg font-semibold text-gray-900 mb-2">Check-In Window Status</h2>
+              <div className="flex items-center space-x-2">
+                <span className={`inline-block w-3 h-3 rounded-full ${windowInfo.isOpen ? 'bg-green-500' : 'bg-amber-500'}`} aria-hidden="true" />
+                <span className="font-medium text-gray-800">
+                  {windowInfo.isOpen ? 'Check-in window is currently OPEN' : 'Check-in window is CLOSED or not yet active'}
+                </span>
+              </div>
+              {windowInfo.message && <p className="text-sm text-gray-600 mt-2">{windowInfo.message}</p>}
+            </section>
             )}
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Seat Number (optional)</label>
-              <Input
+          <form onSubmit={handleCheckIn} className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900">Passenger Check-In</h2>
+            <div>
+              <label htmlFor="seatNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                Preferred Seat Number (Optional)
+              </label>
+              <input
+                id="seatNumber"
+                type="text"
+                maxLength={8}
                 value={seatNumber}
                 onChange={(e) => setSeatNumber(e.target.value)}
-                placeholder="e.g. 14A"
-                maxLength={8}
+                placeholder="e.g. 12A"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
-            <Button
-              className="w-full"
-              disabled={isSubmitting || (window_ ? !window_.isOpen : false)}
-              onClick={handleCheckIn}
+            <button
+              type="submit"
+              disabled={submitting || (windowInfo ? !windowInfo.isOpen : false)}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2.5 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
-              <CheckCircle className="h-4 w-4 mr-2" />
-              {isSubmitting ? "Checking in..." : "Check In"}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {checkIn?.status === "checked_in" && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Change Seat</CardTitle>
-          </CardHeader>
-          <CardContent className="flex gap-2">
-            <Input
-              value={seatNumber}
-              onChange={(e) => setSeatNumber(e.target.value)}
-              placeholder="e.g. 14A"
-              maxLength={8}
-            />
-            <Button variant="outline" disabled={isSubmitting} onClick={handleSeatUpdate}>
-              Update
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+              {submitting ? 'Processing Check-In...' : 'Complete Check-In'}
+            </button>
+          </form>
     </div>
-  )
+      )}
+    </main>
+  );
 }

@@ -4,6 +4,7 @@ import { CurrencyService } from "../../services/currencyService";
 import { PriceOracleService, SupportedCurrency } from "../../services/PriceOracleService";
 import { VolatilityService, IPriceHistorySimple } from "../../services/VolatilityService";
 import { BadRequestError } from "../../utils/errors";
+import { cacheResponse } from "../../services/cache";
 import { z } from "zod";
 
 const convertQuerySchema = z.object({
@@ -26,7 +27,7 @@ export const createCurrencyRoutes = () => {
   const currencyService = CurrencyService.getInstance();
   const priceOracle = PriceOracleService.getInstance();
 
-  router.get("/", asyncHandler(async (_req, res) => {
+  router.get("/", cacheResponse(), asyncHandler(async (_req, res) => {
     const currencies = currencyService.getSupportedCurrencies().map((code) => ({
       code,
       ...CurrencyService.CURRENCY_CONFIG[code],
@@ -34,7 +35,7 @@ export const createCurrencyRoutes = () => {
     res.json({ success: true, data: currencies });
   }));
 
-  router.get("/rates", asyncHandler(async (req, res) => {
+  router.get("/rates", cacheResponse(), asyncHandler(async (req, res) => {
     const parsed = ratesQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       throw new BadRequestError("Invalid parameters", parsed.error.flatten());

@@ -3,12 +3,12 @@
  * Tests for Amadeus API client authentication, flight search, and data normalization
  */
 
-import axios from 'axios';
-import { AmadeusAnalyticsClient } from '../../../src/services/amadeus/amadeusClient';
-import { logger } from '../../../src/utils/logger';
+import axios, { AxiosInstance } from 'axios';
+import { AmadeusAnalyticsClient } from '@/services/amadeus/amadeusClient';
+import { logger } from '@/utils/logger';
 
 jest.mock('axios');
-jest.mock('../../../src/utils/logger', () => ({
+jest.mock('@/utils/logger', () => ({
   logger: {
     info: jest.fn(),
     error: jest.fn(),
@@ -19,6 +19,20 @@ jest.mock('../../../src/utils/logger', () => ({
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
+// Mock axios instance with interceptors
+const mockInterceptors = {
+  response: { use: jest.fn() },
+  request: { use: jest.fn() },
+};
+
+const mockAxiosInstance: Partial<AxiosInstance> = {
+  interceptors: mockInterceptors as any,
+  get: jest.fn(),
+  post: jest.fn(),
+};
+
+mockedAxios.create.mockReturnValue(mockAxiosInstance as AxiosInstance);
+
 describe('AmadeusAnalyticsClient', () => {
   let client: AmadeusAnalyticsClient;
   const mockClientId = 'test-client-id';
@@ -26,7 +40,10 @@ describe('AmadeusAnalyticsClient', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    client = new AmadeusAnalyticsClient(mockClientId, mockClientSecret);
+    client = new AmadeusAnalyticsClient({
+      clientId: mockClientId,
+      clientSecret: mockClientSecret,
+    });
   });
 
   describe('authenticate', () => {

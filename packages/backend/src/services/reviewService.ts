@@ -2,7 +2,6 @@ import { AppDataSource } from '../db/dataSource';
 import { Review, ReviewStatus } from '../db/entities/Review';
 import { Booking } from '../db/entities/Booking';
 import { User } from '../db/entities/User';
-import { Flight } from '../db/entities/Flight';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
@@ -70,7 +69,7 @@ export class ReviewService {
     }
 
     // Verify the booking belongs to the user
-    if (booking.passenger?.walletAddress !== params.userId) {
+    if (booking.walletAddress !== params.userId) {
       throw new ForbiddenError('You can only review flights you have booked');
     }
 
@@ -333,7 +332,7 @@ export class ReviewService {
       return false;
     }
 
-    if (booking.passenger?.walletAddress !== userId) {
+    if (booking.walletAddress !== userId) {
       return false;
     }
 

@@ -2,6 +2,7 @@ import { AppDataSource, initDataSource } from '../db/dataSource';
 import { SecurityAuditLog } from '../db/entities/SecurityAuditLog';
 import { AdminAuditLog } from '../db/entities/AdminAuditLog';
 import { SensitiveOperationApproval } from '../db/entities/SensitiveOperationApproval';
+import { AccountDeletionRequest } from '../db/entities/AccountDeletionRequest';
 import { logger } from '../utils/logger';
 import { LessThan } from 'typeorm';
 
@@ -16,6 +17,18 @@ const DEFAULT_RETENTION_POLICIES: RetentionPolicy[] = [
   { logType: 'admin', retentionYears: 7, archiveAfterYears: 2 },
   { logType: 'approvals', retentionYears: 7, archiveAfterYears: 2 },
 ];
+
+/**
+ * Right-to-erasure workflow windows (GDPR_COMPLIANCE.md §8).
+ * A pending deletion request is verified for this many days before erasure
+ * is executed and the request is marked completed (issue #600).
+ */
+export const DELETION_VERIFICATION_WINDOW_DAYS = 30;
+/**
+ * A completed/cancelled deletion request record is kept this many extra
+ * days as proof of lawful processing, then permanently deleted.
+ */
+export const DELETION_REQUEST_RETENTION_DAYS = 90;
 
 export interface ArchivalStats {
   logType: string;
@@ -450,5 +463,78 @@ export class DataRetentionService {
     logger.info(`Scheduled periodic archival every ${intervalHours} hours`);
     // This would typically integrate with your job scheduler (e.g., Bull, Agenda, cron)
     // For now, this is a placeholder for the integration point
+  }
+
+  /**
+   * Right-to-erasure retention pass (issue #600, GDPR_COMPLIANCE.md §8):
+   *  1. Pending deletion requests past the verification window are marked
+   *     `completed`, meaning erasure of the account's PII proceeds.
+   *  2. Deletion request records older than the full retention window
+   *     (verification window + audit retention) are irreversibly deleted.
+   *
+   * Should run at least daily via the job scheduler.
+   */
+  async processDeletionRequests(now: Date = new Date()): Promise<{
+    completedRequests: number;
+    deletedRequests: number;
+  }> {
+    await initDataSource();
+    const repo = AppDataSource.getRepository(AccountDeletionRequest);
+
+    const verificationCutoff = this.cutoff(now, DELETION_VERIFICATION_WINDOW_DAYS);
+    const deletionCutoff = this.cutoff(
+      now,
+      DELETION_VERIFICATION_WINDOW_DAYS + DELETION_REQUEST_RETENTION_DAYS
+    );
+
+    // Stage 1: execute erasure for verified (pending > 30 days) requests
+    const pendingRequests = await repo.find({
+      where: { status: 'pending', requestedAt: LessThan(verificationCutoff) },
+    });
+    let completedRequests = 0;
+    for (const request of pendingRequests) {
+      try {
+        request.status = 'completed';
+        await repo.save(request);
+        completedRequests++;
+        logger.info('gdpr: erasure window elapsed, request completed', {
+          requestId: request.id,
+          userId: request.userId,
+        });
+      } catch (err) {
+        logger.error('Failed to complete deletion request', {
+          requestId: request.id,
+          error: err,
+        });
+      }
+    }
+
+    // Stage 2: delete request records past the full retention window
+    const expiredRequests = await repo.find({
+      where: { requestedAt: LessThan(deletionCutoff) },
+    });
+    let deletedRequests = 0;
+    for (const request of expiredRequests) {
+      try {
+        await repo.remove(request);
+        deletedRequests++;
+      } catch (err) {
+        logger.error('Failed to delete expired deletion request', {
+          requestId: request.id,
+          error: err,
+        });
+      }
+    }
+
+    logger.info('gdpr: deletion-request retention pass completed', {
+      completedRequests,
+      deletedRequests,
+    });
+
+    return { completedRequests, deletedRequests };
+  }
+
+  private cutoff(from: Date, days: number): Date {
+    return new Date(from.getTime() - days * 24 * 60 * 60 * 1000);
   }
 }

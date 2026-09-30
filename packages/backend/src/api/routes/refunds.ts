@@ -3,7 +3,10 @@ import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
 import { RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
+import { AppDataSource } from '../../db/dataSource';
+import { Booking } from '../../db/entities/Booking';
 import { logger } from '../../utils/logger';
+import { config } from '../../config';
 import { requireAdmin } from '../../middleware/adminAuth';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../../utils/errors';
 
@@ -24,6 +27,17 @@ const createRefundSchema = z.object({
   ]),
   reasonDetails: z.string().optional(),
   requestedBy: z.string().optional(),
+  requestedRefundPercentage: z.number().min(0).max(100).optional(),
+  requestedRefundAmountCents: z.number().min(0).optional(),
+}).superRefine((data, ctx) => {
+  // Ensure only one of percentage or amount is provided
+  if (data.requestedRefundPercentage !== undefined && data.requestedRefundAmountCents !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['requestedRefundPercentage'],
+      message: 'Cannot specify both requestedRefundPercentage and requestedRefundAmountCents',
+    });
+  }
 });
 
 // Manual review schema
@@ -32,6 +46,15 @@ const manualReviewSchema = z.object({
   reviewedBy: z.string().min(1),
   reviewNotes: z.string().min(1),
   customRefundPercentage: z.number().min(0).max(100).optional(),
+  adminOverrideJustification: z.string().min(10).optional(),
+}).superRefine((data, ctx) => {
+  if (data.customRefundPercentage !== undefined && !data.adminOverrideJustification) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['adminOverrideJustification'],
+      message: 'Admin override justification is required when custom refund percentage is used',
+    });
+  }
 });
 
 // Submit on-chain refund schema
@@ -62,6 +85,15 @@ const disputeResolutionSchema = z.object({
   resolvedBy: z.string().min(1),
   notes: z.string().min(1),
   customRefundPercentage: z.number().min(0).max(100).optional(),
+  adminOverrideJustification: z.string().min(10).optional(),
+}).superRefine((data, ctx) => {
+  if (data.customRefundPercentage !== undefined && !data.adminOverrideJustification) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['adminOverrideJustification'],
+      message: 'Admin override justification is required when custom refund percentage is used',
+    });
+  }
 });
 
 /**
@@ -187,7 +219,7 @@ router.get('/:id/status', asyncHandler(async (req: Request, res: Response) => {
 router.get('/admin/review-queue', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -207,7 +239,7 @@ router.get('/admin/review-queue', asyncHandler(async (req: Request, res: Respons
 router.get('/admin/all', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -237,7 +269,7 @@ router.get('/admin/all', asyncHandler(async (req: Request, res: Response) => {
 router.post('/:id/review', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -252,7 +284,8 @@ router.post('/:id/review', asyncHandler(async (req: Request, res: Response) => {
       parsed.data.approved,
       parsed.data.reviewedBy,
       parsed.data.reviewNotes,
-      parsed.data.customRefundPercentage
+      parsed.data.customRefundPercentage,
+      parsed.data.adminOverrideJustification
     );
 
     logger.info(`Refund ${req.params.id} reviewed by ${parsed.data.reviewedBy}`);
@@ -274,7 +307,7 @@ router.post('/:id/review', asyncHandler(async (req: Request, res: Response) => {
 router.get('/:id/audit-trail', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -347,7 +380,7 @@ router.post('/:id/process-delayed', asyncHandler(async (req: Request, res: Respo
 router.post('/:id/emergency-override', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -389,7 +422,7 @@ router.post('/:id/emergency-override', asyncHandler(async (req: Request, res: Re
 router.get('/admin/delayed-pending', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -409,7 +442,7 @@ router.get('/admin/delayed-pending', asyncHandler(async (req: Request, res: Resp
 router.get('/admin/delayed-ready', asyncHandler(async (req: Request, res: Response) => {
   // TODO: Add admin authentication middleware
   const apiKey = req.header('X-Admin-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMIN_API_KEY) {
+  if (!apiKey || apiKey !== config.adminApiKey) {
     throw new ForbiddenError('Unauthorized');
   }
 
@@ -442,6 +475,39 @@ router.post('/auto-eligible', asyncHandler(async (req: Request, res: Response) =
   } catch (error: any) {
     logger.error('Failed to check automated eligibility', error);
     throw new BadRequestError(error.message || 'Failed to check eligibility');
+  }
+}));
+
+/**
+ * POST /api/v1/refunds/partial-calculation
+ * Calculate detailed partial refund breakdown for a booking
+ */
+router.post('/partial-calculation', asyncHandler(async (req: Request, res: Response) => {
+  const parsed = autoEligibleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw new BadRequestError('Validation error', parsed.error.flatten());
+  }
+
+  try {
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({
+      where: { id: parsed.data.bookingId },
+      relations: ['flight'],
+    });
+
+    if (!booking) {
+      throw new NotFoundError('Booking not found');
+    }
+
+    const partialRefundBreakdown = refundService.calculatePartialRefund(booking);
+
+    return res.json({
+      success: true,
+      data: partialRefundBreakdown,
+    });
+  } catch (error: any) {
+    logger.error('Failed to calculate partial refund', error);
+    throw new BadRequestError(error.message || 'Failed to calculate partial refund');
   }
 }));
 
@@ -520,6 +586,7 @@ router.post('/:id/resolve-dispute', requireAdmin, asyncHandler(async (req: Reque
       resolvedBy: parsed.data.resolvedBy,
       notes: parsed.data.notes,
       customRefundPercentage: parsed.data.customRefundPercentage,
+      adminOverrideJustification: parsed.data.adminOverrideJustification,
     });
 
     logger.info(`Dispute for refund ${req.params.id} resolved as ${parsed.data.resolution} by ${parsed.data.resolvedBy}`);
@@ -538,7 +605,7 @@ router.post('/:id/resolve-dispute', requireAdmin, asyncHandler(async (req: Reque
  * GET /api/v1/refunds/stats
  * Get refund analytics and statistics
  */
-router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
+router.get('/stats', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const stats = await refundService.getRefundStats();
 

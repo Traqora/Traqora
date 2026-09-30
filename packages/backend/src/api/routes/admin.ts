@@ -9,10 +9,13 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
 import { requireAdmin } from '../../middleware/adminAuth';
 import { logger } from '../../utils/logger';
 import { SEARCH_LIMITS, BOOKING_LIMITS } from '../../middleware/rate-limit-tiers';
+import { getRefundDisputeRepository } from '../../repositories/refundDisputeRepository';
+import { BadRequestError } from '../../utils/errors';
 
 const router = Router();
 
@@ -147,4 +150,91 @@ router.get(
   }),
 );
 
+export const adminOverviewQuerySchema = z.object({
+  recentLimit: z.coerce.number().int().min(1).max(50).default(5),
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+});
+
+/**
+ * GET /admin/overview/refunds-disputes
+ * GET /admin/refunds-disputes/overview
+ * Returns an aggregated overview of refund and dispute statuses bucketed by state with counts and recent items.
+ */
+const handleRefundDisputeOverview = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = adminOverviewQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    throw new BadRequestError('Validation error', parsed.error.flatten());
+  }
+
+  const repository = getRefundDisputeRepository();
+  const overview = await repository.getOverview({
+    recentLimit: parsed.data.recentLimit,
+    startDate: parsed.data.startDate,
+    endDate: parsed.data.endDate,
+  });
+
+  return res.json({
+    success: true,
+    data: overview,
+  });
+});
+
+router.get('/overview/refunds-disputes', handleRefundDisputeOverview);
+router.get('/refunds-disputes/overview', handleRefundDisputeOverview);
+
+/**
+ * GET /admin/refunds/overview
+ * Returns refund status overview bucketed by state with counts and recent items.
+ */
+router.get(
+  '/refunds/overview',
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = adminOverviewQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const repository = getRefundDisputeRepository();
+    const refunds = await repository.getRefundOverview({
+      recentLimit: parsed.data.recentLimit,
+      startDate: parsed.data.startDate,
+      endDate: parsed.data.endDate,
+    });
+
+    return res.json({
+      success: true,
+      data: refunds,
+    });
+  }),
+);
+
+/**
+ * GET /admin/disputes/overview
+ * Returns dispute status overview bucketed by state with counts and recent items.
+ */
+router.get(
+  '/disputes/overview',
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsed = adminOverviewQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new BadRequestError('Validation error', parsed.error.flatten());
+    }
+
+    const repository = getRefundDisputeRepository();
+    const disputes = await repository.getDisputeOverview({
+      recentLimit: parsed.data.recentLimit,
+      startDate: parsed.data.startDate,
+      endDate: parsed.data.endDate,
+    });
+
+    return res.json({
+      success: true,
+      data: disputes,
+    });
+  }),
+);
+
 export const adminRateLimitRoutes = router;
+export const adminRoutes = router;
+export default router;

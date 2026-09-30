@@ -1,15 +1,16 @@
 #![no_std]
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol, contractclient
-};
 use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
+use soroban_sdk::{
+    contract, contractclient, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN,
+    Env, Symbol,
+};
 
 #[contractclient(name = "BookingClient")]
 pub trait BookingInterface {
     fn oracle_release_payment(env: Env, oracle: Address, booking_id: u64);
     fn oracle_refund_airline_cancel(env: Env, oracle: Address, booking_id: u64);
 }
-
 
 #[contracttype]
 #[derive(Clone)]
@@ -124,7 +125,7 @@ impl FlightOracle {
             OracleStorage::get_config(&env).is_none(),
             "Already initialized"
         );
-        
+
         AccessControl::init_owner(&env, &owner);
 
         assert!(min_stake > 0, "Invalid min_stake");
@@ -136,8 +137,10 @@ impl FlightOracle {
             booking_contract,
         };
         OracleStorage::set_config(&env, &cfg);
-        env.events().publish(
-            (symbol_short!("oracle"), symbol_short!("init")),
+        contract_events::emit(
+            &env,
+            Domain::Oracle,
+            Action::Init,
             (owner, min_stake, consensus_threshold),
         );
     }
@@ -157,10 +160,7 @@ impl FlightOracle {
             slashed: false,
         };
         OracleStorage::set_provider(&env, &provider, &prov);
-        env.events().publish(
-            (symbol_short!("oracle"), symbol_short!("provider")),
-            (provider, stake),
-        );
+        contract_events::emit(&env, Domain::Oracle, Action::Provider, (provider, stake));
     }
 
     pub fn submit_flight_status(
@@ -200,8 +200,10 @@ impl FlightOracle {
         OracleStorage::add_report(&env, &flight_number, booking_id, &report);
         OracleStorage::inc_status_count(&env, &flight_number, booking_id, &status);
 
-        env.events().publish(
-            (symbol_short!("oracle"), symbol_short!("status")),
+        contract_events::emit(
+            &env,
+            Domain::Oracle,
+            Action::Status,
             (flight_number, booking_id, status.clone(), provider),
         );
     }
@@ -212,15 +214,11 @@ impl FlightOracle {
         let count = OracleStorage::status_count(&env, &flight_number, booking_id, &status);
         assert!(count >= cfg.consensus_threshold, "Insufficient consensus");
 
-        let booking_client =
-            BookingClient::new(&env, &cfg.booking_contract);
+        let booking_client = BookingClient::new(&env, &cfg.booking_contract);
         let self_addr = env.current_contract_address();
         booking_client.oracle_release_payment(&self_addr, &booking_id);
 
-        env.events().publish(
-            (symbol_short!("oracle"), symbol_short!("settled")),
-            (booking_id, status),
-        );
+        contract_events::emit(&env, Domain::Oracle, Action::Settled, (booking_id, status));
     }
 
     pub fn verify_airline_cancellation(env: Env, flight_number: Symbol, booking_id: u64) {
@@ -229,15 +227,11 @@ impl FlightOracle {
         let count = OracleStorage::status_count(&env, &flight_number, booking_id, &status);
         assert!(count >= cfg.consensus_threshold, "Insufficient consensus");
 
-        let booking_client =
-            BookingClient::new(&env, &cfg.booking_contract);
+        let booking_client = BookingClient::new(&env, &cfg.booking_contract);
         let self_addr = env.current_contract_address();
         booking_client.oracle_refund_airline_cancel(&self_addr, &booking_id);
 
-        env.events().publish(
-            (symbol_short!("oracle"), symbol_short!("refunded")),
-            (booking_id, status),
-        );
+        contract_events::emit(&env, Domain::Oracle, Action::Refunded, (booking_id, status));
     }
 
     // Role management functions

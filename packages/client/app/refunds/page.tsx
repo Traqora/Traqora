@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Receipt, Scale, FileText } from "lucide-react";
+import { ArrowLeft, Receipt, Scale, FileText, BarChart3 } from "lucide-react";
 
 export default function RefundsPage() {
   return (
@@ -80,6 +80,18 @@ export default function RefundsPage() {
           </Card>
         </Link>
       </div>
+
+      <Card className="mb-6 border-primary/20 bg-primary/5">
+        <CardHeader>
+          <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-2">
+            <BarChart3 className="h-6 w-6 text-primary" />
+          </div>
+          <CardTitle className="font-serif">Refund Analytics</CardTitle>
+          <CardDescription>
+            Admin refund reports now include automated eligibility outcomes, audit history, and common rejection reasons from the refund statistics endpoint.
+          </CardDescription>
+        </CardHeader>
+      </Card>
     </div>
   );
 }

@@ -1,8 +1,12 @@
 #![no_std]
+// Booking-style contract entrypoints legitimately need many arguments;
+// soroban macro-generated clients re-declare these signatures.
+#![allow(clippy::too_many_arguments)]
+use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Bytes, BytesN, Env, Symbol,
 };
-use access::{AccessControl, Role};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -196,6 +200,7 @@ impl DisputeStorageKey {
             .unwrap_or(0)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn set_stake(env: &Env, dispute_id: u64, party: &Address, amount: i128) {
         env.storage()
             .persistent()
@@ -208,6 +213,7 @@ pub struct DisputeContract;
 
 #[contractimpl]
 impl DisputeContract {
+    #[allow(clippy::too_many_arguments)]
     pub fn initialize(
         env: Env,
         owner: Address,
@@ -240,8 +246,7 @@ impl DisputeContract {
 
         DisputeStorageKey::set_config(&env, &config);
 
-        env.events()
-            .publish((symbol_short!("dispute"), symbol_short!("init")), jury_size);
+        contract_events::emit(&env, Domain::Dispute, Action::Init, jury_size);
     }
 
     pub fn file_dispute(
@@ -299,8 +304,10 @@ impl DisputeContract {
         DisputeStorageKey::set_dispute(&env, dispute_id, &dispute);
         DisputeStorageKey::set_stake(&env, dispute_id, &passenger, passenger_stake);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("filed")),
+        contract_events::emit(
+            &env,
+            Domain::Dispute,
+            Action::Filed,
             (dispute_id, passenger, airline, amount),
         );
 
@@ -328,8 +335,10 @@ impl DisputeContract {
         DisputeStorageKey::set_dispute(&env, dispute_id, &dispute);
         DisputeStorageKey::set_stake(&env, dispute_id, &airline, airline_stake);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("responded")),
+        contract_events::emit(
+            &env,
+            Domain::Dispute,
+            Action::Responded,
             (dispute_id, airline, airline_stake),
         );
     }
@@ -379,8 +388,10 @@ impl DisputeContract {
         DisputeStorageKey::set_evidence(&env, dispute_id, evidence_index, &evidence);
         DisputeStorageKey::set_dispute(&env, dispute_id, &dispute);
 
-        env.events().publish(
-            (symbol_short!("evidence"), symbol_short!("submitted")),
+        contract_events::emit(
+            &env,
+            Domain::Evidence,
+            Action::Submitted,
             (dispute_id, submitter, evidence.evidence_hash.clone()),
         );
     }
@@ -431,8 +442,10 @@ impl DisputeContract {
             DisputeStorageKey::set_dispute(&env, dispute_id, &dispute);
         }
 
-        env.events().publish(
-            (symbol_short!("juror"), symbol_short!("selected")),
+        contract_events::emit(
+            &env,
+            Domain::Juror,
+            Action::Selected,
             (dispute_id, juror, token_balance),
         );
     }
@@ -469,10 +482,7 @@ impl DisputeContract {
 
         DisputeStorageKey::set_vote_commit(&env, dispute_id, &juror, &commit);
 
-        env.events().publish(
-            (symbol_short!("vote"), symbol_short!("committed")),
-            (dispute_id, juror),
-        );
+        contract_events::emit(&env, Domain::Vote, Action::Committed, (dispute_id, juror));
     }
 
     pub fn advance_to_reveal(env: Env, dispute_id: u64) {
@@ -492,10 +502,7 @@ impl DisputeContract {
         dispute.phase = DisputePhase::RevealVote;
         DisputeStorageKey::set_dispute(&env, dispute_id, &dispute);
 
-        env.events().publish(
-            (symbol_short!("phase"), symbol_short!("reveal")),
-            dispute_id,
-        );
+        contract_events::emit(&env, Domain::Phase, Action::Reveal, dispute_id);
     }
 
     pub fn reveal_vote(
@@ -554,8 +561,10 @@ impl DisputeContract {
 
         DisputeStorageKey::set_dispute(&env, dispute_id, &dispute);
 
-        env.events().publish(
-            (symbol_short!("vote"), symbol_short!("revealed")),
+        contract_events::emit(
+            &env,
+            Domain::Vote,
+            Action::Revealed,
             (dispute_id, juror, vote_for_passenger),
         );
     }
@@ -592,8 +601,10 @@ impl DisputeContract {
 
         DisputeStorageKey::set_dispute(&env, dispute_id, &dispute);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("finalized")),
+        contract_events::emit(
+            &env,
+            Domain::Dispute,
+            Action::Finalized,
             (dispute_id, verdict),
         );
     }
@@ -645,8 +656,10 @@ impl DisputeContract {
         let current_stake = DisputeStorageKey::get_stake(&env, dispute_id, &appellant);
         DisputeStorageKey::set_stake(&env, dispute_id, &appellant, current_stake + appeal_stake);
 
-        env.events().publish(
-            (symbol_short!("dispute"), symbol_short!("appealed")),
+        contract_events::emit(
+            &env,
+            Domain::Dispute,
+            Action::Appealed,
             (dispute_id, appellant, appeal_stake),
         );
     }
@@ -685,8 +698,10 @@ impl DisputeContract {
             (dispute.airline.clone(), dispute.passenger.clone())
         };
 
-        env.events().publish(
-            (symbol_short!("verdict"), symbol_short!("executed")),
+        contract_events::emit(
+            &env,
+            Domain::Verdict,
+            Action::Executed,
             (dispute_id, winner, loser, dispute.amount, jury_reward_pool),
         );
     }
@@ -724,8 +739,10 @@ impl DisputeContract {
 
         let reward = jury_reward_pool / winning_votes as i128;
 
-        env.events().publish(
-            (symbol_short!("reward"), symbol_short!("claimed")),
+        contract_events::emit(
+            &env,
+            Domain::Reward,
+            Action::Claimed,
             (dispute_id, juror.clone(), reward),
         );
 

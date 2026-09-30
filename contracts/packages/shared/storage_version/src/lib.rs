@@ -96,7 +96,7 @@ impl VersionedStorage {
             from_version,
             to_version,
             current_step: 0,
-            total_steps: (to_version - from_version) as u32,
+            total_steps: (to_version - from_version),
             completed: false,
             started_at: env.ledger().timestamp(),
             completed_at: None,
@@ -253,7 +253,6 @@ impl VersionedStorage {
 /// Storage slot allocation strategy
 /// Reserves specific slot ranges for different data types to prevent collisions
 /// during upgrades and migrations
-
 pub mod slot_allocation {
     use soroban_sdk::Symbol;
 

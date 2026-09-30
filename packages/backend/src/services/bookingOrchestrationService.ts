@@ -1,24 +1,108 @@
 import { AppDataSource } from "../db/dataSource";
-import { Booking } from "../db/entities/Booking";
+import { Booking, BookingStatus } from "../db/entities/Booking";
 import { Flight } from "../db/entities/Flight";
 import { Passenger } from "../db/entities/Passenger";
 import { TravelDocument, DocumentType } from "../db/entities/TravelDocument";
+import { GroupBooking } from "../db/entities/GroupBooking";
 
 import { getTransactionStatus, signAndSubmitCreateBooking } from "./soroban";
+import { GroupBookingService } from "./groupBooking";
 
 import { logger } from "../utils/logger";
 import { withRetries } from "./retry";
 import { config } from "../config";
-import { BadRequestError } from "../utils/errors";
+import { BadRequestError, ConflictError } from "../utils/errors";
 import { FareRulesService, FareClass } from "./fareRulesService";
 import type {
   ChangeFeeQuote,
   CancellationRefund,
   UpgradeQuote,
+  FareRule,
+  ChangeFeeTier,
+  SeasonalFareOverride,
 } from "./fareRulesService";
 import { getWebSocketServer } from "../websockets/server";
-import { inflightServicesService } from "./inflightServicesService";
-import { seatAvailabilityService } from "./seatAvailabilityService";
+import { executeIdempotentOperation, hashObject } from "./idempotency";
+
+// ── Booking cancel policy engine (#785) ────────────────────────────────────
+//
+// Contract
+// --------
+// Inputs : `status` — the booking's current BookingStatus, plus an optional
+//          `now` override so callers/tests can pin the clock.
+// Outputs: a CancelPolicyDecision:
+//            action — what the caller must do:
+//              "refund"        proceed with the fare-rules refund flow
+//              "already_refund_cancelled"  no-op; cancellation already done
+//              "reject"        refuse the cancellation (Confict at route level)
+//            reason — stable, machine-readable code (see CANCEL_REJECTION_REASONS)
+//            httpStatus — the status a REST caller should surface on reject
+// Error cases: none — this function is total/pure. Transport-level errors
+// (404 unknown booking, 409 terminal-state conflict) are raised by callers.
+//
+// Policy rules (in evaluation order):
+//   1. "refunded"  → already-refund_cancelled no-op (cancel must be idempotent;
+//                    re-POST of a completed cancellation is not an error).
+//   2. "failed"    → reject. A failed booking never captured funds; cancelling
+//                    it would mint a bogus "refunded" terminal state.
+//   3. "refund_rejected" → reject. Refund was already adjudicated and denied;
+//                    re-cancelling must go through the refund dispute flow.
+//   4. Everything else (created, awaiting_payment, payment_processing, paid,
+//      onchain_pending, onchain_submitted, confirmed) → "refund": fare rules
+//      decide eligibility and amount, as before #785.
+
+export type CancelPolicyAction = "refund" | "already_refund_cancelled" | "reject";
+
+export interface CancelPolicyDecision {
+  action: CancelPolicyAction;
+  reason: string;
+  /** Suggested HTTP status for the caller when action === "reject". */
+  httpStatus: number;
+}
+
+/** Stable machine-readable rejection reasons, for operators and clients. */
+export const CANCEL_REJECTION_REASONS = {
+  ALREADY_CANCELLED: "already_cancelled",
+  BOOKING_FAILED: "booking_failed",
+  REFUND_REJECTED: "refund_rejected",
+} as const;
+
+const REJECT: Record<
+  (typeof CANCEL_REJECTION_REASONS)[keyof typeof CANCEL_REJECTION_REASONS],
+  CancelPolicyDecision
+> = {
+  [CANCEL_REJECTION_REASONS.BOOKING_FAILED]: {
+    action: "reject",
+    reason: CANCEL_REJECTION_REASONS.BOOKING_FAILED,
+    httpStatus: 409,
+  },
+  [CANCEL_REJECTION_REASONS.REFUND_REJECTED]: {
+    action: "reject",
+    reason: CANCEL_REJECTION_REASONS.REFUND_REJECTED,
+    httpStatus: 409,
+  },
+};
+
+export function resolveCancelPolicyDecision(
+  status: BookingStatus,
+  _now: Date = new Date(),
+): CancelPolicyDecision {
+  switch (status) {
+    case "refunded":
+      // Idempotent replay of a completed cancellation — not an error.
+      return {
+        action: "already_refund_cancelled",
+        reason: CANCEL_REJECTION_REASONS.ALREADY_CANCELLED,
+        httpStatus: 200,
+      };
+    case "failed":
+      return REJECT[CANCEL_REJECTION_REASONS.BOOKING_FAILED];
+    case "refund_rejected":
+      return REJECT[CANCEL_REJECTION_REASONS.REFUND_REJECTED];
+    default:
+      return { action: "refund", reason: "cancellable", httpStatus: 200 };
+  }
+}
 
 export interface StructuredName {
   title?: string;
@@ -208,68 +292,94 @@ export class BookingOrchestrationService {
     idempotencyKey: string;
     walletAddress?: string;
   }): Promise<Booking> {
-    const flight = await this.flightRepo.findOne({
-      where: { id: params.flightId },
+    const requestHash = hashObject({
+      flightId: params.flightId,
+      passenger: params.passenger,
+      walletAddress: params.walletAddress,
     });
-    if (!flight) throw new Error("Flight not found");
-    if (flight.seatsAvailable <= 0) throw new Error("Flight sold out");
 
-    const updated = await this.flightRepo
-      .createQueryBuilder()
-      .update(Flight)
-      .set({ seatsAvailable: () => "seatsAvailable - 1" })
-      .where("id = :id", { id: flight.id })
-      .andWhere("seatsAvailable > 0")
-      .execute();
-
-    if (!updated.affected) throw new Error("Flight sold out");
-
-    const passenger = this.passengerRepo.create(params.passenger);
-    await this.passengerRepo.save(passenger);
-
-    try {
-      const result = await signAndSubmitCreateBooking({
-        passenger: passenger.sorobanAddress,
-        airline: flight.airlineSorobanAddress,
-        flightNumber: flight.flightNumber,
-        fromAirport: flight.fromAirport,
-        toAirport: flight.toAirport,
-        departureTime: Math.floor(flight.departureTime.getTime() / 1000),
-        price: BigInt(flight.priceCents),
-        token: config.contracts.token,
-      });
-
-      const booking = this.bookingRepo.create({
-        idempotencyKey: params.idempotencyKey,
-        walletAddress: params.walletAddress ?? null,
-        flight,
-        passenger,
-        status: "onchain_submitted",
-        amountCents: flight.priceCents,
-        sorobanTxHash: result.txHash,
-      });
-
-      const savedBooking = await this.bookingRepo.save(booking);
-
-      this.pollTransactionStatus(savedBooking.id, result.txHash).catch(
-        (err) => {
-          logger.error("Error polling transaction status", {
-            bookingId: savedBooking.id,
-            error: err.message,
+    const { result: booking, isCached } = await executeIdempotentOperation(
+      {
+        key: params.idempotencyKey,
+        method: 'POST',
+        path: '/api/v1/bookings',
+        requestHash,
+        execute: async () => {
+          const flight = await this.flightRepo.findOne({
+            where: { id: params.flightId },
           });
+          if (!flight) throw new Error("Flight not found");
+          if (flight.seatsAvailable <= 0) throw new Error("Flight sold out");
+
+          const updated = await this.flightRepo
+            .createQueryBuilder()
+            .update(Flight)
+            .set({ seatsAvailable: () => "seatsAvailable - 1" })
+            .where("id = :id", { id: flight.id })
+            .andWhere("seatsAvailable > 0")
+            .execute();
+
+          if (!updated.affected) throw new Error("Flight sold out");
+
+          const passenger = this.passengerRepo.create(params.passenger);
+          await this.passengerRepo.save(passenger);
+
+          try {
+            const result = await signAndSubmitCreateBooking({
+              passenger: passenger.sorobanAddress,
+              airline: flight.airlineSorobanAddress,
+              flightNumber: flight.flightNumber,
+              fromAirport: flight.fromAirport,
+              toAirport: flight.toAirport,
+              departureTime: Math.floor(flight.departureTime.getTime() / 1000),
+              price: BigInt(flight.priceCents),
+              token: config.contracts.token,
+            });
+
+            const booking = this.bookingRepo.create({
+              idempotencyKey: params.idempotencyKey,
+              walletAddress: params.walletAddress ?? null,
+              flight,
+              passenger,
+              status: "onchain_submitted",
+              amountCents: flight.priceCents,
+              sorobanTxHash: result.txHash,
+            });
+
+            const savedBooking = await this.bookingRepo.save(booking);
+
+            this.pollTransactionStatus(savedBooking.id, result.txHash).catch(
+              (err) => {
+                logger.error("Error polling transaction status", {
+                  bookingId: savedBooking.id,
+                  error: err.message,
+                });
+              },
+            );
+
+            return { result: savedBooking, resourceId: savedBooking.id };
+          } catch (error: any) {
+            logger.error("Booking orchestration failed during submission", {
+              error: error.message,
+            });
+
+            await this.flightRepo.increment({ id: flight.id }, "seatsAvailable", 1);
+
+            throw error;
+          }
         },
-      );
+      },
+      AppDataSource,
+    );
 
-      return savedBooking;
-    } catch (error: any) {
-      logger.error("Booking orchestration failed during submission", {
-        error: error.message,
+    if (isCached) {
+      logger.info("Returning cached booking from idempotency store", {
+        bookingId: booking.id,
+        idempotencyKey: params.idempotencyKey,
       });
-
-      await this.flightRepo.increment({ id: flight.id }, "seatsAvailable", 1);
-
-      throw error;
     }
+
+    return booking;
   }
 
   private async pollTransactionStatus(bookingId: string, txHash: string) {
@@ -691,6 +801,58 @@ export class BookingOrchestrationService {
     return fareService.getApplicableFareRules(booking.flight);
   }
 
+  async getBookingFareRulesWithParsing(
+    bookingId: string,
+  ): Promise<{ rules: FareRule[]; warnings: string[]; seasonalOverride: SeasonalFareOverride | null }> {
+    const fareService = new FareRulesService();
+    const booking = await this.bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ["flight"],
+    });
+    if (!booking) {
+      throw new BadRequestError("Booking not found");
+    }
+    const flight = booking.flight;
+    const parsed = fareService.parseAirlineFareRules(
+      flight.airlineCode,
+      (flight.rawData || {}) as Record<string, any>,
+    );
+    const seasonalOverride = fareService.getActiveSeasonalOverride(flight);
+    return { rules: parsed.rules, warnings: parsed.warnings, seasonalOverride };
+  }
+
+  async getChangeFeeTiers(
+    bookingId: string,
+  ): Promise<ChangeFeeTier[]> {
+    const booking = await this.bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ["flight"],
+    });
+    if (!booking) {
+      throw new BadRequestError("Booking not found");
+    }
+    const fareService = new FareRulesService();
+    const flight = booking.flight;
+    const fareClass = (flight.rawData?.fareClass as FareClass) || "economy";
+    return fareService.getChangeFeeTiers(flight.airlineCode, fareClass);
+  }
+
+  async getCancellationTiers(
+    bookingId: string,
+  ): Promise<{ fromDays: number; toDays: number; refundPercentage: number; penaltyCents: number; label: string }[]> {
+    const booking = await this.bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ["flight"],
+    });
+    if (!booking) {
+      throw new BadRequestError("Booking not found");
+    }
+    const fareService = new FareRulesService();
+    const flight = booking.flight;
+    const fareClass = (flight.rawData?.fareClass as FareClass) || "economy";
+    return fareService.getCancellationTiers(flight.airlineCode, fareClass);
+  }
+
   async calculateBookingChangeFee(
     bookingId: string,
     newDate: string,
@@ -708,6 +870,26 @@ export class BookingOrchestrationService {
       throw new BadRequestError("Invalid date format");
     }
     return fareService.calculateChangeFee(booking, parsedDate);
+  }
+
+  async calculateBookingChangeFeeWithFlight(
+    bookingId: string,
+    newFlightId: string,
+  ): Promise<ChangeFeeQuote> {
+    const booking = await this.bookingRepo.findOne({
+      where: { id: bookingId },
+      relations: ["flight"],
+    });
+    if (!booking) {
+      throw new BadRequestError("Booking not found");
+    }
+    const flightRepo = AppDataSource.getRepository(Flight);
+    const newFlight = await flightRepo.findOne({ where: { id: newFlightId } });
+    if (!newFlight) {
+      throw new BadRequestError("New flight not found");
+    }
+    const fareService = new FareRulesService();
+    return fareService.calculateChangeFee(booking, newFlight.departureTime, newFlight);
   }
 
   async calculateBookingCancellationRefund(
@@ -730,6 +912,7 @@ export class BookingOrchestrationService {
     success: boolean;
     refund: CancellationRefund;
     message: string;
+    policy?: CancelPolicyDecision;
   }> {
     const booking = await this.bookingRepo.findOne({
       where: { id: bookingId },
@@ -739,8 +922,22 @@ export class BookingOrchestrationService {
       throw new BadRequestError("Booking not found");
     }
 
-    if (booking.status === "refunded") {
-      throw new BadRequestError("Booking has already been refunded");
+    // #785: the cancel policy engine owns which states may cancel, and how.
+    const policy = resolveCancelPolicyDecision(booking.status);
+
+    if (policy.action === "already_refund_cancelled") {
+      const fareService = new FareRulesService();
+      const refund = fareService.calculateCancellationRefund(booking);
+      return {
+        success: true,
+        refund,
+        message: "Booking has already been cancelled and refunded",
+        policy,
+      };
+    }
+
+    if (policy.action === "reject") {
+      throw new ConflictError(`Booking cannot be cancelled: ${policy.reason}`);
     }
 
     const fareService = new FareRulesService();
@@ -751,6 +948,7 @@ export class BookingOrchestrationService {
         success: false,
         refund,
         message: "Booking is not eligible for cancellation refund",
+        policy,
       };
     }
 
@@ -766,6 +964,7 @@ export class BookingOrchestrationService {
       success: true,
       refund,
       message: `Booking cancelled. Refund of $${(refund.netRefundCents / 100).toFixed(2)} processed`,
+      policy,
     };
   }
 
@@ -933,6 +1132,37 @@ export class BookingOrchestrationService {
       nameChangeHistory.set(key, []);
     }
     nameChangeHistory.get(key)!.push(entry);
+  }
+
+  async createGroupBooking(params: {
+    groupName: string;
+    flightId: string;
+    organizerEmail: string;
+    memberEmails: string[];
+    splitMethod: 'equal' | 'custom' | 'percentage';
+    corporateAccountId?: string;
+    costCenter?: string;
+    department?: string;
+    bookingPolicyId?: string;
+  }): Promise<GroupBooking> {
+    const groupService = GroupBookingService.getInstance();
+    return groupService.createGroupBooking({
+      ...params,
+      organizerWalletAddress: undefined,
+    });
+  }
+
+  async groupCheckIn(
+    groupBookingId: string,
+    seatAllocations?: Record<string, string>,
+  ): Promise<{ checkedIn: number; errors: string[] }> {
+    const groupService = GroupBookingService.getInstance();
+    return groupService.checkInAllMembers(groupBookingId, seatAllocations);
+  }
+
+  async getGroupBooking(groupBookingId: string): Promise<GroupBooking | null> {
+    const groupService = GroupBookingService.getInstance();
+    return groupService.getGroupBooking(groupBookingId);
   }
 }
 

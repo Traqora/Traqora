@@ -1,14 +1,16 @@
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Symbol};
+pub mod time;
+
 use airline::{AirlineContract, AirlineContractClient};
 use booking::{BookingContract, BookingContractClient};
+use booking_receipt::{BookingReceiptContract, BookingReceiptContractClient};
 use governance::{GovernanceContract, GovernanceContractClient};
 use loyalty::{LoyaltyContract, LoyaltyContractClient};
 use refund::{RefundContract, RefundContractClient};
-use refund_automation::{
-    RefundAutomationContract,
-    RefundAutomationContractClient,
-};
+use refund_automation::{RefundAutomationContract, RefundAutomationContractClient};
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Symbol};
 use token::{TRQTokenContract, TRQTokenContractClient};
+
+pub mod snapshot_review;
 
 pub struct Contracts<'a> {
     pub token: TRQTokenContractClient<'a>,
@@ -18,6 +20,7 @@ pub struct Contracts<'a> {
     pub governance: GovernanceContractClient<'a>,
     pub refund: RefundContractClient<'a>,
     pub refund_automation: RefundAutomationContractClient<'a>,
+    pub booking_receipt: BookingReceiptContractClient<'a>,
 }
 
 pub struct Actors {
@@ -48,6 +51,7 @@ pub fn register_contracts<'a>(env: &'a Env) -> Contracts<'a> {
     let governance_id = env.register(GovernanceContract, ());
     let refund_id = env.register(RefundContract, ());
     let refund_automation_id = env.register(RefundAutomationContract, ());
+    let booking_receipt_id = env.register(BookingReceiptContract, ());
 
     Contracts {
         token: TRQTokenContractClient::new(env, &token_id),
@@ -57,6 +61,7 @@ pub fn register_contracts<'a>(env: &'a Env) -> Contracts<'a> {
         governance: GovernanceContractClient::new(env, &governance_id),
         refund: RefundContractClient::new(env, &refund_id),
         refund_automation: RefundAutomationContractClient::new(env, &refund_automation_id),
+        booking_receipt: BookingReceiptContractClient::new(env, &booking_receipt_id),
     }
 }
 

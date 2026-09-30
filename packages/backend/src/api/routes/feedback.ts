@@ -5,6 +5,7 @@ import { FeedbackService } from '../../services/feedbackService';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { requireAdmin } from '../../middleware/adminAuth';
 import { BadRequestError, UnauthorizedError } from '../../utils/errors';
+import { createPaginationMeta } from '../../types/pagination';
 
 const router = Router();
 const feedbackService = FeedbackService.getInstance();
@@ -39,8 +40,8 @@ const listQuerySchema = z.object({
   userId: z.string().min(1).optional(),
   status: z.enum(['pending', 'approved', 'rejected', 'flagged']).optional(),
   minRating: z.coerce.number().int().min(1).max(5).optional(),
-  page: z.coerce.number().int().positive().optional(),
-  limit: z.coerce.number().int().positive().max(100).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
 const moderateSchema = z.object({
@@ -50,11 +51,6 @@ const moderateSchema = z.object({
 
 const voteSchema = z.object({
   value: z.enum(['helpful', 'unhelpful']),
-});
-
-const paginationSchema = z.object({
-  page: z.coerce.number().int().positive().optional(),
-  limit: z.coerce.number().int().positive().max(100).optional(),
 });
 
 function requireUserId(req: Request): string {
@@ -74,11 +70,15 @@ router.get(
     const parsed = listQuerySchema.safeParse(req.query);
     if (!parsed.success) throw new BadRequestError('Validation error', parsed.error.flatten());
 
+    const { page, limit, ...filters } = parsed.data;
     const result = await feedbackService.listFeedback({
-      ...parsed.data,
+      ...filters,
       status: 'approved',
+      page,
+      limit,
     });
-    return res.json({ success: true, data: result });
+    const pagination = createPaginationMeta(page, limit, result.total);
+    return res.json({ success: true, data: result.items, pagination });
   }),
 );
 
@@ -110,11 +110,13 @@ router.get(
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const userId = requireUserId(req);
-    const parsed = paginationSchema.safeParse(req.query);
+    const parsed = listQuerySchema.safeParse(req.query);
     if (!parsed.success) throw new BadRequestError('Validation error', parsed.error.flatten());
 
-    const result = await feedbackService.listFeedback({ ...parsed.data, userId });
-    return res.json({ success: true, data: result });
+    const { page, limit, ...filters } = parsed.data;
+    const result = await feedbackService.listFeedback({ ...filters, userId, page, limit });
+    const pagination = createPaginationMeta(page, limit, result.total);
+    return res.json({ success: true, data: result.items, pagination });
   }),
 );
 
@@ -125,14 +127,13 @@ router.get(
   '/moderation/queue',
   requireAdmin,
   asyncHandler(async (req: Request, res: Response) => {
-    const parsed = paginationSchema.safeParse(req.query);
+    const parsed = listQuerySchema.safeParse(req.query);
     if (!parsed.success) throw new BadRequestError('Validation error', parsed.error.flatten());
 
-    const queue = await feedbackService.getModerationQueue(
-      parsed.data.page,
-      parsed.data.limit,
-    );
-    return res.json({ success: true, data: queue });
+    const { page, limit } = parsed.data;
+    const queue = await feedbackService.getModerationQueue(page, limit);
+    const pagination = createPaginationMeta(page, limit, queue.total);
+    return res.json({ success: true, data: queue.items, pagination });
   }),
 );
 

@@ -1,6 +1,5 @@
 use soroban_sdk::{testutils::Ledger, Symbol};
 
-
 use integration_tests::{generate_actors, initialize_token, new_env, register_contracts};
 
 #[test]
@@ -12,9 +11,11 @@ fn test_cancel_booking_full_refund_over_72_hours() {
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
 
-    contracts
-        .refund_automation
-        .initialize(&actors.admin, &contracts.booking.address);
+    contracts.refund_automation.initialize(
+        &actors.admin,
+        &contracts.booking.address,
+        &contracts.refund.address,
+    );
 
     let price = 100_0000000i128;
     let departure = env.ledger().timestamp() + (73 * 60 * 60);
@@ -30,13 +31,17 @@ fn test_cancel_booking_full_refund_over_72_hours() {
         &contracts.token.address,
     );
 
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_numeric_id);
 
     let booking_symbol = Symbol::new(&env, "BKFULL1");
-    contracts
-        .refund_automation
-        .register_booking(&actors.admin, &booking_symbol, &booking_numeric_id);
+    contracts.refund_automation.register_booking(
+        &actors.admin,
+        &booking_symbol,
+        &booking_numeric_id,
+    );
 
     let result = contracts
         .refund_automation
@@ -55,6 +60,73 @@ fn test_cancel_booking_full_refund_over_72_hours() {
 }
 
 #[test]
+fn test_refund_automation_idempotency_and_replay_after_retry() {
+    let env = new_env();
+    env.ledger().set_timestamp(1_700_500_000);
+
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    contracts.refund_automation.initialize(
+        &actors.admin,
+        &contracts.booking.address,
+        &contracts.refund.address,
+    );
+
+    let price = 200_0000000i128;
+    let departure = env.ledger().timestamp() + (75 * 60 * 60);
+
+    let booking_numeric_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FLIDEM"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &departure,
+        &price,
+        &contracts.token.address,
+    );
+
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
+    contracts.booking.pay_for_booking(&booking_numeric_id);
+
+    let booking_symbol = Symbol::new(&env, "BKIDEM1");
+    contracts.refund_automation.register_booking(
+        &actors.admin,
+        &booking_symbol,
+        &booking_numeric_id,
+    );
+
+    // First invocation: processes the full refund successfully
+    let first_result = contracts
+        .refund_automation
+        .cancel_booking(&booking_symbol, &actors.passenger);
+
+    assert_eq!(first_result.tier, Symbol::new(&env, "full"));
+    assert_eq!(first_result.passenger_refund, price);
+    assert_eq!(contracts.token.balance_of(&actors.passenger), price);
+
+    // Second invocation (retry / replay with same booking symbol / job id): should be idempotent and safe
+    let second_result = contracts
+        .refund_automation
+        .cancel_booking(&booking_symbol, &actors.passenger);
+
+    assert_eq!(second_result.tier, Symbol::new(&env, "full"));
+    assert_eq!(second_result.passenger_refund, price);
+
+    // Verify funds were not double-transferred (passenger balance remains exactly `price`, not doubled)
+    assert_eq!(contracts.token.balance_of(&actors.passenger), price);
+    assert_eq!(contracts.token.balance_of(&actors.airline), 0);
+    assert_eq!(contracts.token.balance_of(&contracts.booking.address), 0);
+
+    let booking = contracts.booking.get_booking(&booking_numeric_id).unwrap();
+    assert_eq!(booking.status, Symbol::new(&env, "cancelled"));
+}
+
+#[test]
 fn test_cancel_booking_partial_refund_between_24_and_72_hours() {
     let env = new_env();
     env.ledger().set_timestamp(1_700_100_000);
@@ -63,9 +135,11 @@ fn test_cancel_booking_partial_refund_between_24_and_72_hours() {
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
 
-    contracts
-        .refund_automation
-        .initialize(&actors.admin, &contracts.booking.address);
+    contracts.refund_automation.initialize(
+        &actors.admin,
+        &contracts.booking.address,
+        &contracts.refund.address,
+    );
 
     let price = 100_0000000i128;
     let departure = env.ledger().timestamp() + (48 * 60 * 60);
@@ -81,13 +155,17 @@ fn test_cancel_booking_partial_refund_between_24_and_72_hours() {
         &contracts.token.address,
     );
 
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_numeric_id);
 
     let booking_symbol = Symbol::new(&env, "BKPART1");
-    contracts
-        .refund_automation
-        .register_booking(&actors.admin, &booking_symbol, &booking_numeric_id);
+    contracts.refund_automation.register_booking(
+        &actors.admin,
+        &booking_symbol,
+        &booking_numeric_id,
+    );
 
     let result = contracts
         .refund_automation
@@ -111,9 +189,11 @@ fn test_cancel_booking_no_refund_below_24_hours() {
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
 
-    contracts
-        .refund_automation
-        .initialize(&actors.admin, &contracts.booking.address);
+    contracts.refund_automation.initialize(
+        &actors.admin,
+        &contracts.booking.address,
+        &contracts.refund.address,
+    );
 
     let price = 100_0000000i128;
     let departure = env.ledger().timestamp() + (10 * 60 * 60);
@@ -129,13 +209,17 @@ fn test_cancel_booking_no_refund_below_24_hours() {
         &contracts.token.address,
     );
 
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_numeric_id);
 
     let booking_symbol = Symbol::new(&env, "BKNONE1");
-    contracts
-        .refund_automation
-        .register_booking(&actors.admin, &booking_symbol, &booking_numeric_id);
+    contracts.refund_automation.register_booking(
+        &actors.admin,
+        &booking_symbol,
+        &booking_numeric_id,
+    );
 
     let result = contracts
         .refund_automation
@@ -160,9 +244,11 @@ fn test_cancel_booking_prevents_double_cancellation() {
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
 
-    contracts
-        .refund_automation
-        .initialize(&actors.admin, &contracts.booking.address);
+    contracts.refund_automation.initialize(
+        &actors.admin,
+        &contracts.booking.address,
+        &contracts.refund.address,
+    );
 
     let price = 100_0000000i128;
     let departure = env.ledger().timestamp() + (80 * 60 * 60);
@@ -178,13 +264,17 @@ fn test_cancel_booking_prevents_double_cancellation() {
         &contracts.token.address,
     );
 
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_numeric_id);
 
     let booking_symbol = Symbol::new(&env, "BKGUARD");
-    contracts
-        .refund_automation
-        .register_booking(&actors.admin, &booking_symbol, &booking_numeric_id);
+    contracts.refund_automation.register_booking(
+        &actors.admin,
+        &booking_symbol,
+        &booking_numeric_id,
+    );
 
     contracts
         .refund_automation
