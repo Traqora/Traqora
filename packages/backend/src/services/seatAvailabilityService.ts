@@ -268,6 +268,22 @@ export class SeatAvailabilityService {
     return hold;
   }
 
+  /** Return active holds without exposing mutable internal seat arrays. */
+  getActiveGroupSeatHolds(flightId: string, asOf: Date = new Date()): GroupSeatHold[] {
+    const holds = groupSeatHolds.get(flightId);
+    if (!holds) return [];
+
+    for (const hold of Array.from(holds.values())) {
+      if (hold.expiresAt <= asOf) {
+        void this.releaseGroupSeatHold(flightId, hold.groupBookingId);
+      }
+    }
+
+    return Array.from(groupSeatHolds.get(flightId)?.values() ?? [])
+      .filter((hold) => hold.expiresAt > asOf)
+      .map((hold) => ({ ...hold, seats: [...hold.seats] }));
+  }
+
   /**
    * Lock a seat (temporary reservation, expires after 15 minutes)
    */

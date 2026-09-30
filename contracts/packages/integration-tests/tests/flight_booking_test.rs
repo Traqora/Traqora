@@ -159,7 +159,12 @@ fn test_capacity_overflow_zero_amount_rejected() {
     let passenger = Address::generate(&env);
     let contract_id = env.register(FlightBookingContract, ());
     let client = FlightBookingContractClient::new(&env, &contract_id);
-    client.reserve_seat(&passenger, &Symbol::new(&env, "FLCAP"), &Symbol::new(&env, "1A"), &0);
+    client.reserve_seat(
+        &passenger,
+        &Symbol::new(&env, "FLCAP"),
+        &Symbol::new(&env, "1A"),
+        &0,
+    );
 }
 
 #[test]
@@ -170,7 +175,12 @@ fn test_capacity_overflow_negative_amount_rejected() {
     let passenger = Address::generate(&env);
     let contract_id = env.register(FlightBookingContract, ());
     let client = FlightBookingContractClient::new(&env, &contract_id);
-    client.reserve_seat(&passenger, &Symbol::new(&env, "FLCAP"), &Symbol::new(&env, "1B"), &-1);
+    client.reserve_seat(
+        &passenger,
+        &Symbol::new(&env, "FLCAP"),
+        &Symbol::new(&env, "1B"),
+        &-1,
+    );
 }
 
 #[test]

@@ -1,4 +1,7 @@
 #![no_std]
+// Registry entrypoints legitimately need many arguments; the soroban
+// macro-generated client re-declares these signatures too.
+#![allow(clippy::too_many_arguments)]
 use access::{AccessControl, Role};
 use contract_events::{Action, Domain};
 use soroban_sdk::{
