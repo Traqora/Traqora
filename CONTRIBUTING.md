@@ -87,28 +87,28 @@ convenience wrappers around it. Full reference:
 
 Ensure coverage exceeds 90% across contract crates before merging.
 
-## 🔍 CONTRIBUTING.md Lint
+## 🔍 CONTRIBUTING.md & PR Template Linter
 
-This file is validated by an automated linter that checks structure and correctness. Run it locally before submitting changes to this file:
+These files are validated by automated linters that check structure, links, and script references. Run them locally before submitting PRs or modifying templates:
 
 ```bash
 npm run lint:contributing
+npm run lint:pr-template
 ```
 
-The linter validates:
+The PR template linter validates:
 
 | Rule | Severity | Description |
 |------|----------|-------------|
-| `required-sections` | error | All required sections (Ways to Contribute, Pull Request, Code Guidelines, Testing) must be present |
+| `required-sections` | error | Mandatory PR template sections (Summary, Type of Change, Related Issues, Checklist, Testing) must be present |
+| `valid-repo-links` | error | Relative links in the PR template must point to existing repository files (e.g. `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`) |
+| `no-placeholder-links` | error | Links must not contain placeholder paths or `file://` URLs |
 | `fenced-code-balance` | error | Every ` ``` ` open must have a matching close |
-| `fenced-code-lang` | warning | Fenced code blocks should specify a language |
-| `no-broken-links` | error | `file://` links must not contain placeholder paths |
-| `command-reference` | error | `npm run <script>` commands must reference scripts that exist in package.json |
-| `no-trailing-whitespace` | warning | Lines should not have trailing whitespace |
-| `max-line-length` | warning | Prose lines should not exceed 200 characters |
+| `checklist-format` | warning | Task list items must use valid `- [ ]` or `- [x]` syntax |
 
-To run the linter's own regression tests:
+To run the linters' regression tests:
 
 ```bash
 npm run test:contributing
+npm run test:pr-template
 ```
