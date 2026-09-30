@@ -1,4 +1,8 @@
 #![no_std]
+// Booking-style contract entrypoints legitimately need many arguments;
+// soroban macro-generated clients re-declare these signatures.
+#![allow(clippy::too_many_arguments)]
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
 };
@@ -58,7 +62,9 @@ impl ReceiptStorage {
 
     // Receipt-specific storage
     pub fn get_receipt(env: &Env, receipt_id: u64) -> Option<ReceiptMetadata> {
-        env.storage().persistent().get(&(symbol_short!("receipt"), receipt_id))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("receipt"), receipt_id))
     }
 
     pub fn set_receipt(env: &Env, receipt_id: u64, metadata: &ReceiptMetadata) {
@@ -68,7 +74,9 @@ impl ReceiptStorage {
     }
 
     pub fn get_owner(env: &Env, receipt_id: u64) -> Option<Address> {
-        env.storage().persistent().get(&(symbol_short!("owner"), receipt_id))
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("owner"), receipt_id))
     }
 
     pub fn set_owner(env: &Env, receipt_id: u64, owner: &Address) {
@@ -90,9 +98,16 @@ impl ReceiptStorage {
             .set(&(symbol_short!("pass_recs"), passenger), receipts);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn next_id(env: &Env) -> u64 {
-        let id: u64 = env.storage().instance().get(&symbol_short!("next_id")).unwrap_or(1);
-        env.storage().instance().set(&symbol_short!("next_id"), &(id + 1));
+        let id: u64 = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("next_id"))
+            .unwrap_or(1);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("next_id"), &(id + 1));
         id
     }
 }
@@ -120,6 +135,7 @@ impl BookingReceiptContract {
 
     // --- Custom NFT Functions ---
 
+    #[allow(clippy::too_many_arguments)]
     pub fn mint_receipt(
         env: Env,
         to: Address,
@@ -156,8 +172,10 @@ impl BookingReceiptContract {
         passenger_receipts.push_back(receipt_id);
         ReceiptStorage::set_passenger_receipts(&env, &to, &passenger_receipts);
 
-        env.events().publish(
-            (symbol_short!("mint"), symbol_short!("success")),
+        contract_events::emit(
+            &env,
+            Domain::Mint,
+            Action::Success,
             (to, receipt_id, booking_id),
         );
 
@@ -189,7 +207,13 @@ impl BookingReceiptContract {
         0
     }
 
-    pub fn sbt_approve(_env: Env, _from: Address, _spender: Address, _amount: i128, _expiration_ledger: u32) {
+    pub fn sbt_approve(
+        _env: Env,
+        _from: Address,
+        _spender: Address,
+        _amount: i128,
+        _expiration_ledger: u32,
+    ) {
         panic!("Non-transferable soulbound token");
     }
 
@@ -201,7 +225,13 @@ impl BookingReceiptContract {
         panic!("Non-transferable soulbound token");
     }
 
-    pub fn sbt_transfer_from(_env: Env, _spender: Address, _from: Address, _to: Address, _amount: i128) {
+    pub fn sbt_transfer_from(
+        _env: Env,
+        _spender: Address,
+        _from: Address,
+        _to: Address,
+        _amount: i128,
+    ) {
         panic!("Non-transferable soulbound token");
     }
 
@@ -232,4 +262,3 @@ impl BookingReceiptContract {
 
 #[cfg(test)]
 mod test;
-

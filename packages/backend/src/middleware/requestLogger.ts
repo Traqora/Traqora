@@ -1,7 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { logger, asyncLocalStorage } from '../utils/logger';
+import { isSensitiveKey, redactValue, REDACTED } from '../utils/structuredLogger';
 
+/**
+ * Substring list of the redacted key names. Canonical definition lives in
+ * `utils/structuredLogger` so the loggers and this middleware cannot drift
+ * (issue #738); re-exported here for existing importers.
+ */
 export const SENSITIVE_KEYS = [
   'authorization',
   'cookie',
@@ -11,38 +17,21 @@ export const SENSITIVE_KEYS = [
   'secret',
   'api_key',
   'apikey',
+  'api-key',
   'jwt',
   'refresh_token',
 ];
 
-const redactValue = (value: unknown) => {
-  if (value === undefined || value === null) return value;
-  return '[REDACTED]';
-};
-
 export const sanitizeObject = (value: unknown): unknown => {
   if (!value || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map(sanitizeObject);
-
-  const record = value as Record<string, unknown>;
-  const sanitized: Record<string, unknown> = {};
-  for (const [key, val] of Object.entries(record)) {
-    const lowerKey = key.toLowerCase();
-    if (SENSITIVE_KEYS.some((sensitive) => lowerKey.includes(sensitive))) {
-      sanitized[key] = redactValue(val);
-    } else {
-      sanitized[key] = sanitizeObject(val);
-    }
-  }
-  return sanitized;
+  return redactValue(value);
 };
 
 const sanitizeHeaders = (headers: Request['headers']) => {
   const sanitized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(headers)) {
-    const lowerKey = key.toLowerCase();
-    if (SENSITIVE_KEYS.some((sensitive) => lowerKey.includes(sensitive))) {
-      sanitized[key] = '[REDACTED]';
+    if (isSensitiveKey(key)) {
+      sanitized[key] = REDACTED;
     } else {
       sanitized[key] = value;
     }
@@ -52,12 +41,14 @@ const sanitizeHeaders = (headers: Request['headers']) => {
 
 export const requestLogger = (req: Request, res: Response, next: NextFunction) => {
   const correlationId = (req.headers['x-correlation-id'] as string) || uuidv4();
+  const requestId = correlationId;
   const store = new Map<string, string>();
   store.set('correlationId', correlationId);
+  store.set('requestId', requestId);
 
   asyncLocalStorage.run(store, () => {
     const start = process.hrtime.bigint();
-    res.locals.requestId = correlationId;
+    res.locals.requestId = requestId;
 
     const requestSnapshot = {
       method: req.method,
@@ -83,7 +74,8 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction) =
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
       const payload: Record<string, unknown> = {
-        requestId: correlationId,
+        requestId,
+        correlationId,
         statusCode: res.statusCode,
         durationMs,
         request: requestSnapshot,

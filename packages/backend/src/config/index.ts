@@ -1,4 +1,5 @@
 import { configSchema, Config } from './schema';
+import { DEFAULT_TRACING_SAMPLER } from './tracing-samplers';
 import { SecretManager } from '../services/secret-manager.service';
 import { logger } from '../utils/logger';
 
@@ -23,21 +24,14 @@ const parseInteger = (value: string | undefined, fallback: number): number => {
   return Math.trunc(parseNumber(value, fallback));
 };
 
-const getSafeEnvString = (key: string, minLength: number, fallback: string): string => {
-  const val = process.env[key];
-  if (!val) return fallback;
-  if (val.length >= minLength) return val;
-  return val.padEnd(minLength, 'a');
-};
-
-const readConfigFromEnv = () => {
+const readConfigFromEnv = (): Config => {
   const nodeEnv = process.env.NODE_ENV || 'development';
   const otlpEndpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
     || (process.env.OTEL_EXPORTER_OTLP_ENDPOINT
       ? `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT.replace(/\/$/, '')}/v1/traces`
       : undefined);
 
-  return {
+  const rawConfig = {
     port: parseInteger(process.env.PORT, 3001),
     environment: nodeEnv,
     corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
@@ -63,13 +57,13 @@ const readConfigFromEnv = () => {
     redisClusterNodes: process.env.REDIS_CLUSTER_NODES || undefined,
     mongoUrl: process.env.MONGO_URI,
 
-    jwtSecret: getSafeEnvString('JWT_SECRET', 32, 'your-secret-key-change-in-production-at-least-32-chars'),
+    jwtSecret: process.env.JWT_SECRET || 'your-secret-key-change-in-production-at-least-32-chars',
     jwtExpiresIn: process.env.JWT_EXPIRES_IN || '1h',
-    jwtRefreshSecret: getSafeEnvString('JWT_REFRESH_SECRET', 32, 'your-refresh-secret-change-in-production-at-least-32-chars'),
+    jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-change-in-production-at-least-32-chars',
     jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
 
-    adminApiKey: getSafeEnvString('ADMIN_API_KEY', 12, nodeEnv === 'test' ? 'dev-admin-key' : 'dev-admin-key-at-least-16-chars'),
-    encryptionKey: getSafeEnvString('ENCRYPTION_KEY', 32, 'dev-encryption-key-at-least-32-chars-long'),
+    adminApiKey: process.env.ADMIN_API_KEY || (nodeEnv === 'test' ? 'dev-admin-key' : 'dev-admin-key-at-least-16-chars'),
+    encryptionKey: process.env.ENCRYPTION_KEY || 'dev-encryption-key-at-least-32-chars-long',
 
     logLevel: process.env.LOG_LEVEL || 'info',
     auditLogEnabled: parseBool(process.env.AUDIT_LOG_ENABLED, false),
@@ -81,6 +75,7 @@ const readConfigFromEnv = () => {
     otlpTraceUrl: process.env.OTLP_TRACE_URL || otlpEndpoint || 'http://localhost:4318/v1/traces',
     otlpTraceHeaders: process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS || process.env.OTEL_EXPORTER_OTLP_HEADERS,
     tracingSampleRate: parseNumber(process.env.OTEL_TRACES_SAMPLER_ARG || process.env.TRACING_SAMPLE_RATE, 1),
+    tracingSampler: process.env.OTEL_TRACES_SAMPLER || DEFAULT_TRACING_SAMPLER,
 
     sentryDsn: process.env.SENTRY_DSN,
     sentryTracesSampleRate: parseNumber(process.env.SENTRY_TRACES_SAMPLE_RATE, 0.1),
@@ -98,8 +93,20 @@ const readConfigFromEnv = () => {
     captchaAfterViolations: parseInteger(process.env.CAPTCHA_AFTER_VIOLATIONS, 3),
     useCloudflareHeaders: parseBool(process.env.USE_CLOUDFLARE_HEADERS, false),
 
+    rateLimitFreePerMin: parseInteger(process.env.RATE_LIMIT_FREE_PER_MIN, 100),
+    rateLimitFreePerHr: parseInteger(process.env.RATE_LIMIT_FREE_PER_HR, 1000),
+    rateLimitFreeBurst: parseInteger(process.env.RATE_LIMIT_FREE_PER_BURST, 20),
+    rateLimitProPerMin: parseInteger(process.env.RATE_LIMIT_PRO_PER_MIN, 500),
+    rateLimitProPerHr: parseInteger(process.env.RATE_LIMIT_PRO_PER_HR, 5000),
+    rateLimitProBurst: parseInteger(process.env.RATE_LIMIT_PRO_PER_BURST, 100),
+    rateLimitEntPerMin: parseInteger(process.env.RATE_LIMIT_ENT_PER_MIN, 2000),
+    rateLimitEntPerHr: parseInteger(process.env.RATE_LIMIT_ENT_PER_HR, 20000),
+    rateLimitEntBurst: parseInteger(process.env.RATE_LIMIT_ENT_PER_BURST, 400),
+
     flightSearchCacheTtlSeconds: parseInteger(process.env.FLIGHT_SEARCH_CACHE_TTL_SECONDS, 300),
     flightRegistryCacheTtlSeconds: parseInteger(process.env.FLIGHT_REGISTRY_CACHE_TTL_SECONDS, 60),
+    apiResponseCacheTtlSeconds: parseInteger(process.env.API_RESPONSE_CACHE_TTL_SECONDS, 60),
+    oracleRateCacheTtlSeconds: parseInteger(process.env.ORACLE_RATE_CACHE_TTL_SECONDS, 60),
 
     sendgridApiKey: process.env.SENDGRID_API_KEY,
     firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT,
@@ -107,11 +114,33 @@ const readConfigFromEnv = () => {
     twilioAuthToken: process.env.TWILIO_AUTH_TOKEN,
     twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER,
 
+    emailProvider: (process.env.EMAIL_PROVIDER as 'smtp' | 'sendgrid' | 'none') || 'none',
+    smtpHost: process.env.SMTP_HOST,
+    smtpPort: parseInteger(process.env.SMTP_PORT, 587),
+    smtpSecure: parseBool(process.env.SMTP_SECURE, false),
+    smtpUser: process.env.SMTP_USER,
+    smtpPassword: process.env.SMTP_PASSWORD,
+    emailFrom: process.env.EMAIL_FROM,
+    smsProvider: (process.env.SMS_PROVIDER as 'twilio' | 'none') || 'none',
+
+    stripeSecretKey: process.env.STRIPE_SECRET_KEY,
+    stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+
     clientId: process.env.AMADEUS_CLIENT_ID,
     clientSecret: process.env.AMADEUS_CLIENT_SECRET,
-    baseUrl: process.env.AMADEUS_BASE_URL,
+    baseUrl: (process.env.AMADEUS_BASE_URL || '') || undefined,
     timeout: parseInteger(process.env.AMADEUS_TIMEOUT_MS, 30000),
+
+    frontendUrl: (process.env.FRONTEND_URL || '') || undefined,
+    xlmUsdRate: parseNumber(process.env.XLM_USD_RATE, 0.12),
+
+    cspReportOnly: parseBool(process.env.CSP_REPORT_ONLY, true),
+
+    qualityScanCron: process.env.QUALITY_SCAN_CRON || '0 2 * * *',
+    archivalJobCron: process.env.ARCHIVAL_JOB_CRON || '0 3 * * *',
   };
+
+  return configSchema.parse(rawConfig);
 };
 
 export const loadConfig = async (): Promise<Config> => {
@@ -120,7 +149,6 @@ export const loadConfig = async (): Promise<Config> => {
   const env = await secretManager.getSecret('NODE_ENV', 'development');
   const isProdOrStaging = env === 'production' || env === 'staging';
 
-  // For production/staging, do not provide insecure defaults for critical security secrets.
   const jwtSecretDefault = isProdOrStaging ? undefined : 'your-secret-key-change-in-production-at-least-32-chars';
   const jwtRefreshSecretDefault = isProdOrStaging ? undefined : 'your-refresh-secret-change-in-production-at-least-32-chars';
   const adminApiKeyDefault = isProdOrStaging ? undefined : 'dev-admin-key-at-least-16-chars';
@@ -144,7 +172,6 @@ export const loadConfig = async (): Promise<Config> => {
     throw error;
   }
 
-  // Reject insecure/dev default credentials in production/staging environments
   if (isProdOrStaging) {
     const insecureKeywords = [
       'change-in-production',
@@ -179,7 +206,7 @@ export const loadConfig = async (): Promise<Config> => {
     trustProxy: (await secretManager.getSecret('TRUST_PROXY', 'false')) === 'true',
 
     stellarNetwork: await secretManager.getSecret('STELLAR_NETWORK', 'testnet'),
-    stellarSecretKey: await secretManager.getSecret('STELLAR_SECRET_KEY', ''),
+    stellarSecretKey: (await secretManager.getSecret('STELLAR_SECRET_KEY', '')) || undefined,
     horizonUrl: await secretManager.getSecret('HORIZON_URL', 'https://horizon-testnet.stellar.org'),
     sorobanRpcUrl: await secretManager.getSecret('SOROBAN_RPC_URL', 'https://soroban-testnet.stellar.org'),
 
@@ -216,6 +243,7 @@ export const loadConfig = async (): Promise<Config> => {
     otlpTraceUrl: await secretManager.getSecret('OTLP_TRACE_URL', 'http://localhost:4318/v1/traces'),
     otlpTraceHeaders: await secretManager.getSecret('OTEL_EXPORTER_OTLP_TRACES_HEADERS', ''),
     tracingSampleRate: parseNumber(await secretManager.getSecret('TRACING_SAMPLE_RATE', '1'), 1),
+    tracingSampler: await secretManager.getSecret('OTEL_TRACES_SAMPLER', DEFAULT_TRACING_SAMPLER),
 
     sentryDsn: await secretManager.getSecret('SENTRY_DSN', ''),
     sentryTracesSampleRate: parseNumber(await secretManager.getSecret('SENTRY_TRACES_SAMPLE_RATE', '0.1'), 0.1),
@@ -233,8 +261,20 @@ export const loadConfig = async (): Promise<Config> => {
     captchaAfterViolations: parseInteger(await secretManager.getSecret('CAPTCHA_AFTER_VIOLATIONS', '3'), 3),
     useCloudflareHeaders: (await secretManager.getSecret('USE_CLOUDFLARE_HEADERS', 'false')) === 'true',
 
+    rateLimitFreePerMin: parseInteger(await secretManager.getSecret('RATE_LIMIT_FREE_PER_MIN', '100'), 100),
+    rateLimitFreePerHr: parseInteger(await secretManager.getSecret('RATE_LIMIT_FREE_PER_HR', '1000'), 1000),
+    rateLimitFreeBurst: parseInteger(await secretManager.getSecret('RATE_LIMIT_FREE_PER_BURST', '20'), 20),
+    rateLimitProPerMin: parseInteger(await secretManager.getSecret('RATE_LIMIT_PRO_PER_MIN', '500'), 500),
+    rateLimitProPerHr: parseInteger(await secretManager.getSecret('RATE_LIMIT_PRO_PER_HR', '5000'), 5000),
+    rateLimitProBurst: parseInteger(await secretManager.getSecret('RATE_LIMIT_PRO_PER_BURST', '100'), 100),
+    rateLimitEntPerMin: parseInteger(await secretManager.getSecret('RATE_LIMIT_ENT_PER_MIN', '2000'), 2000),
+    rateLimitEntPerHr: parseInteger(await secretManager.getSecret('RATE_LIMIT_ENT_PER_HR', '20000'), 20000),
+    rateLimitEntBurst: parseInteger(await secretManager.getSecret('RATE_LIMIT_ENT_PER_BURST', '400'), 400),
+
     flightSearchCacheTtlSeconds: parseInteger(await secretManager.getSecret('FLIGHT_SEARCH_CACHE_TTL_SECONDS', '300'), 300),
     flightRegistryCacheTtlSeconds: parseInteger(await secretManager.getSecret('FLIGHT_REGISTRY_CACHE_TTL_SECONDS', '60'), 60),
+    apiResponseCacheTtlSeconds: parseInteger(await secretManager.getSecret('API_RESPONSE_CACHE_TTL_SECONDS', '60'), 60),
+    oracleRateCacheTtlSeconds: parseInteger(await secretManager.getSecret('ORACLE_RATE_CACHE_TTL_SECONDS', '60'), 60),
 
     sendgridApiKey: await secretManager.getSecret('SENDGRID_API_KEY', ''),
     firebaseServiceAccount: await secretManager.getSecret('FIREBASE_SERVICE_ACCOUNT', ''),
@@ -242,10 +282,30 @@ export const loadConfig = async (): Promise<Config> => {
     twilioAuthToken: await secretManager.getSecret('TWILIO_AUTH_TOKEN', ''),
     twilioPhoneNumber: await secretManager.getSecret('TWILIO_PHONE_NUMBER', ''),
 
+    emailProvider: ((await secretManager.getSecret('EMAIL_PROVIDER', 'none')) as 'smtp' | 'sendgrid' | 'none') || 'none',
+    smtpHost: await secretManager.getSecret('SMTP_HOST', ''),
+    smtpPort: parseInteger(await secretManager.getSecret('SMTP_PORT', '587'), 587),
+    smtpSecure: parseBool(await secretManager.getSecret('SMTP_SECURE', 'false'), false),
+    smtpUser: await secretManager.getSecret('SMTP_USER', ''),
+    smtpPassword: await secretManager.getSecret('SMTP_PASSWORD', ''),
+    emailFrom: await secretManager.getSecret('EMAIL_FROM', ''),
+    smsProvider: ((await secretManager.getSecret('SMS_PROVIDER', 'none')) as 'twilio' | 'none') || 'none',
+
+    stripeSecretKey: await secretManager.getSecret('STRIPE_SECRET_KEY', ''),
+    stripeWebhookSecret: await secretManager.getSecret('STRIPE_WEBHOOK_SECRET', ''),
+
     clientId: await secretManager.getSecret('AMADEUS_CLIENT_ID', ''),
     clientSecret: await secretManager.getSecret('AMADEUS_CLIENT_SECRET', ''),
     baseUrl: (await secretManager.getSecret('AMADEUS_BASE_URL', '')) || undefined,
     timeout: parseInteger(await secretManager.getSecret('AMADEUS_TIMEOUT_MS', '30000'), 30000),
+
+    frontendUrl: (await secretManager.getSecret('FRONTEND_URL', '')) || undefined,
+    xlmUsdRate: parseNumber(await secretManager.getSecret('XLM_USD_RATE', '0.12'), 0.12),
+
+    cspReportOnly: (await secretManager.getSecret('CSP_REPORT_ONLY', 'true')) === 'true',
+
+    qualityScanCron: await secretManager.getSecret('QUALITY_SCAN_CRON', '0 2 * * *'),
+    archivalJobCron: await secretManager.getSecret('ARCHIVAL_JOB_CRON', '0 3 * * *'),
   };
 
   const result = configSchema.safeParse(rawConfig);
@@ -266,23 +326,25 @@ export const loadConfig = async (): Promise<Config> => {
     logger.info(`Configuration loaded successfully for environment: ${activeConfig.environment}`);
   }
 
-  // Check secret rotation for JWT
   if (activeConfig.environment === 'production') {
     await secretManager.checkSecretRotation('JWT_SECRET', 90);
   }
 
   return activeConfig;
-}
+};
 
 export const getConfig = (): Config => {
   if (!activeConfig) {
-    activeConfig = configSchema.parse(readConfigFromEnv());
+    const env = process.env.NODE_ENV || 'development';
+    if (env === 'production' || env === 'staging') {
+      throw new Error('Configuration has not been loaded. Call loadConfig() before accessing config.');
+    }
+    activeConfig = readConfigFromEnv();
   }
 
   return activeConfig;
 };
 
-// Backward-compatible live config object for existing modules.
 export const config = new Proxy({} as Config, {
   get: (_target, property: string | symbol) => {
     if (typeof property === 'symbol') {

@@ -1,7 +1,7 @@
-"use client";
-
+import { Flight } from './api'
 import { useCallback, useEffect, useState } from "react";
 import type { Flight } from "@/lib/api";
+
 
 export interface CachedBooking {
   id: string;
@@ -52,7 +52,9 @@ interface OfflineData {
 }
 
 const STORAGE_KEY = "traqora_offline_data";
+
 const OFFLINE_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 const SEARCH_CACHE_EXPIRY = 60 * 60 * 1000; // 1 hour - flight prices/availability go stale fast
 
 /**
@@ -188,29 +190,6 @@ function buildSearchKey(query: CachedSearchQuery): string {
 }
 
 /**
- * Cache flight search results for offline access
- */
-export function cacheSearchResults(
-  query: CachedSearchQuery,
-  flights: Flight[],
-): void {
-  const data = getOfflineData();
-  const key = buildSearchKey(query);
-  data.searches[key] = { key, query, flights, cachedAt: Date.now() };
-  saveOfflineData(data);
-}
-
-/**
- * Get cached search results for a query, if available and not expired
- */
-export function getCachedSearchResults(
-  query: CachedSearchQuery,
-): CachedSearchResult | null {
-  const data = getOfflineData();
-  return data.searches[buildSearchKey(query)] || null;
-}
-
-/**
  * Get all cached search results
  */
 export function getAllCachedSearches(): CachedSearchResult[] {
@@ -258,21 +237,6 @@ export function clearPendingSyncs(): void {
   const data = getOfflineData();
   data.pendingSyncs = [];
   saveOfflineData(data);
-}
-
-/**
- * Clear all offline data
- */
-export function clearAllOfflineData(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch (error) {
-    console.error("Failed to clear offline data:", error);
-  }
 }
 
 /**
@@ -427,4 +391,84 @@ function clearOldestData(): void {
   }
 
   saveOfflineData(data);
+}
+export interface FlightStatusCacheItem {
+  flightId: string
+  status: string
+  departure_time: string
+  arrival_time?: string
+  airline?: string
+  from?: string
+  to?: string
+  updatedAt: string
+}
+
+const FLIGHT_STATUS_CACHE_PREFIX = 'traqora_flight_status_cache_'
+const FLIGHT_SEARCH_CACHE_PREFIX = 'traqora_flight_search_cache_'
+
+export function cacheFlightStatus(flightId: string, statusData: Partial<FlightStatusCacheItem>): void {
+  if (typeof window === 'undefined') return
+  try {
+    const key = `${FLIGHT_STATUS_CACHE_PREFIX}${flightId}`
+    const existing = getCachedFlightStatus(flightId) || {}
+    const merged: FlightStatusCacheItem = {
+      flightId,
+      status: statusData.status || existing.status || 'unknown',
+      departure_time: statusData.departure_time || existing.departure_time || '',
+      arrival_time: statusData.arrival_time || existing.arrival_time,
+      airline: statusData.airline || existing.airline,
+      from: statusData.from || existing.from,
+      to: statusData.to || existing.to,
+      updatedAt: new Date().toISOString(),
+    }
+    localStorage.setItem(key, JSON.stringify(merged))
+  } catch (err) {
+    console.error('Failed to cache flight status', err)
+  }
+}
+
+export function getCachedFlightStatus(flightId: string): FlightStatusCacheItem | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const key = `${FLIGHT_STATUS_CACHE_PREFIX}${flightId}`
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    return JSON.parse(raw) as FlightStatusCacheItem
+  } catch (err) {
+    console.error('Failed to read cached flight status', err)
+    return null
+  }
+}
+
+export function cacheSearchResults(
+  query: CachedSearchQuery,
+  flights: Flight[],
+): void {
+  const data = getOfflineData();
+  const key = buildSearchKey(query);
+  data.searches[key] = { key, query, flights, cachedAt: Date.now() };
+  saveOfflineData(data);
+}
+
+export function getCachedSearchResults(
+  query: CachedSearchQuery,
+): CachedSearchResult | null {
+  const data = getOfflineData();
+  return data.searches[buildSearchKey(query)] || null;
+}
+
+export function clearAllOfflineData(): void {
+  if (typeof window === 'undefined') return
+  try {
+    const keysToRemove: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && (key.startsWith(FLIGHT_STATUS_CACHE_PREFIX) || key.startsWith(FLIGHT_SEARCH_CACHE_PREFIX))) {
+        keysToRemove.push(key)
+      }
+    }
+    keysToRemove.forEach((k) => localStorage.removeItem(k))
+  } catch (err) {
+    console.error('Failed to clear offline data', err)
+  }
 }

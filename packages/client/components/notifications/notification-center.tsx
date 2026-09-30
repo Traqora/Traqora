@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Bell, Trash2, AlertCircle, CheckCircle, Inbox, CheckCheck, RefreshCw } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -11,176 +11,140 @@ import {
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Bell, Trash2, AlertCircle, CheckCircle, Inbox } from "lucide-react";
+import { useNotifications } from "@/hooks/use-notifications";
 
-interface Notification {
-  id: string;
-  title: string;
-  body: string;
-  category: string;
-  read: boolean;
-  readAt?: Date;
-  actionUrl?: string;
-  createdAt: Date;
+const CATEGORY_ICONS: Record<string, string> = {
+  booking: "📅",
+  payment: "💳",
+  itinerary: "✈️",
+  collaboration: "👥",
+  marketing: "📢",
+  system: "⚙️",
+};
+
+function getCategoryIcon(category: string): string {
+  return CATEGORY_ICONS[category] ?? "📬";
 }
 
-interface NotificationStats {
-  total: number;
-  read: number;
-  unread: number;
-  byCategory: Record<string, number>;
+function formatRelativeTime(date: Date | string): string {
+  const d = date instanceof Date ? date : new Date(date);
+  const diff = Date.now() - d.getTime();
+  const minutes = Math.floor(diff / 60_000);
+  const hours = Math.floor(diff / 3_600_000);
+  const days = Math.floor(diff / 86_400_000);
+
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString();
 }
 
 export function NotificationCenter() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [stats, setStats] = useState<NotificationStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    notifications,
+    stats,
+    loading,
+    error,
+    markRead,
+    markAllRead,
+    clearAll,
+    refresh,
+  } = useNotifications();
 
-  useEffect(() => {
-    fetchNotifications();
-    fetchStats();
-    const interval = setInterval(() => {
-      fetchNotifications();
-    }, 30000); // Poll every 30 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchNotifications = async () => {
-    try {
-      const res = await fetch("/api/notifications/inbox");
-      if (!res.ok) throw new Error("Failed to fetch notifications");
-
-      const data = await res.json();
-      setNotifications(data.notifications);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchStats = async () => {
-    try {
-      const res = await fetch("/api/notifications/stats");
-      if (!res.ok) throw new Error("Failed to fetch stats");
-
-      const data = await res.json();
-      setStats(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleMarkRead = async (notificationId: string) => {
-    try {
-      const res = await fetch("/api/notifications/mark-read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notificationId }),
-      });
-
-      if (res.ok) {
-        setNotifications(
-          notifications.map((n) =>
-            n.id === notificationId
-              ? { ...n, read: true, readAt: new Date() }
-              : n,
-          ),
-        );
-        await fetchStats();
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleClear = async () => {
-    try {
-      const res = await fetch("/api/notifications/clear", {
-        method: "POST",
-      });
-
-      if (res.ok) {
-        setNotifications([]);
-        await fetchStats();
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case "booking":
-        return "📅";
-      case "payment":
-        return "💳";
-      case "itinerary":
-        return "✈️";
-      case "collaboration":
-        return "👥";
-      case "marketing":
-        return "📢";
-      case "system":
-        return "⚙️";
-      default:
-        return "📬";
-    }
-  };
+  const unreadCount = stats?.unread ?? notifications.filter((n) => !n.read).length;
 
   if (loading) {
-    return <div className="text-center py-8">Loading notifications...</div>;
+    return (
+      <div className="space-y-3 animate-pulse" aria-label="Loading notifications">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-20 rounded-lg bg-muted" />
+        ))}
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5" />
+              <Bell className="h-5 w-5" aria-hidden="true" />
               Notifications
+              {unreadCount > 0 && (
+                <Badge variant="destructive" className="rounded-full px-2 py-0 text-xs">
+                  {unreadCount}
+                </Badge>
+              )}
             </CardTitle>
             <CardDescription>Your notification inbox</CardDescription>
           </div>
-          {notifications.length > 0 && (
-            <Button variant="outline" size="sm" onClick={handleClear}>
-              <Trash2 className="h-4 w-4 mr-2" />
-              Clear All
+
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={refresh}
+              aria-label="Refresh notifications"
+            >
+              <RefreshCw className="h-4 w-4" />
             </Button>
-          )}
+
+            {unreadCount > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={markAllRead}
+                aria-label="Mark all notifications as read"
+              >
+                <CheckCheck className="h-4 w-4 mr-2" aria-hidden="true" />
+                Mark all read
+              </Button>
+            )}
+
+            {notifications.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={clearAll}
+                aria-label="Clear all notifications"
+              >
+                <Trash2 className="h-4 w-4 mr-2" aria-hidden="true" />
+                Clear all
+              </Button>
+            )}
+          </div>
         </CardHeader>
 
         <CardContent>
           {error && (
-            <div className="flex gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm mb-4">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div
+              role="alert"
+              className="flex gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-sm mb-4"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
               <p>{error}</p>
             </div>
           )}
 
+          {/* Stats summary */}
           {stats && (
-            <div className="grid grid-cols-4 gap-4 mb-6">
-              <div className="p-3 rounded-lg border bg-card">
-                <p className="text-xs text-muted-foreground">Total</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6" aria-label="Notification summary">
+              <div className="p-3 rounded-lg border bg-card text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Total</p>
                 <p className="text-2xl font-bold">{stats.total}</p>
               </div>
-              <div className="p-3 rounded-lg border bg-card">
-                <p className="text-xs text-muted-foreground">Unread</p>
-                <p className="text-2xl font-bold text-primary">
-                  {stats.unread}
-                </p>
+              <div className="p-3 rounded-lg border bg-card text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Unread</p>
+                <p className="text-2xl font-bold text-primary">{stats.unread}</p>
               </div>
-              <div className="p-3 rounded-lg border bg-card">
-                <p className="text-xs text-muted-foreground">Read</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {stats.read}
-                </p>
+              <div className="p-3 rounded-lg border bg-card text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Read</p>
+                <p className="text-2xl font-bold text-green-600">{stats.read}</p>
               </div>
-              <div className="p-3 rounded-lg border bg-card">
-                <p className="text-xs text-muted-foreground">Categories</p>
+              <div className="p-3 rounded-lg border bg-card text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Categories</p>
                 <p className="text-2xl font-bold">
                   {Object.keys(stats.byCategory).length}
                 </p>
@@ -188,23 +152,28 @@ export function NotificationCenter() {
             </div>
           )}
 
+          {/* Notification list */}
           {notifications.length === 0 ? (
-            <div className="text-center py-12">
-              <Inbox className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-              <p className="text-muted-foreground">No notifications yet</p>
+            <div className="text-center py-12" aria-label="No notifications">
+              <Inbox
+                className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50"
+                aria-hidden="true"
+              />
+              <p className="text-muted-foreground">You're all caught up</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <ul className="space-y-3" role="list" aria-label="Notifications">
               {notifications.map((notification) => (
-                <div
+                <li
                   key={notification.id}
                   className={`flex gap-3 p-4 rounded-lg border transition-colors ${
                     notification.read
                       ? "bg-card"
                       : "bg-primary/5 border-primary/20"
                   }`}
+                  aria-label={`${notification.read ? "Read" : "Unread"} notification: ${notification.title}`}
                 >
-                  <Avatar className="h-10 w-10 shrink-0">
+                  <Avatar className="h-10 w-10 shrink-0" aria-hidden="true">
                     <AvatarFallback>
                       {getCategoryIcon(notification.category)}
                     </AvatarFallback>
@@ -212,31 +181,38 @@ export function NotificationCenter() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-sm">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-sm truncate">
                           {notification.title}
                         </h4>
-                        <p className="text-sm text-muted-foreground line-clamp-2">
+                        <p className="text-sm text-muted-foreground line-clamp-2 mt-0.5">
                           {notification.body}
                         </p>
                       </div>
                       {notification.read ? (
-                        <CheckCircle className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
+                        <CheckCircle
+                          className="h-5 w-5 text-green-600 shrink-0 mt-0.5"
+                          aria-label="Read"
+                        />
                       ) : (
-                        <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />
+                        <div
+                          className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0"
+                          aria-label="Unread"
+                        />
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 mt-3">
+                    <div className="flex items-center justify-between gap-2 mt-3 flex-wrap">
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
+                        <Badge variant="outline" className="text-xs capitalize">
                           {notification.category}
                         </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(
-                            notification.createdAt,
-                          ).toLocaleDateString()}
-                        </span>
+                        <time
+                          dateTime={new Date(notification.createdAt).toISOString()}
+                          className="text-xs text-muted-foreground"
+                        >
+                          {formatRelativeTime(notification.createdAt)}
+                        </time>
                       </div>
 
                       <div className="flex gap-2">
@@ -244,8 +220,9 @@ export function NotificationCenter() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleMarkRead(notification.id)}
-                            className="text-xs"
+                            className="text-xs h-7"
+                            onClick={() => markRead(notification.id)}
+                            aria-label={`Mark "${notification.title}" as read`}
                           >
                             Mark as read
                           </Button>
@@ -254,7 +231,7 @@ export function NotificationCenter() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-xs"
+                            className="text-xs h-7"
                             asChild
                           >
                             <a href={notification.actionUrl}>View</a>
@@ -263,9 +240,9 @@ export function NotificationCenter() {
                       </div>
                     </div>
                   </div>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </CardContent>
       </Card>

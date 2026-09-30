@@ -1,4 +1,5 @@
 #![no_std]
+use contract_events::{Action, Domain};
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 #[contracttype]
@@ -67,23 +68,32 @@ impl FlightBookingContract {
         env.storage()
             .persistent()
             .set(&DataKey::Booking(booking_id), &booking);
-        env.storage()
-            .persistent()
-            .set(&seat_key, &booking_id);
+        env.storage().persistent().set(&seat_key, &booking_id);
         env.storage()
             .instance()
             .set(&DataKey::NextId, &(booking_id + 1));
 
-        env.events().publish(
-            (Symbol::new(&env, "BookingCreated"),),
-            (booking_id, created_at, flight_id, seat),
+        contract_events::emit(
+            &env,
+            Domain::Seat,
+            Action::Reserved,
+            (
+                passenger.clone(),
+                created_at,
+                booking_id,
+                flight_id,
+                seat,
+                amount,
+            ),
         );
 
         booking_id
     }
 
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
-        env.storage().persistent().get(&DataKey::Booking(booking_id))
+        env.storage()
+            .persistent()
+            .get(&DataKey::Booking(booking_id))
     }
 
     pub fn init_upgrade_owner(env: Env, owner: Address) {

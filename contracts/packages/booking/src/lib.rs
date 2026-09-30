@@ -1,8 +1,17 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec, token, String, contractclient};
+// Booking-style contract entrypoints legitimately need many arguments;
+// soroban macro-generated clients re-declare these signatures.
+#![allow(clippy::too_many_arguments)]
+use contract_events::{Action, Domain};
+use soroban_sdk::{
+    contract, contractclient, contractimpl, contracttype, symbol_short, token, Address, Env,
+    String, Symbol, Vec,
+};
 
 #[contractclient(name = "BookingReceiptClient")]
+#[allow(clippy::too_many_arguments)]
 pub trait BookingReceiptInterface {
+    #[allow(clippy::too_many_arguments)]
     fn mint_receipt(
         env: Env,
         to: Address,
@@ -14,7 +23,6 @@ pub trait BookingReceiptInterface {
         price: i128,
     ) -> u64;
 }
-
 
 #[contracttype]
 #[derive(Clone)]
@@ -57,7 +65,7 @@ impl BookingStorage {
     pub fn get(env: &Env, booking_id: u64) -> Option<Booking> {
         env.storage().persistent().get(&booking_id)
     }
-    
+
     pub fn set(env: &Env, booking_id: u64, booking: &Booking) {
         env.storage().persistent().set(&booking_id, booking);
     }
@@ -67,7 +75,9 @@ impl BookingStorage {
     }
 
     pub fn set_trusted_oracle(env: &Env, oracle: &Address) {
-        env.storage().instance().set(&symbol_short!("oracle"), oracle);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("oracle"), oracle);
     }
 
     pub fn get_receipt_contract(env: &Env) -> Option<Address> {
@@ -75,12 +85,21 @@ impl BookingStorage {
     }
 
     pub fn set_receipt_contract(env: &Env, contract: &Address) {
-        env.storage().instance().set(&symbol_short!("receipt_c"), contract);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("receipt_c"), contract);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn next_id(env: &Env) -> u64 {
-        let id: u64 = env.storage().instance().get(&symbol_short!("next_id")).unwrap_or(1);
-        env.storage().instance().set(&symbol_short!("next_id"), &(id + 1));
+        let id: u64 = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("next_id"))
+            .unwrap_or(1);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("next_id"), &(id + 1));
         id
     }
 }
@@ -88,14 +107,17 @@ impl BookingStorage {
 #[contract]
 pub struct BookingContract;
 
+#[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl BookingContract {
     // Register the trusted oracle contract address
     pub fn initialize_oracle(env: Env, admin: Address, oracle: Address) {
         admin.require_auth();
         BookingStorage::set_trusted_oracle(&env, &oracle);
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("oracle")),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Oracle,
             (admin, env.ledger().timestamp(), oracle),
         );
     }
@@ -106,7 +128,9 @@ impl BookingContract {
     }
 
     // Initialize booking - starts in "pending" status until paid
-    pub fn create_booking(        env: Env,
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_booking(
+        env: Env,
         passenger: Address,
         airline: Address,
         flight_number: Symbol,
@@ -117,9 +141,9 @@ impl BookingContract {
         token: Address,
     ) -> u64 {
         passenger.require_auth();
-        
+
         let booking_id = BookingStorage::next_id(&env);
-        
+
         let booking = Booking {
             booking_id,
             passenger,
@@ -134,39 +158,50 @@ impl BookingContract {
             status: symbol_short!("pending"),
             created_at: env.ledger().timestamp(),
         };
-        
+
         BookingStorage::set(&env, booking_id, &booking);
 
-        // Standard event schema: (contract, action) -> (actor, timestamp, payload)
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("created")),
-            (booking.passenger.clone(), env.ledger().timestamp(), booking_id, booking.airline.clone(), booking.flight_number.clone(), booking.price),
+        // Canonical schema: (actor, timestamp, primary_id, ...payload)
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Created,
+            (
+                booking.passenger.clone(),
+                env.ledger().timestamp(),
+                booking_id,
+                booking.airline.clone(),
+                booking.flight_number.clone(),
+                booking.price,
+            ),
         );
-        
+
         booking_id
     }
-    
+
     // Accept payment for the booking and hold in escrow
     pub fn pay_for_booking(env: Env, booking_id: u64) {
-        let mut booking = BookingStorage::get(&env, booking_id)
-            .expect("Booking not found");
-        
-        assert!(booking.status == symbol_short!("pending"), "Already paid or cancelled");
-        
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+
+        assert!(
+            booking.status == symbol_short!("pending"),
+            "Already paid or cancelled"
+        );
+
         booking.passenger.require_auth();
-        
+
         let token_client = token::Client::new(&env, &booking.token);
-        
+
         // Transfer tokens from passenger to this contract
         token_client.transfer(
             &booking.passenger,
             &env.current_contract_address(),
             &booking.price,
         );
-        
+
         booking.amount_escrowed = booking.price;
         booking.status = symbol_short!("confirmed");
-        
+
         BookingStorage::set(&env, booking_id, &booking);
 
         if let Some(receipt_contract) = BookingStorage::get_receipt_contract(&env) {
@@ -182,52 +217,64 @@ impl BookingContract {
             );
         }
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("paid")),
-            (booking.passenger.clone(), env.ledger().timestamp(), booking_id, booking.price),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Paid,
+            (
+                booking.passenger.clone(),
+                env.ledger().timestamp(),
+                booking_id,
+                booking.price,
+            ),
         );
     }
-    
+
     // Release payment to airline - post-flight settlement
     pub fn release_payment_to_airline(env: Env, booking_id: u64) {
-        let mut booking = BookingStorage::get(&env, booking_id)
-            .expect("Booking not found");
-        
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+
         booking.airline.require_auth();
-        
+
         assert!(
             booking.status == symbol_short!("confirmed"),
             "Invalid booking status"
         );
         assert!(booking.amount_escrowed > 0, "No funds in escrow");
-        
+
         let token_client = token::Client::new(&env, &booking.token);
-        
+
         token_client.transfer(
             &env.current_contract_address(),
             &booking.airline,
             &booking.amount_escrowed,
         );
-        
+
         let released_amount = booking.amount_escrowed;
         booking.amount_escrowed = 0;
         booking.status = symbol_short!("completed");
-        
+
         BookingStorage::set(&env, booking_id, &booking);
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("released")),
-            (booking.airline.clone(), env.ledger().timestamp(), booking_id, released_amount),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Released,
+            (
+                booking.airline.clone(),
+                env.ledger().timestamp(),
+                booking_id,
+                released_amount,
+            ),
         );
     }
-    
+
     // Refund passenger for cancelled bookings
     pub fn refund_passenger(env: Env, booking_id: u64) {
-        let mut booking = BookingStorage::get(&env, booking_id)
-            .expect("Booking not found");
-        
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+
         let current_time = env.ledger().timestamp();
-        
+
         // For simplicity, require passenger auth and check window
         // In a real app, airline could also trigger this
         booking.passenger.require_auth();
@@ -235,12 +282,13 @@ impl BookingContract {
             current_time < booking.departure_time - 86400,
             "Cancellation window closed"
         );
-        
+
         assert!(
-            booking.status == symbol_short!("confirmed") || booking.status == symbol_short!("pending"),
+            booking.status == symbol_short!("confirmed")
+                || booking.status == symbol_short!("pending"),
             "Booking cannot be refunded"
         );
-        
+
         if booking.amount_escrowed > 0 {
             let token_client = token::Client::new(&env, &booking.token);
             token_client.transfer(
@@ -249,30 +297,37 @@ impl BookingContract {
                 &booking.amount_escrowed,
             );
         }
-        
+
         let refunded_amount = booking.amount_escrowed;
         booking.amount_escrowed = 0;
         booking.status = symbol_short!("refunded");
-        
+
         BookingStorage::set(&env, booking_id, &booking);
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("refunded")),
-            (booking.passenger.clone(), env.ledger().timestamp(), booking_id, refunded_amount),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Refunded,
+            (
+                booking.passenger.clone(),
+                env.ledger().timestamp(),
+                booking_id,
+                refunded_amount,
+            ),
         );
     }
-    
+
     // Helper to get booking details
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
         BookingStorage::get(&env, booking_id)
     }
-    
+
     // Original API wrappers for backward compatibility
     pub fn cancel_booking(env: Env, passenger: Address, booking_id: u64) {
         passenger.require_auth();
         Self::refund_passenger(env, booking_id);
     }
-    
+
     pub fn complete_booking(env: Env, airline: Address, booking_id: u64) {
         airline.require_auth();
         Self::release_payment_to_airline(env, booking_id);
@@ -304,7 +359,8 @@ impl BookingContract {
         );
 
         assert!(
-            booking.status == symbol_short!("confirmed") || booking.status == symbol_short!("pending"),
+            booking.status == symbol_short!("confirmed")
+                || booking.status == symbol_short!("pending"),
             "Invalid booking status"
         );
 
@@ -339,9 +395,17 @@ impl BookingContract {
         booking.status = symbol_short!("cancelled");
         BookingStorage::set(&env, booking_id, &booking);
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("cancelled")),
-            (booking_id, passenger_refund, airline_amount),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Cancelled,
+            (
+                caller,
+                env.ledger().timestamp(),
+                booking_id,
+                passenger_refund,
+                airline_amount,
+            ),
         );
 
         (passenger_refund, airline_amount)
@@ -355,7 +419,7 @@ impl BookingContract {
         booking_ids: Vec<u64>,
     ) -> BatchCompleteBookingsResult {
         airline.require_auth();
-        assert!(booking_ids.len() > 0, "Empty batch");
+        assert!(!booking_ids.is_empty(), "Empty batch");
         assert!(booking_ids.len() <= MAX_BATCH_SIZE, "Batch too large");
 
         let mut completed_booking_ids = Vec::new(&env);
@@ -422,9 +486,16 @@ impl BookingContract {
             BookingStorage::set(&env, booking_id, &booking);
             completed_booking_ids.push_back(booking_id);
 
-            env.events().publish(
-                (symbol_short!("booking"), symbol_short!("released")),
-                (booking.airline.clone(), env.ledger().timestamp(), booking_id, released_amount),
+            contract_events::emit(
+                &env,
+                Domain::Booking,
+                Action::Released,
+                (
+                    booking.airline.clone(),
+                    env.ledger().timestamp(),
+                    booking_id,
+                    released_amount,
+                ),
             );
 
             i += 1;
@@ -443,8 +514,7 @@ impl BookingContract {
         let trusted = BookingStorage::get_trusted_oracle(&env).expect("Oracle not configured");
         assert!(oracle == trusted, "Unauthorized oracle");
 
-        let mut booking = BookingStorage::get(&env, booking_id)
-            .expect("Booking not found");
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
 
         assert!(
             booking.status == symbol_short!("confirmed"),
@@ -464,9 +534,16 @@ impl BookingContract {
         booking.status = symbol_short!("completed");
         BookingStorage::set(&env, booking_id, &booking);
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("released")),
-            (oracle, env.ledger().timestamp(), booking_id, released_amount),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Released,
+            (
+                oracle,
+                env.ledger().timestamp(),
+                booking_id,
+                released_amount,
+            ),
         );
     }
 
@@ -476,11 +553,11 @@ impl BookingContract {
         let trusted = BookingStorage::get_trusted_oracle(&env).expect("Oracle not configured");
         assert!(oracle == trusted, "Unauthorized oracle");
 
-        let mut booking = BookingStorage::get(&env, booking_id)
-            .expect("Booking not found");
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
 
         assert!(
-            booking.status == symbol_short!("confirmed") || booking.status == symbol_short!("pending"),
+            booking.status == symbol_short!("confirmed")
+                || booking.status == symbol_short!("pending"),
             "Booking cannot be refunded"
         );
 
@@ -498,9 +575,16 @@ impl BookingContract {
         booking.status = symbol_short!("refunded");
         BookingStorage::set(&env, booking_id, &booking);
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("refunded")),
-            (oracle, env.ledger().timestamp(), booking_id, refunded_amount),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Refunded,
+            (
+                oracle,
+                env.ledger().timestamp(),
+                booking_id,
+                refunded_amount,
+            ),
         );
     }
 }

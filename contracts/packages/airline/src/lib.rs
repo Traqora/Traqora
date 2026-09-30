@@ -1,5 +1,9 @@
 #![no_std]
+// Booking-style contract entrypoints legitimately need many arguments;
+// soroban macro-generated clients re-declare these signatures.
+#![allow(clippy::too_many_arguments)]
 use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol, Vec,
 };
@@ -184,6 +188,7 @@ impl PricingStorage {
             .unwrap_or(vec![env])
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn set_price_history(env: &Env, flight_id: u64, history: &Vec<PriceHistoryEntry>) {
         env.storage()
             .persistent()
@@ -240,8 +245,10 @@ impl AirlineContract {
 
         PricingStorage::set_config(&env, &cfg);
 
-        env.events().publish(
-            (symbol_short!("pricing"), symbol_short!("init")),
+        contract_events::emit(
+            &env,
+            Domain::Pricing,
+            Action::Init,
             (admin, oracle, max_change_bps, cooldown_secs),
         );
     }
@@ -257,10 +264,7 @@ impl AirlineContract {
         cfg.oracle = oracle.clone();
         PricingStorage::set_config(&env, &cfg);
 
-        env.events().publish(
-            (symbol_short!("pricing"), symbol_short!("oracle")),
-            (admin, oracle),
-        );
+        contract_events::emit(&env, Domain::Pricing, Action::Oracle, (admin, oracle));
     }
 
     // Register new airline
@@ -279,8 +283,7 @@ impl AirlineContract {
 
         AirlineRegistry::set_airline(&env, &airline, &profile);
 
-        env.events()
-            .publish((symbol_short!("airline"), symbol_short!("reg")), airline);
+        contract_events::emit(&env, Domain::Airline, Action::Reg, airline);
 
         true
     }
@@ -294,13 +297,11 @@ impl AirlineContract {
         profile.is_verified = true;
         AirlineRegistry::set_airline(&env, &airline, &profile);
 
-        env.events().publish(
-            (symbol_short!("airline"), symbol_short!("verified")),
-            airline,
-        );
+        contract_events::emit(&env, Domain::Airline, Action::Verified, airline);
     }
 
     // Create new flight listing
+    #[allow(clippy::too_many_arguments)]
     pub fn create_flight(
         env: Env,
         airline: Address,
@@ -344,10 +345,7 @@ impl AirlineContract {
         profile.total_flights += 1;
         AirlineRegistry::set_airline(&env, &airline, &profile);
 
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("created")),
-            flight_id,
-        );
+        contract_events::emit(&env, Domain::Flight, Action::Created, flight_id);
 
         flight_id
     }
@@ -384,10 +382,7 @@ impl AirlineContract {
         flight.status = symbol_short!("cancelled");
         AirlineRegistry::set_flight(&env, flight_id, &flight);
 
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("cancelled")),
-            flight_id,
-        );
+        contract_events::emit(&env, Domain::Flight, Action::Cancelled, flight_id);
     }
 
     // Batch create flights with per-item validation and partial failure handling.
@@ -399,7 +394,7 @@ impl AirlineContract {
         flights: Vec<FlightInput>,
     ) -> BatchCreateFlightsResult {
         airline.require_auth();
-        assert!(flights.len() > 0, "Empty batch");
+        assert!(!flights.is_empty(), "Empty batch");
         assert!(flights.len() <= MAX_BATCH_SIZE, "Batch too large");
 
         let mut profile =
@@ -441,10 +436,7 @@ impl AirlineContract {
             AirlineRegistry::set_flight(&env, flight_id, &flight);
             created_flight_ids.push_back(flight_id);
 
-            env.events().publish(
-                (symbol_short!("flight"), symbol_short!("created")),
-                flight_id,
-            );
+            contract_events::emit(&env, Domain::Flight, Action::Created, flight_id);
 
             i += 1;
         }
@@ -467,7 +459,7 @@ impl AirlineContract {
         updates: Vec<FlightStatusUpdate>,
     ) -> BatchUpdateFlightStatusResult {
         airline.require_auth();
-        assert!(updates.len() > 0, "Empty batch");
+        assert!(!updates.is_empty(), "Empty batch");
         assert!(updates.len() <= MAX_BATCH_SIZE, "Batch too large");
 
         let mut updated_flight_ids = Vec::new(&env);
@@ -513,10 +505,7 @@ impl AirlineContract {
             AirlineRegistry::set_flight(&env, update.flight_id, &flight);
             updated_flight_ids.push_back(update.flight_id);
 
-            env.events().publish(
-                (symbol_short!("flight"), symbol_short!("status")),
-                update.flight_id,
-            );
+            contract_events::emit(&env, Domain::Flight, Action::Status, update.flight_id);
 
             i += 1;
         }
@@ -604,8 +593,10 @@ impl AirlineContract {
         PricingStorage::set_last_update(&env, flight_id, now);
 
         // Emit event for price change notifications.
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("price")),
+        contract_events::emit(
+            &env,
+            Domain::Flight,
+            Action::Price,
             (flight_id, old_price, new_price, oracle),
         );
 

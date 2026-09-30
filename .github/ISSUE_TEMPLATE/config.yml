@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Traqora Discussions
+    url: https://github.com/Traqora/Traqora/discussions
+    about: Ask questions and discuss ideas before opening a formal issue.

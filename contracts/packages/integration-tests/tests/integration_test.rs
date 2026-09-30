@@ -1,6 +1,5 @@
 use soroban_sdk::Symbol;
 
-
 use integration_tests::{
     generate_actors, initialize_token, new_env, register_and_verify_airline, register_contracts,
 };

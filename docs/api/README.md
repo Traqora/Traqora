@@ -12,6 +12,7 @@ The OpenAPI specification is automatically generated from zod validation schemas
 
 - **Interactive Documentation**: `http://localhost:3001/api/docs`
 - **Raw OpenAPI JSON**: `http://localhost:3001/api/openapi.json`
+- **Worked Examples**: [EXAMPLES.md](./EXAMPLES.md) — ready-to-run request/response examples for auth, search, booking and refunds.
 
 ## Schema Organization
 

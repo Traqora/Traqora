@@ -1,0 +1,763 @@
+name: CI
+
+# Triggers
+on:
+  pull_request:
+    branches: [main, develop]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".vscode/**"
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".vscode/**"
+
+# Cancel superseded runs on the same ref to free runner capacity immediately.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  RUST_TOOLCHAIN: "1.94.1"
+  SOROBAN_CLI_VERSION: "26.1.0"
+  # Shared Cargo cache paths — referenced in every Rust job.
+  CARGO_CACHE_PATHS: |
+    ~/.cargo/bin/
+    ~/.cargo/registry/index/
+    ~/.cargo/registry/cache/
+    ~/.cargo/git/db/
+    contracts/target/
+
+# ---------------------------------------------------------------------------
+# Reusable step fragments expressed as composite-action-style env vars are not
+# supported in plain YAML, so shared logic is repeated but kept DRY via the
+# env block above and the restore-keys pattern documented below.
+#
+# Cache strategy
+# ──────────────
+#  npm    : primary key  = OS + lock-file hash
+#           restore-keys = OS prefix (partial hit on lock-file change)
+#  cargo  : primary key  = OS + Cargo.lock hash
+#           restore-keys = OS prefix (partial hit on Cargo.lock change)
+#  llvm-cov: keyed on the tool version so upgrades bust the cache correctly
+#  apt    : keyed on a weekly date bucket to avoid stale package lists
+# ---------------------------------------------------------------------------
+
+jobs:
+  # ── Change detection ──────────────────────────────────────────────────────
+  detect:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      client: ${{ steps.filter.outputs.client }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'packages/backend/**'
+              - 'package.json'
+              - 'package-lock.json'
+            client:
+              - 'packages/client/**'
+              - 'package.json'
+              - 'package-lock.json'
+            contracts:
+              - 'contracts/**'
+
+  # ── Quality: Backend ──────────────────────────────────────────────────────
+  quality-backend:
+    name: Quality - Backend
+    needs: [detect]
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: '**/package.json'
+
+      - run: npm install --legacy-peer-deps
+
+      - run: npm run typecheck --workspace=packages/backend
+
+      # Advisory for now: ~800 pre-existing eslint findings on main.
+      - run: npm run lint --workspace=packages/backend || true
+
+  # ── Quality: Client ───────────────────────────────────────────────────────
+  quality-client:
+    name: Quality - Client
+    needs: [detect]
+    if: needs.detect.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: '**/package.json'
+
+      - run: npm install --legacy-peer-deps
+
+      - run: npm run typecheck --workspace=packages/client
+
+      - run: npm run lint --workspace=packages/client
+
+  # ── Quality: Contracts ────────────────────────────────────────────────────
+  quality-contracts:
+    name: Quality - Contracts
+    needs: [detect]
+    if: needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+
+      - name: Restore Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}-contracts
+          restore-keys: |
+            apt-${{ runner.os }}-
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev
+
+      - name: Contracts fmt/clippy gate
+        # Single source of truth for the contracts quality gate (#743): the same
+        # script `make fmt` / `make clippy` / `make lint` run locally, so CI
+        # cannot disagree with a developer's machine.
+        run: bash scripts/fmt-clippy-check.sh
+
+      # Keep TEST_GUIDE.md in sync with the integration test inventory.
+      - name: TEST_GUIDE parity check
+        working-directory: contracts
+        run: bash scripts/check-test-guide-parity.sh
+
+      # Ensure coverage.sh keeps enforcing the same gate as CI and rejects
+      # invalid arguments instead of silently skipping the check.
+      - name: coverage.sh regression tests
+        working-directory: contracts
+        run: bash scripts/test-coverage.sh
+
+  # ── Tests: Backend ────────────────────────────────────────────────────────
+  test-backend:
+    name: Tests - Backend
+    needs: [detect, quality-backend]
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: '**/package.json'
+
+      - run: npm install --legacy-peer-deps
+
+      - name: Run tests with coverage gate
+        # Fails when coverage drops below the thresholds configured in
+        # packages/backend/jest.config.cjs (coverageThreshold).
+        run: |
+          set +e
+          npm run test:coverage --workspace=packages/backend > /tmp/backend-coverage.log 2>&1
+          status=$?
+          set -e
+          grep -iE "coverage threshold|Coverage summary|^Statements|^Branches|^Functions|^Lines|Test Suites:|Tests:" /tmp/backend-coverage.log > /tmp/backend-coverage-summary.txt || true
+          {
+            echo "### Backend Coverage Gate"
+            echo ""
+            cat /tmp/backend-coverage-summary.txt
+            echo ""
+            echo "Thresholds: \`packages/backend/jest.config.cjs\` -> \`coverageThreshold.global\` (statements 35, branches 30, functions 34, lines 35)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          directory: packages/backend/coverage
+          flags: backend
+          fail_ci_if_error: false
+
+  # ── Tests: Client ─────────────────────────────────────────────────────────
+  test-client:
+    name: Tests - Client
+    needs: [detect, quality-client]
+    if: needs.detect.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: '**/package.json'
+
+      - run: npm install --legacy-peer-deps
+
+      - run: npm test --workspace=packages/client -- --coverage
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          directory: packages/client/coverage
+          flags: client
+          fail_ci_if_error: false
+
+  # ── Tests: Contracts ──────────────────────────────────────────────────────
+  test-contracts:
+    name: Tests - Contracts
+    needs: [detect, quality-contracts]
+    if: needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Restore Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      # cargo-llvm-cov is a large binary; cache it keyed on version so an
+      # upgrade busts the cache but patch-identical runs skip the download.
+      - name: Restore cargo-llvm-cov binary cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-llvm-cov
+          key: cargo-llvm-cov-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}-contracts
+          restore-keys: |
+            apt-${{ runner.os }}-
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev
+
+      - name: Run tests
+        working-directory: contracts
+        run: cargo test --locked
+
+      - name: Install cargo-llvm-cov (if not cached)
+        run: cargo install cargo-llvm-cov --locked 2>/dev/null || true
+
+      - name: Coverage
+        working-directory: contracts
+        # Fails when line coverage drops below 90% (no silent regression).
+        run: |
+          set +e
+          cargo llvm-cov --summary-only --fail-under-lines 90 > /tmp/contracts-coverage.log 2>&1
+          status=$?
+          set -e
+          tail -25 /tmp/contracts-coverage.log > /tmp/contracts-coverage-summary.txt
+          {
+            echo "### Contracts Coverage Gate"
+            echo ""
+            echo '```'
+            cat /tmp/contracts-coverage-summary.txt
+            echo '```'
+            echo ""
+            echo "Threshold: line coverage >= 90% (\`cargo llvm-cov --fail-under-lines 90\`)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+  # ── Integration: Backend ──────────────────────────────────────────────────
+  integration-backend:
+    name: Integration - Backend
+    needs: [detect, test-backend]
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: traqora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: '**/package.json'
+
+      - run: npm install --legacy-peer-deps
+
+      - name: Run integration tests
+        env:
+          NODE_ENV: test
+          REDIS_URL: redis://localhost:6379
+          DATABASE_URL: postgres://postgres:password@localhost:5432/traqora_test
+          JWT_SECRET: test-secret
+          STELLAR_NETWORK: testnet
+        run: npm run test:integration --workspace=packages/backend
+
+  # ── Smoke: Backend ────────────────────────────────────────────────────────
+  smoke-backend:
+    name: Smoke - Auth / Search / Book
+    needs: [detect, test-backend]
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: '**/package.json'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Run E2E smoke tests
+        env:
+          NODE_ENV: test
+          JWT_SECRET: test-jwt-secret
+          STELLAR_NETWORK: testnet
+          BOOKING_CONTRACT_ID: CTESTBOOKING
+          AIRLINE_CONTRACT_ID: CTESTAIRLINE
+          REFUND_CONTRACT_ID: CTESTREFUND
+          LOYALTY_CONTRACT_ID: CTESTLOYALTY
+          GOVERNANCE_CONTRACT_ID: CTESTGOV
+          TOKEN_CONTRACT_ID: CTESTTOKEN
+          FLIGHT_REGISTRY_CONTRACT_ID: CTESTREG
+          ENCRYPTION_KEY: test-encryption-key-for-traqora-database-encryption-!!!
+        run: >
+          npm test --workspace=packages/backend --
+          --testPathPattern="e2e-smoke"
+          --runInBand
+          --forceExit
+          --json
+          --outputFile=packages/backend/smoke-report.json
+
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-report-${{ github.sha }}
+          path: packages/backend/smoke-report.json
+          retention-days: 30
+
+  # ── Security (all run in parallel, independent of each other) ────────────
+  # security-snyk and security-gitleaks start as soon as detect finishes —
+  # they don't need test or integration results, so they no longer block on
+  # those jobs and run concurrently with the test tier.
+  security-snyk:
+    name: Security - Snyk
+    needs: [detect]
+    if: needs.detect.outputs.backend == 'true' || needs.detect.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Snyk
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --all-projects --severity-threshold=high
+        continue-on-error: true
+
+  security-gitleaks:
+    name: Security - Gitleaks
+    needs: [detect]
+    if: needs.detect.outputs.backend == 'true' || needs.detect.outputs.client == 'true' || needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks (pinned)
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sSLo gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz
+          sudo mv gitleaks /usr/local/bin/gitleaks
+
+      - name: Gitleaks scan (repo config)
+        # gitleaks-action@v2 requires a paid GITLEAKS_LICENSE for org repos,
+        # so we use the OSS binary directly with the versioned .gitleaks.toml.
+        run: gitleaks detect --source . --config .gitleaks.toml --verbose --redact
+
+  security-dependency-review:
+    name: Security - Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Requires the repository setting "Dependency graph" to be enabled
+      # (Settings > Code security & analysis). Kept non-blocking until that
+      # repo setting is confirmed so PRs are not red for an infra reason.
+      - uses: actions/dependency-review-action@v4
+        continue-on-error: true
+        with:
+          fail-on-severity: high
+
+  # ── Build (backend + client run in parallel) ──────────────────────────────
+  build-backend:
+    name: Build - Backend
+    needs: [detect, test-backend]
+    if: needs.detect.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: '**/package.json'
+
+      - run: npm install --legacy-peer-deps
+
+      - run: npm run build --workspace=packages/backend
+
+  build-client:
+    name: Build - Client
+    needs: [detect, test-client]
+    if: needs.detect.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: '**/package.json'
+
+      - run: npm install --legacy-peer-deps
+
+      - run: npm run build --workspace=packages/client
+
+  build-contracts:
+    name: Build - Contracts
+    needs: [detect, test-contracts]
+    if: needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Restore Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}-contracts
+          restore-keys: |
+            apt-${{ runner.os }}-
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev
+
+      - name: Install Soroban CLI
+        run: cargo install --locked --version ${{ env.SOROBAN_CLI_VERSION }} soroban-cli
+
+      - name: Build release WASM
+        working-directory: contracts
+        run: cargo build --locked --target wasm32-unknown-unknown --release
+
+      - name: Compute WASM checksums
+        run: |
+          chmod +x scripts/compute-wasm-hashes.sh
+          ./scripts/compute-wasm-hashes.sh contracts/target/wasm32-unknown-unknown/release .artifacts/wasm-checksums
+
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contracts-wasm
+          path: |
+            contracts/target/wasm32-unknown-unknown/release/*.wasm
+            .artifacts/wasm-checksums/*
+          retention-days: 7
+
+  # ── Verify: Build checksums (issue #592) ────────────────────────────────
+  # Rebuilds the contracts and fails if the freshly built WASM hashes do not
+  # match the checksums published by build-contracts, guarding against
+  # non-reproducible builds / drift between the recorded and the actual code.
+  verify-build-checksums:
+    name: Verify - Contract Build Checksums
+    needs: [detect, build-contracts]
+    if: needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Restore Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}-contracts
+          restore-keys: |
+            apt-${{ runner.os }}-
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev jq
+
+      - name: Build release WASM
+        working-directory: contracts
+        run: cargo build --locked --target wasm32-unknown-unknown --release
+
+      - name: Download WASM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contracts-wasm
+          path: .artifacts
+
+      - name: Verify build checksums
+        run: |
+          FAILED=0
+          echo "### Contract Build Checksum Verification" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Contract | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          # 1. Recorded checksums must match the uploaded WASM binaries.
+          if [ ! -f .artifacts/wasm-checksums.sha256 ]; then
+            echo "❌ wasm-checksums.sha256 missing from artifacts" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          while read -r expected name; do
+            [ -n "$expected" ] || continue
+            if [ ! -f ".artifacts/$name" ]; then
+              echo "  ✗ $name: uploaded WASM missing"
+              echo "| $name | ❌ FAIL (missing from artifacts) |" >> "$GITHUB_STEP_SUMMARY"
+              FAILED=1
+              continue
+            fi
+            actual=$(sha256sum ".artifacts/$name" | cut -d' ' -f1)
+            if [ "$actual" != "$expected" ]; then
+              echo "  ✗ $name: uploaded WASM hash $actual != recorded $expected"
+              echo "| $name | ❌ FAIL (upload drift) |" >> "$GITHUB_STEP_SUMMARY"
+              FAILED=1
+            fi
+          done < .artifacts/wasm-checksums.sha256
+
+          # 2. A fresh local build must reproduce the recorded checksums.
+          ./scripts/compute-wasm-hashes.sh contracts/target/wasm32-unknown-unknown/release .artifacts/local-build
+          for wasm in contracts/target/wasm32-unknown-unknown/release/*.wasm; do
+            [ -e "$wasm" ] || continue
+            name=$(basename "$wasm")
+            local_hash=$(sha256sum "$wasm" | cut -d' ' -f1)
+            recorded_hash=$(jq -r ".\"$name\" // empty" .artifacts/wasm-hashes.json)
+            if [ -z "$recorded_hash" ]; then
+              echo "  ✗ $name: not present in recorded checksums"
+              echo "| $name | ❌ FAIL (unrecorded build output) |" >> "$GITHUB_STEP_SUMMARY"
+              FAILED=1
+            elif [ "$local_hash" != "$recorded_hash" ]; then
+              echo "  ✗ $name: local build $local_hash != recorded $recorded_hash"
+              echo "| $name | ❌ FAIL (non-reproducible build) |" >> "$GITHUB_STEP_SUMMARY"
+              FAILED=1
+            else
+              echo "  ✓ $name: checksums match"
+              echo "| $name | ✅ PASS |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo ""
+            echo "=== Contract build checksum verification FAILED ==="
+            exit 1
+          fi
+          echo ""
+          echo "=== Contract build checksum verification PASSED ==="
+
+  # ── Docker security (matrix — backend + client in parallel) ───────────────
+  # Docker layer cache is stored in the GitHub Actions cache backend (GHA)
+  # so subsequent builds only transfer changed layers.
+  docker-security:
+    name: Docker Security Scan
+    needs: [detect]
+    if: needs.detect.outputs.backend == 'true' || needs.detect.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: backend
+            context: packages/backend
+          - name: client
+            context: packages/client
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          target: production
+          push: false
+          load: true
+          tags: traqora-${{ matrix.service.name }}:${{ github.sha }}
+          # GHA cache: warm pulls on unchanged layers, full rebuild only on changes
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+
+      - name: Install Trivy (retry)
+        run: |
+          for i in 1 2 3; do
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.65.0 && break
+            echo "trivy install attempt $i failed, retrying..."
+            sleep 10
+          done
+          trivy --version
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@v0.33.1
+        with:
+          skip-setup-trivy: true
+          image-ref: traqora-${{ matrix.service.name }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: aquasecurity/trivy-action@v0.33.1
+        with:
+          skip-setup-trivy: true
+          image-ref: traqora-${{ matrix.service.name }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-${{ matrix.service.name }}.sarif
+          exit-code: "0"
+          ignore-unfixed: true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-${{ matrix.service.name }}-sarif
+          path: trivy-${{ matrix.service.name }}.sarif
+          retention-days: 14
+
+  # ── Final gate ────────────────────────────────────────────────────────────
+  ci-status:
+    name: CI Status
+    if: always()
+    needs:
+      - build-backend
+      - build-client
+      - build-contracts
+      - verify-build-checksums
+      - integration-backend
+      - smoke-backend
+      - security-snyk
+      - security-gitleaks
+      - security-dependency-review
+      - docker-security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail on critical failure
+        if: |
+          always() && (
+            needs.build-backend.result == 'failure' ||
+            needs.build-client.result == 'failure' ||
+            needs.build-contracts.result == 'failure' ||
+            needs.verify-build-checksums.result == 'failure' ||
+            needs.integration-backend.result == 'failure' ||
+            needs.smoke-backend.result == 'failure'
+          )
+        run: exit 1
+

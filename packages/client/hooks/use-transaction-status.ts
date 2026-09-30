@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { apiClient, BookingTransactionStatusResponse } from '@/lib/api';
 import { toast } from 'sonner';
+import { useSocketEvents } from './use-socket-events';
 
 interface UseTransactionStatusOptions {
   bookingId: string | null;
@@ -102,6 +103,14 @@ export const useTransactionStatus = ({
     attemptCountRef.current = 0;
     await fetchStatus();
   }, [fetchStatus]);
+
+  useSocketEvents({
+    onBookingStatus: useCallback((data: any) => {
+      if (data.bookingId === bookingId) {
+        fetchStatus();
+      }
+    }, [bookingId, fetchStatus])
+  });
 
   useEffect(() => {
     if (!enabled || !bookingId) {

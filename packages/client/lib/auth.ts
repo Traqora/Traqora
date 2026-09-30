@@ -30,6 +30,23 @@ export interface AuthResponse {
   }
 }
 
+export interface TwoFASetup {
+  setupId: string
+  method: "totp"
+  secret: string
+  qrCode: string
+  backupCodes: string[]
+  expiresAt: string
+}
+
+export interface TwoFAStatus {
+  userId: string
+  enabled: boolean
+  method?: "totp"
+  recoveryCodesRemaining: number
+  trustedDevices: number
+}
+
 export interface BiometricCredential {
   id: string
   credentialId: string
@@ -38,6 +55,22 @@ export interface BiometricCredential {
   enrolledAt: string
   lastUsedAt: string | null
 }
+
+export interface PaymentAuthorizationResult {
+  paymentToken: string
+  expiresIn: number
+  amount: string
+  destination: string
+}
+
+export interface FallbackAuthOptions {
+  challenge: string
+  expiresIn: number
+  message: string
+  walletAddress: string
+}
+
+export type BiometricPlatformType = "fingerprint" | "face" | "unknown"
 
 export interface WebAuthnRegistrationOptions {
   challenge: string
@@ -113,6 +146,15 @@ export class AuthService {
   private static readonly BIOMETRIC_AUTH_BEGIN = '/api/v1/auth/biometric/authenticate/begin'
   private static readonly BIOMETRIC_AUTH_COMPLETE = '/api/v1/auth/biometric/authenticate/complete'
   private static readonly BIOMETRIC_CREDENTIALS = '/api/v1/auth/biometric/credentials'
+  private static readonly BIOMETRIC_AUTHORIZE_PAYMENT = '/api/v1/auth/biometric/authorize-payment'
+  private static readonly BIOMETRIC_FALLBACK_BEGIN = '/api/v1/auth/biometric/authenticate/fallback/begin'
+  private static readonly BIOMETRIC_FALLBACK_COMPLETE = '/api/v1/auth/biometric/authenticate/fallback/complete'
+  private static readonly TWO_FA_SETUP = '/api/v1/auth/2fa/setup'
+  private static readonly TWO_FA_CONFIRM = '/api/v1/auth/2fa/setup/confirm'
+  private static readonly TWO_FA_VERIFY = '/api/v1/auth/2fa/verify'
+  private static readonly TWO_FA_STATUS = '/api/v1/auth/2fa/status'
+  private static readonly TWO_FA_REGENERATE = '/api/v1/auth/2fa/recovery-codes/regenerate'
+  private static readonly TWO_FA_DISABLE = '/api/v1/auth/2fa/disable'
 
   static async getChallenge(walletAddress: string): Promise<AuthChallenge> {
     const response = await api.post(this.CHALLENGE_ENDPOINT, {
@@ -188,54 +230,7 @@ export class AuthService {
     }
   }
 
-  static async setupTwoFactor(): Promise<TwoFactorSetup> {
-    const response = await api.post(this.TWO_FACTOR_SETUP_ENDPOINT, {})
 
-    if (!response.ok) {
-      throw new Error('Failed to setup 2FA')
-    }
-
-    const data = await response.json()
-    return data
-  }
-
-  static async enableTwoFactor(token: string): Promise<void> {
-    const response = await api.post(this.TWO_FACTOR_ENABLE_ENDPOINT, { token })
-
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.error?.message || 'Failed to enable 2FA')
-    }
-  }
-
-  static async disableTwoFactor(): Promise<void> {
-    const response = await api.post(this.TWO_FACTOR_DISABLE_ENDPOINT, {})
-
-    if (!response.ok) {
-      throw new Error('Failed to disable 2FA')
-    }
-  }
-
-  static async getTwoFactorStatus(): Promise<{ enabled: boolean }> {
-    const response = await api.get(this.TWO_FACTOR_STATUS_ENDPOINT)
-
-    if (!response.ok) {
-      throw new Error('Failed to get 2FA status')
-    }
-
-    const data = await response.json()
-    return data
-  }
-
-  static async regenerateBackupCodes(): Promise<{ backupCodes: string[] }> {
-    const response = await api.post(this.TWO_FACTOR_REGENERATE_ENDPOINT, {})
-
-    if (!response.ok) {
-      throw new Error('Failed to regenerate backup codes')
-    }
-
-    const data = await response.json()
-    return data
   }
 
   static async isWebAuthnSupported(): Promise<boolean> {
@@ -308,6 +303,8 @@ export class AuthService {
       },
     }
 
+    const platformType = getBiometricPlatformType()
+
     const completeResponse = await fetch(
       `${API_BASE_URL}${this.BIOMETRIC_REGISTER_COMPLETE}`,
       {
@@ -319,6 +316,7 @@ export class AuthService {
         body: JSON.stringify({
           credential: credentialData,
           deviceName: deviceName || getDeviceName(),
+          credentialType: platformType !== 'unknown' ? platformType : undefined,
         }),
       }
     )
@@ -460,6 +458,136 @@ export class AuthService {
       throw new Error(err.error?.message || 'Failed to remove biometric credential')
     }
   }
+
+  static async authenticateWithFallback(
+    walletAddress: string,
+    signCallback: (message: string) => Promise<{ signature: string; walletType: string }>
+  ): Promise<AuthTokens> {
+    const beginResponse = await fetch(
+      `${API_BASE_URL}${this.BIOMETRIC_FALLBACK_BEGIN}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress }),
+      }
+    )
+
+    if (!beginResponse.ok) {
+      const err = await beginResponse.json()
+      throw new Error(err.error?.message || 'Failed to start fallback authentication')
+    }
+
+    const options: FallbackAuthOptions = await beginResponse.json()
+
+    const { signature, walletType } = await signCallback(options.message)
+
+    const completeResponse = await fetch(
+      `${API_BASE_URL}${this.BIOMETRIC_FALLBACK_COMPLETE}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress, signature, walletType }),
+      }
+    )
+
+    if (!completeResponse.ok) {
+      const err = await completeResponse.json()
+      throw new Error(err.error?.message || 'Fallback authentication failed')
+    }
+
+    return completeResponse.json()
+  }
+
+  static async authorizePayment(
+    walletAddress: string,
+    amount: string,
+    destination: string,
+    description?: string
+  ): Promise<PaymentAuthorizationResult> {
+    if (!isWebAuthnAvailable()) {
+      throw new Error('WebAuthn is not available on this device')
+    }
+
+    const authToken = getAccessToken()
+    if (!authToken) {
+      throw new Error('Not authenticated')
+    }
+
+    const beginResponse = await fetch(
+      `${API_BASE_URL}${this.BIOMETRIC_AUTH_BEGIN}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress }),
+      }
+    )
+
+    if (!beginResponse.ok) {
+      const err = await beginResponse.json()
+      throw new Error(err.error?.message || 'Failed to start payment authorization')
+    }
+
+    const options: WebAuthnAuthenticationOptions = await beginResponse.json()
+
+    const publicKey: PublicKeyCredentialRequestOptions = {
+      challenge: base64urlToArrayBuffer(options.challenge),
+      timeout: options.timeout,
+      rpId: options.rpId,
+      allowCredentials: options.allowCredentials.map((cred) => ({
+        ...cred,
+        id: base64urlToArrayBuffer(cred.id),
+      })),
+      userVerification: options.userVerification,
+    }
+
+    const assertion = (await navigator.credentials.get({
+      publicKey,
+    })) as PublicKeyCredential
+
+    if (!assertion) {
+      throw new Error('Payment authorization was cancelled')
+    }
+
+    const response = assertion.response as AuthenticatorAssertionResponse
+
+    const assertionData = {
+      id: assertion.id,
+      rawId: arrayBufferToBase64url(assertion.rawId),
+      type: assertion.type,
+      response: {
+        clientDataJSON: arrayBufferToBase64url(response.clientDataJSON),
+        authenticatorData: arrayBufferToBase64url(response.authenticatorData),
+        signature: arrayBufferToBase64url(response.signature),
+        userHandle: response.userHandle
+          ? arrayBufferToBase64url(response.userHandle)
+          : undefined,
+      },
+    }
+
+    const completeResponse = await fetch(
+      `${API_BASE_URL}${this.BIOMETRIC_AUTHORIZE_PAYMENT}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          assertion: assertionData,
+          amount,
+          destination,
+          description,
+        }),
+      }
+    )
+
+    if (!completeResponse.ok) {
+      const err = await completeResponse.json()
+      throw new Error(err.error?.message || 'Payment authorization failed')
+    }
+
+    return completeResponse.json()
+  }
 }
 
 function getAccessToken(): string | null {
@@ -477,10 +605,55 @@ function getAccessToken(): string | null {
 function getDeviceName(): string {
   if (typeof window === 'undefined') return 'Unknown Device'
   const ua = navigator.userAgent
-  if (/Android/.test(ua)) return 'Android Device'
-  if (/iPhone|iPad|iPod/.test(ua)) return 'iOS Device'
-  if (/Mac/.test(ua)) return 'Mac'
-  if (/Windows/.test(ua)) return 'Windows Device'
-  if (/Linux/.test(ua)) return 'Linux Device'
+  if (/Android/.test(ua)) {
+    const match = ua.match(/Android\s+([\d.]+)/)
+    return match ? `Android ${match[1]}` : 'Android Device'
+  }
+  if (/iPhone|iPad|iPod/.test(ua)) {
+    const deviceType = /iPad/.test(ua) ? 'iPad' : /iPod/.test(ua) ? 'iPod' : 'iPhone'
+    const match = ua.match(/OS\s+([\d_]+)/)
+    return match ? `${deviceType} iOS ${match[1].replace(/_/g, '.')}` : deviceType
+  }
+  if (/Mac/.test(ua)) {
+    const isTouchBar = /Touch/.test(ua)
+    return isTouchBar ? 'MacBook Pro' : 'Mac'
+  }
+  if (/Windows/.test(ua)) {
+    const match = ua.match(/Windows\s+NT\s+([\d.]+)/)
+    return match ? `Windows ${match[1]}` : 'Windows Device'
+  }
+  if (/Linux/.test(ua) && !/Android/.test(ua)) return 'Linux Device'
   return 'Unknown Device'
+}
+
+export function getBiometricPlatformType(): BiometricPlatformType {
+  if (typeof window === 'undefined') return 'unknown'
+  const ua = navigator.userAgent
+
+  const isIOS = /iPhone|iPad|iPod/.test(ua)
+  const isAndroid = /Android/.test(ua)
+  const isMac = /Mac/.test(ua)
+  const isWindows = /Windows/.test(ua)
+
+  if (isIOS) {
+    const iOSVersion = parseFloat(ua.match(/OS\s+(\d+)/)?.[1] || '0')
+    const isiPad = /iPad/.test(ua)
+    const isiPhoneX = /iPhone/.test(ua)
+
+    if (isiPad && iOSVersion >= 17) return 'face'
+    if (isiPhoneX && iOSVersion >= 11) return 'face'
+    return 'fingerprint'
+  }
+
+  if (isAndroid) {
+    const androidVersion = parseFloat(ua.match(/Android\s+([\d.]+)/)?.[1] || '0')
+    if (androidVersion >= 10) return 'face'
+    return 'fingerprint'
+  }
+
+  if (isMac) return 'fingerprint'
+
+  if (isWindows) return 'fingerprint'
+
+  return 'unknown'
 }

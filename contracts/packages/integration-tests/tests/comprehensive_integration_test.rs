@@ -2,7 +2,6 @@
 
 use soroban_sdk::Symbol;
 
-
 use integration_tests::{
     generate_actors, initialize_token, new_env, register_and_verify_airline, register_contracts,
 };
@@ -33,10 +32,10 @@ fn test_complete_booking_to_refund_workflow() {
     // 2. Set refund policy for the airline
     contracts.refund.set_refund_policy(
         &actors.airline,
-        &86_400,    // cancellation_cutoff_seconds
-        &10_000,    // full_refund_days_before
-        &5_000,     // partial_refund_days_before
-        &3_600,     // min_refund_window
+        &86_400, // cancellation_cutoff_seconds
+        &10_000, // full_refund_days_before
+        &5_000,  // partial_refund_days_before
+        &3_600,  // min_refund_window
     );
 
     // 3. Passenger creates a booking
@@ -187,9 +186,9 @@ fn test_refund_policy_changes_and_reapplication() {
     // Set initial policy
     contracts.refund.set_refund_policy(
         &actors.airline,
-        &86_400,     // 1 day cutoff
-        &604_800,    // 7 days full refund
-        &259_200,    // 3 days partial
+        &86_400,  // 1 day cutoff
+        &604_800, // 7 days full refund
+        &259_200, // 3 days partial
         &3_600,
     );
 
@@ -214,9 +213,9 @@ fn test_refund_policy_changes_and_reapplication() {
     // Update policy to be stricter
     contracts.refund.set_refund_policy(
         &actors.airline,
-        &43_200,     // 0.5 day cutoff (stricter)
-        &172_800,    // 2 days full refund (less generous)
-        &86_400,     // 1 day partial
+        &43_200,  // 0.5 day cutoff (stricter)
+        &172_800, // 2 days full refund (less generous)
+        &86_400,  // 1 day partial
         &1_800,
     );
 
