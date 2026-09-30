@@ -141,6 +141,7 @@ For deployment procedures see [docs/deployment-guide.md](./docs/deployment-guide
 | **Booking** | A reservation of a flight recorded off-chain in the backend and anchored on-chain via the booking Soroban contract. |
 | **Refund** | The return of funds to a passenger after cancellation or service failure. Refunds can be automatic (policy-eligible) or manual (admin-reviewed). |
 | **Dispute** | A formal disagreement raised by a passenger or operator over a booking or refund. Disputes are tracked off-chain and resolved via admin review or on-chain resolution. |
+| **Dispute lifecycle** | `open` → `evidence_submission` → `under_review` → `resolved` → `closed`, with `appealed` re-opening a resolved dispute (see [Dispute Evidence Uploads](./packages/backend/docs/DISPUTE_EVIDENCE_UPLOADS.md)). |
 | **Soroban** | The native smart contracts platform of the Stellar network, used by Traqora for booking, refund, dispute and loyalty logic. |
 | **Timelock** | The mandatory 48-hour delay between scheduling and executing a contract upgrade (see [Upgrade Procedure](./contracts/UPGRADE_PROCEDURE.md)). |
 | **XLM** | The native asset of the Stellar network, used to pay transaction fees. |
