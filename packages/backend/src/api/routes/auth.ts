@@ -4,6 +4,8 @@ import { AuthService } from '../../services/authService';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { AppDataSource } from '../../db/dataSource';
 import { UnauthorizedError, BadRequestError, NotFoundError } from '../../utils/errors';
+import { twoFAService } from '../../services/TwoFAService';
+import type { TwoFAMethod } from '../../types/twofa';
 
 export const authRoutes = Router();
 
@@ -61,6 +63,111 @@ authRoutes.post('/logout', requireAuth, async (req: Request, res: Response, next
         const authService = getAuthService();
         await authService.logout(walletAddress);
         res.json({ message: 'Logged out successfully' });
+    } catch (err) {
+        next(err);
+    }
+});
+
+authRoutes.post('/2fa/setup', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.walletAddress;
+        const { email, method = 'totp' } = req.body as { email?: string; method?: TwoFAMethod };
+        if (!userId || !email) {
+            throw new BadRequestError('Email is required to set up two-factor authentication');
+        }
+        if (method !== 'totp') {
+            throw new BadRequestError('Only TOTP two-factor authentication is supported');
+        }
+
+        const session = await twoFAService.createSetupSession(userId, method, email);
+        res.json({
+            setupId: session.id,
+            method: session.method,
+            secret: session.secret,
+            qrCode: session.qrCode,
+            backupCodes: session.backupCodes,
+            expiresAt: session.expiresAt,
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+authRoutes.post('/2fa/setup/confirm', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.walletAddress;
+        const { setupId, code } = req.body as { setupId?: string; code?: string };
+        if (!userId || !setupId || !code) {
+            throw new BadRequestError('Setup ID and verification code are required');
+        }
+        const settings = await twoFAService.confirmSetup(userId, setupId, code);
+        res.json({
+            id: settings.id,
+            method: settings.method,
+            status: settings.status,
+            enabledAt: settings.enabledAt,
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+authRoutes.post('/2fa/verify', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.walletAddress;
+        const { code, recoveryCode, deviceId, rememberDevice = false } = req.body as {
+            code?: string;
+            recoveryCode?: boolean;
+            deviceId?: string;
+            rememberDevice?: boolean;
+        };
+        if (!userId || !code) {
+            throw new BadRequestError('Verification code is required');
+        }
+        const valid = await twoFAService.verify({
+            userId,
+            method: 'totp',
+            code,
+            recoveryCode,
+            deviceId,
+            rememberDevice,
+        });
+        if (!valid) {
+            throw new UnauthorizedError('Invalid two-factor authentication code');
+        }
+        res.json({ verified: true });
+    } catch (err) {
+        next(err);
+    }
+});
+
+authRoutes.get('/2fa/status', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.walletAddress;
+        if (!userId) throw new UnauthorizedError();
+        res.json(await twoFAService.getStats(userId));
+    } catch (err) {
+        next(err);
+    }
+});
+
+authRoutes.post('/2fa/recovery-codes/regenerate', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.walletAddress;
+        if (!userId) throw new UnauthorizedError();
+        const codes = await twoFAService.regenerateRecoveryCodes(userId);
+        res.json({ codes });
+    } catch (err) {
+        next(err);
+    }
+});
+
+authRoutes.post('/2fa/disable', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user?.walletAddress;
+        if (!userId) throw new UnauthorizedError();
+        await twoFAService.disable(userId);
+        res.json({ disabled: true });
     } catch (err) {
         next(err);
     }
