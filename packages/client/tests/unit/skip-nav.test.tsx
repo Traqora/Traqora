@@ -12,9 +12,6 @@
 import { render, screen } from "@testing-library/react"
 import { SkipNav } from "@/components/skip-nav"
 
-// ---------------------------------------------------------------------------
-// Happy path
-// ---------------------------------------------------------------------------
 describe("SkipNav", () => {
   it("renders a link to #main-content", () => {
     render(<SkipNav />)
