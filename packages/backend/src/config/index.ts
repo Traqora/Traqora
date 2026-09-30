@@ -1,4 +1,5 @@
 import { configSchema, Config } from './schema';
+import { DEFAULT_TRACING_SAMPLER } from './tracing-samplers';
 import { SecretManager } from '../services/secret-manager.service';
 import { logger } from '../utils/logger';
 
@@ -74,6 +75,7 @@ const readConfigFromEnv = (): Config => {
     otlpTraceUrl: process.env.OTLP_TRACE_URL || otlpEndpoint || 'http://localhost:4318/v1/traces',
     otlpTraceHeaders: process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS || process.env.OTEL_EXPORTER_OTLP_HEADERS,
     tracingSampleRate: parseNumber(process.env.OTEL_TRACES_SAMPLER_ARG || process.env.TRACING_SAMPLE_RATE, 1),
+    tracingSampler: process.env.OTEL_TRACES_SAMPLER || DEFAULT_TRACING_SAMPLER,
 
     sentryDsn: process.env.SENTRY_DSN,
     sentryTracesSampleRate: parseNumber(process.env.SENTRY_TRACES_SAMPLE_RATE, 0.1),
@@ -241,6 +243,7 @@ export const loadConfig = async (): Promise<Config> => {
     otlpTraceUrl: await secretManager.getSecret('OTLP_TRACE_URL', 'http://localhost:4318/v1/traces'),
     otlpTraceHeaders: await secretManager.getSecret('OTEL_EXPORTER_OTLP_TRACES_HEADERS', ''),
     tracingSampleRate: parseNumber(await secretManager.getSecret('TRACING_SAMPLE_RATE', '1'), 1),
+    tracingSampler: await secretManager.getSecret('OTEL_TRACES_SAMPLER', DEFAULT_TRACING_SAMPLER),
 
     sentryDsn: await secretManager.getSecret('SENTRY_DSN', ''),
     sentryTracesSampleRate: parseNumber(await secretManager.getSecret('SENTRY_TRACES_SAMPLE_RATE', '0.1'), 0.1),
