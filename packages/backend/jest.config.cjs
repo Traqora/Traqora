@@ -12,6 +12,8 @@ module.exports = {
   },
   moduleNameMapper: {
     '^.*/src/index$': '<rootDir>/tests/mock-index.ts',
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '^@tests/(.*)$': '<rootDir>/tests/$1',
   },
   collectCoverageFrom: [
     'src/services/**/*.ts',
@@ -28,7 +30,7 @@ module.exports = {
     },
   },
   setupFiles: ['<rootDir>/tests/setup.ts'],
-  moduleDirectories: ['node_modules', '../../node_modules', '../../node_modules/ts-jest'],
+  moduleDirectories: ['node_modules', '<rootDir>/node_modules'],
   transform: {
     '^.+\\.ts$': [
       'ts-jest',

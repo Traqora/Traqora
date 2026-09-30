@@ -11,7 +11,10 @@
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "lint": "npm run lint --workspaces",
+    "lint:contributing": "node scripts/lint-contributing.js",
+    "test:contributing": "jest scripts/__tests__/lint-contributing.test.js",
     "typecheck": "npm run typecheck --workspaces",
+    "test:scripts": "bash scripts/tests/network-guard.test.sh",
     "clean": "npm run clean --workspaces"
   },
   "devDependencies": {

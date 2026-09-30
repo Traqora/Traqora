@@ -4,10 +4,84 @@ import { Dispute, DisputeOutcome, DisputeStatus } from '../../db/entities/Disput
 import { DisputeEvidence } from '../../db/entities/DisputeEvidence';
 import { Refund } from '../../db/entities/Refund';
 import { logger } from '../../utils/logger';
+import { validateEvidenceInput } from './evidenceValidation';
 
 export interface EvidenceInput {
   description: string;
   fileUrl?: string;
+}
+
+export interface EvidenceValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+const ALLOWED_FILE_TYPES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'text/plain',
+]);
+
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+function validateEvidenceFile(fileUrl: string, submittedBy: string): EvidenceValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Validate file URL format (IPFS or HTTPS)
+  if (!fileUrl.startsWith('ipfs://') && !fileUrl.startsWith('https://')) {
+    errors.push('File URL must be an IPFS URI (ipfs://) or HTTPS URL');
+  }
+
+  // Extract file extension/type from URL for validation
+  try {
+    const url = new URL(fileUrl);
+    const pathname = url.pathname.toLowerCase();
+    const extension = pathname.split('.').pop() || '';
+
+    // Check file type based on extension (as a proxy since we don't have MIME type from IPFS)
+    const allowedExtensions = new Set(['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'txt']);
+    if (extension && !allowedExtensions.has(extension)) {
+      errors.push(`File type .${extension} is not allowed. Allowed types: PDF, JPEG, PNG, GIF, WebP, TXT`);
+    }
+  } catch {
+    // If URL parsing fails, we can't validate extension
+    warnings.push('Could not validate file type from URL');
+  }
+
+  // Note: Actual file size validation would require fetching the file headers
+  // For IPFS, this is not straightforward without a gateway. We log a warning
+  // and recommend checking file size before upload.
+  if (fileUrl.startsWith('ipfs://')) {
+    warnings.push('File size cannot be validated for IPFS URLs. Ensure file is under 10MB before upload.');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+function validateEvidenceOwnership(
+  submittedBy: string,
+  dispute: Dispute,
+): { valid: boolean; error?: string } {
+  const isClaimant = submittedBy === dispute.claimantAddress;
+  const isRespondent = submittedBy === dispute.respondentAddress;
+
+  if (!isClaimant && !isRespondent) {
+    return {
+      valid: false,
+      error: 'Only dispute participants (claimant or respondent) may submit evidence',
+    };
+  }
+
+  return { valid: true };
 }
 
 export interface DisputeTimelineEvent {
@@ -58,30 +132,6 @@ function parseArbitrators(): string[] {
     throw new Error('DISPUTE_ARBITRATORS must be configured in production');
   }
   return ['platform-arbiter'];
-}
-
-function normalizeIpfsUrl(raw?: string): string | undefined {
-  if (!raw) return undefined;
-  const value = raw.trim();
-  if (!value) return undefined;
-
-  const cidPattern = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/;
-  if (cidPattern.test(value)) {
-    return `ipfs://${value}`;
-  }
-
-  if (/^ipfs:\/\/[a-zA-Z0-9]+(?:\/.*)?$/.test(value)) {
-    return value;
-  }
-
-  if (/^https?:\/\//.test(value)) {
-    if (value.includes('/ipfs/')) {
-      return value;
-    }
-    throw new Error('Evidence URL must be an IPFS CID, ipfs:// URI, or an IPFS gateway URL');
-  }
-
-  throw new Error('Invalid evidence URI format');
 }
 
 function buildTimeline(dispute: Dispute): DisputeTimelineEvent[] {
@@ -186,6 +236,9 @@ export class DisputeService {
 
     if (!refund) throw new Error('Refund not found');
 
+    // Validate evidence before persisting anything so a bad upload cannot leave an orphaned dispute.
+    const validatedEvidence = (params.evidence || []).map(validateEvidenceInput);
+
     const passengerWallet = refund.booking.passenger?.sorobanAddress;
     if (passengerWallet && passengerWallet !== params.claimantAddress) {
       throw new Error('Only the booking passenger may create a dispute');
@@ -221,14 +274,14 @@ export class DisputeService {
 
     const savedDispute = await disputeRepo.save(dispute);
 
-    if (params.evidence?.length) {
+    if (validatedEvidence.length) {
       const evidenceRepo = AppDataSource.getRepository(DisputeEvidence);
-      const evidenceRows = params.evidence.map((item) =>
+      const evidenceRows = validatedEvidence.map((item) =>
         evidenceRepo.create({
           dispute: savedDispute,
           submittedBy: params.claimantAddress,
           description: item.description,
-          fileUrl: normalizeIpfsUrl(item.fileUrl),
+          fileUrl: item.fileUrl,
         }),
       );
       await evidenceRepo.save(evidenceRows);
@@ -293,22 +346,23 @@ export class DisputeService {
 
     if (!dispute) throw new Error('Dispute not found');
 
-    const canSubmit =
-      params.submittedBy === dispute.claimantAddress || params.submittedBy === dispute.respondentAddress;
-
-    if (!canSubmit) {
-      throw new Error('Only dispute participants may submit evidence');
+    // Validate evidence ownership
+    const ownershipValidation = validateEvidenceOwnership(params.submittedBy, dispute);
+    if (!ownershipValidation.valid) {
+      throw new BadRequestError(ownershipValidation.error!);
     }
 
     if (!['open', 'evidence_submission', 'under_review', 'appealed'].includes(dispute.status)) {
       throw new Error('Evidence can no longer be submitted for this dispute');
     }
 
+    const validated = validateEvidenceInput({ description: params.description, fileUrl: params.fileUrl });
+
     const item = evidenceRepo.create({
       dispute,
       submittedBy: params.submittedBy,
-      description: params.description,
-      fileUrl: normalizeIpfsUrl(params.fileUrl),
+      description: validated.description,
+      fileUrl: validated.fileUrl,
     });
 
     await evidenceRepo.save(item);
