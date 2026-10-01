@@ -36,6 +36,32 @@ Frequent travelers are rewarded through a decentralized loyalty program built in
 
 Traqora is built using a robust and scalable tech stack designed for performance and security on the Stellar network.
 
+## Architecture Diagram
+
+```mermaid
+graph TD
+    subgraph Client Layer
+        UI[Next.js Client App] -->|JWT / REST API| BE[Express Backend API]
+        UI -->|Freighter / Stellar Wallets Kit| SW[Stellar Network]
+    end
+
+    subgraph Backend Services
+        BE -->|TypeORM| DB[(PostgreSQL / SQLite DB)]
+        BE -->|Soroban RPC / Horizon| SW
+        BE -->|Amadeus / Flight Providers| FP[External Flight Providers]
+    end
+
+    subgraph Stellar Soroban Smart Contracts
+        SW --> BC[Booking Contract]
+        SW --> AC[Airline Contract]
+        SW --> RC[Refund & Automation Contract]
+        SW --> LC[Loyalty Contract]
+        SW --> GC[Governance Contract]
+        SW --> TC[TRQ Token Contract]
+        SW --> DC[Dispute Resolution Contract]
+    end
+```
+
 Blockchain:  
 - Stellar (Layer 1 blockchain)
 
@@ -115,6 +141,7 @@ For deployment procedures see [docs/deployment-guide.md](./docs/deployment-guide
 | **Booking** | A reservation of a flight recorded off-chain in the backend and anchored on-chain via the booking Soroban contract. |
 | **Refund** | The return of funds to a passenger after cancellation or service failure. Refunds can be automatic (policy-eligible) or manual (admin-reviewed). |
 | **Dispute** | A formal disagreement raised by a passenger or operator over a booking or refund. Disputes are tracked off-chain and resolved via admin review or on-chain resolution. |
+| **Dispute lifecycle** | `open` → `evidence_submission` → `under_review` → `resolved` → `closed`, with `appealed` re-opening a resolved dispute (see [Dispute Evidence Uploads](./packages/backend/docs/DISPUTE_EVIDENCE_UPLOADS.md)). |
 | **Soroban** | The native smart contracts platform of the Stellar network, used by Traqora for booking, refund, dispute and loyalty logic. |
 | **Timelock** | The mandatory 48-hour delay between scheduling and executing a contract upgrade (see [Upgrade Procedure](./contracts/UPGRADE_PROCEDURE.md)). |
 | **XLM** | The native asset of the Stellar network, used to pay transaction fees. |
@@ -159,17 +186,14 @@ cp packages/backend/env.example packages/backend/.env
 ```
 Open these files and configure the environment variables as needed. Refer to the comments in [env.example](./env.example) and [packages/backend/env.example](./packages/backend/env.example) for detailed information on types and default values.
 
+For a single table of every variable with its type, default and description, see the [Environment Variable Reference](./docs/ENV_REFERENCE.md). It is generated from the `env.example` files. See [packages/backend/docs/ENV_DOCS.md](./packages/backend/docs/ENV_DOCS.md) for how to add a variable.
+
 ### Step 3: Install Dependencies
 
 From the repository root, install dependencies for the entire monorepo:
 ```bash
 npm install
 ```
-
-> **Note:** Some packages in this project depend on React 19, which may cause peer dependency warnings with older tooling. If you see `ERESOLVE` errors during install, append the `--legacy-peer-deps` flag:
-> ```bash
-> npm install --legacy-peer-deps
-> ```
 
 ### Step 4: Run the Application
 

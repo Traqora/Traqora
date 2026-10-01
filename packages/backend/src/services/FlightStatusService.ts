@@ -32,6 +32,12 @@ const DISRUPTED_STATUSES: ReadonlySet<FlightStatusValue> = new Set(['delayed', '
 
 const MAX_HISTORY_PER_FLIGHT = 50;
 
+/** Default staleness threshold: 5 minutes */
+const DEFAULT_STALENESS_THRESHOLD_MS = 5 * 60 * 1000;
+
+/** Offline provider status (fallback when live provider is unavailable) */
+const OFFLINE_STATUS: FlightStatusValue = 'on_time';
+
 /**
  * Tracks the last-known status for each flight in memory. Real-time gate/
  * delay/cancellation data has no live feed yet (issue #380), so this mirrors
@@ -44,6 +50,8 @@ export class FlightStatusService {
   private readonly lastKnownStatus = new Map<string, FlightStatusUpdate>();
   /** Bounded history of status *transitions* per flight, oldest first — used for on-time performance (issue #332). */
   private readonly history = new Map<string, FlightStatusUpdate[]>();
+  /** Timestamp of last successful fetch per flight */
+  private readonly lastFetchTime = new Map<string, number>();
 
   private constructor() {}
 
@@ -52,6 +60,143 @@ export class FlightStatusService {
       FlightStatusService.instance = new FlightStatusService();
     }
     return FlightStatusService.instance;
+  }
+
+  /**
+   * Check if the cached status for a flight is stale
+   * @param flightId - The flight ID to check
+   * @param thresholdMs - Optional custom staleness threshold in milliseconds (default: 5 minutes)
+   * @returns true if the status is stale or not available
+   */
+  public isStatusStale(flightId: string, thresholdMs: number = DEFAULT_STALENESS_THRESHOLD_MS): boolean {
+    const lastFetch = this.lastFetchTime.get(flightId);
+    if (!lastFetch) return true;
+    return Date.now() - lastFetch > thresholdMs;
+  }
+
+  /**
+   * Get the current status for a flight, with staleness check and fallback
+   * @param flightId - The flight ID
+   * @param thresholdMs - Optional custom staleness threshold
+   * @returns The flight status update (fresh, stale with fallback, or offline)
+   */
+  public async getStatusWithFreshness(flightId: string, thresholdMs: number = DEFAULT_STALENESS_THRESHOLD_MS): Promise<FlightStatusUpdate> {
+    // Check if we have a cached status
+    const cached = this.lastKnownStatus.get(flightId);
+    const isStale = this.isStatusStale(flightId, thresholdMs);
+
+    if (cached && !isStale) {
+      // Status is fresh, return cached
+      logger.debug('Returning fresh cached status', { flightId });
+      return cached;
+    }
+
+    if (cached && isStale) {
+      // Status is stale, try to fetch fresh status
+      logger.info('Status is stale, attempting to refresh', { flightId, stalenessMs: Date.now() - (this.lastFetchTime.get(flightId) || 0) });
+      try {
+        const freshStatuses = await this.fetchStatuses([flightId]);
+        const fresh = freshStatuses[0];
+        if (fresh) {
+          this.recordStatus(fresh);
+          return fresh;
+        }
+      } catch (error) {
+        logger.warn('Failed to refresh stale status, using cached as fallback', {
+          flightId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      // Fallback to cached stale status
+      return cached;
+    }
+
+    // No cached status, try to fetch
+    logger.info('No cached status, fetching from provider', { flightId });
+    try {
+      const freshStatuses = await this.fetchStatuses([flightId]);
+      const fresh = freshStatuses[0];
+      if (fresh) {
+        this.recordStatus(fresh);
+        return fresh;
+      }
+    } catch (error) {
+      logger.error('Failed to fetch status, using offline fallback', {
+        flightId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    // Ultimate fallback to offline status
+    const offline: FlightStatusUpdate = {
+      flightId,
+      status: OFFLINE_STATUS,
+      timestamp: new Date(),
+    };
+    this.recordStatus(offline);
+    return offline;
+  }
+
+  /**
+   * Get status for multiple flights with freshness check
+   * @param flightIds - Array of flight IDs
+   * @param thresholdMs - Optional custom staleness threshold
+   * @returns Array of flight status updates
+   */
+  public async getStatusesWithFreshness(flightIds: string[], thresholdMs: number = DEFAULT_STALENESS_THRESHOLD_MS): Promise<FlightStatusUpdate[]> {
+    const results: FlightStatusUpdate[] = [];
+    const staleFlightIds: string[] = [];
+    const missingFlightIds: string[] = [];
+
+    // First pass: check cached statuses
+    for (const flightId of flightIds) {
+      const cached = this.lastKnownStatus.get(flightId);
+      const isStale = this.isStatusStale(flightId, thresholdMs);
+
+      if (cached && !isStale) {
+        results.push(cached);
+      } else if (cached && isStale) {
+        staleFlightIds.push(flightId);
+      } else {
+        missingFlightIds.push(flightId);
+      }
+    }
+
+    // Fetch fresh statuses for stale and missing flights
+    const toFetch = [...staleFlightIds, ...missingFlightIds];
+    if (toFetch.length > 0) {
+      try {
+        const freshStatuses = await this.fetchStatuses(toFetch);
+        for (const fresh of freshStatuses) {
+          this.recordStatus(fresh);
+          results.push(fresh);
+        }
+      } catch (error) {
+        logger.warn('Failed to fetch fresh statuses, using fallbacks', {
+          flightIds: toFetch,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        // For stale flights, use cached status
+        for (const flightId of staleFlightIds) {
+          const cached = this.lastKnownStatus.get(flightId);
+          if (cached) results.push(cached);
+        }
+
+        // For missing flights, use offline fallback
+        for (const flightId of missingFlightIds) {
+          const offline: FlightStatusUpdate = {
+            flightId,
+            status: OFFLINE_STATUS,
+            timestamp: new Date(),
+          };
+          this.recordStatus(offline);
+          results.push(offline);
+        }
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -550,7 +695,13 @@ export class FlightStatusService {
 
     while (retries < maxRetries) {
       try {
-        return await this.mockApiCall(flightIds);
+        const statuses = await this.mockApiCall(flightIds);
+        // Update last fetch time for successful fetches
+        const now = Date.now();
+        for (const flightId of flightIds) {
+          this.lastFetchTime.set(flightId, now);
+        }
+        return statuses;
       } catch (error) {
         retries += 1;
         const delay = Math.pow(2, retries) * 1000;
@@ -581,6 +732,8 @@ export class FlightStatusService {
   public recordStatus(update: FlightStatusUpdate): { changed: boolean; previous: FlightStatusUpdate | null } {
     const previous = this.lastKnownStatus.get(update.flightId) ?? null;
     this.lastKnownStatus.set(update.flightId, update);
+    // Update last fetch time
+    this.lastFetchTime.set(update.flightId, update.timestamp.getTime());
 
     const changed = previous?.status !== update.status;
     if (changed) {

@@ -15,6 +15,12 @@ export interface AuthTokens {
   expiresIn: number
 }
 
+export interface TwoFactorSetup {
+  secret: string
+  qrCode: string
+  backupCodes: string[]
+}
+
 export interface AuthResponse {
   success: boolean
   data?: AuthTokens
@@ -22,6 +28,23 @@ export interface AuthResponse {
     code: string
     message: string
   }
+}
+
+export interface TwoFASetup {
+  setupId: string
+  method: "totp"
+  secret: string
+  qrCode: string
+  backupCodes: string[]
+  expiresAt: string
+}
+
+export interface TwoFAStatus {
+  userId: string
+  enabled: boolean
+  method?: "totp"
+  recoveryCodesRemaining: number
+  trustedDevices: number
 }
 
 export interface BiometricCredential {
@@ -110,8 +133,14 @@ function arrayBufferToBase64url(buffer: ArrayBuffer): string {
 export class AuthService {
   private static readonly CHALLENGE_ENDPOINT = '/api/v1/auth/challenge'
   private static readonly VERIFY_ENDPOINT = '/api/v1/auth/verify'
+  private static readonly VERIFY_2FA_ENDPOINT = '/api/v1/auth/verify-2fa'
   private static readonly REFRESH_ENDPOINT = '/api/v1/auth/refresh'
   private static readonly LOGOUT_ENDPOINT = '/api/v1/auth/logout'
+  private static readonly TWO_FACTOR_SETUP_ENDPOINT = '/api/v1/auth/2fa/setup'
+  private static readonly TWO_FACTOR_ENABLE_ENDPOINT = '/api/v1/auth/2fa/enable'
+  private static readonly TWO_FACTOR_DISABLE_ENDPOINT = '/api/v1/auth/2fa/disable'
+  private static readonly TWO_FACTOR_STATUS_ENDPOINT = '/api/v1/auth/2fa/status'
+  private static readonly TWO_FACTOR_REGENERATE_ENDPOINT = '/api/v1/auth/2fa/regenerate-backup-codes'
   private static readonly BIOMETRIC_REGISTER_BEGIN = '/api/v1/auth/biometric/register/begin'
   private static readonly BIOMETRIC_REGISTER_COMPLETE = '/api/v1/auth/biometric/register/complete'
   private static readonly BIOMETRIC_AUTH_BEGIN = '/api/v1/auth/biometric/authenticate/begin'
@@ -120,6 +149,12 @@ export class AuthService {
   private static readonly BIOMETRIC_AUTHORIZE_PAYMENT = '/api/v1/auth/biometric/authorize-payment'
   private static readonly BIOMETRIC_FALLBACK_BEGIN = '/api/v1/auth/biometric/authenticate/fallback/begin'
   private static readonly BIOMETRIC_FALLBACK_COMPLETE = '/api/v1/auth/biometric/authenticate/fallback/complete'
+  private static readonly TWO_FA_SETUP = '/api/v1/auth/2fa/setup'
+  private static readonly TWO_FA_CONFIRM = '/api/v1/auth/2fa/setup/confirm'
+  private static readonly TWO_FA_VERIFY = '/api/v1/auth/2fa/verify'
+  private static readonly TWO_FA_STATUS = '/api/v1/auth/2fa/status'
+  private static readonly TWO_FA_REGENERATE = '/api/v1/auth/2fa/recovery-codes/regenerate'
+  private static readonly TWO_FA_DISABLE = '/api/v1/auth/2fa/disable'
 
   static async getChallenge(walletAddress: string): Promise<AuthChallenge> {
     const response = await api.post(this.CHALLENGE_ENDPOINT, {
@@ -138,7 +173,7 @@ export class AuthService {
     walletAddress: string,
     signature: string,
     walletType: string
-  ): Promise<AuthTokens> {
+  ): Promise<AuthTokens | { requiresTwoFactor: boolean; walletAddress: string }> {
     const response = await api.post(this.VERIFY_ENDPOINT, {
       walletAddress,
       signature,
@@ -151,7 +186,27 @@ export class AuthService {
     }
 
     const data = await response.json()
-    return data.data
+    return data
+  }
+
+  static async verifyTwoFactor(
+    walletAddress: string,
+    token: string,
+    isBackupCode: boolean = false
+  ): Promise<AuthTokens> {
+    const response = await api.post(this.VERIFY_2FA_ENDPOINT, {
+      walletAddress,
+      token,
+      isBackupCode,
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error?.message || '2FA verification failed')
+    }
+
+    const data = await response.json()
+    return data
   }
 
   static async refreshToken(refreshToken: string): Promise<AuthTokens> {
@@ -173,6 +228,9 @@ export class AuthService {
     if (!response.ok) {
       throw new Error('Logout failed')
     }
+  }
+
+
   }
 
   static async isWebAuthnSupported(): Promise<boolean> {

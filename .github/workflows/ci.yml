@@ -89,7 +89,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - run: npm run typecheck --workspace=packages/backend
 
@@ -111,7 +111,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - run: npm run typecheck --workspace=packages/client
 
@@ -154,13 +154,22 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev
 
-      - name: Format check
-        working-directory: contracts
-        run: cargo fmt -- --check
+      - name: Contracts fmt/clippy gate
+        # Single source of truth for the contracts quality gate (#743): the same
+        # script `make fmt` / `make clippy` / `make lint` run locally, so CI
+        # cannot disagree with a developer's machine.
+        run: bash scripts/fmt-clippy-check.sh
 
-      - name: Clippy
+      # Keep TEST_GUIDE.md in sync with the integration test inventory.
+      - name: TEST_GUIDE parity check
         working-directory: contracts
-        run: cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
+        run: bash scripts/check-test-guide-parity.sh
+
+      # Ensure coverage.sh keeps enforcing the same gate as CI and rejects
+      # invalid arguments instead of silently skipping the check.
+      - name: coverage.sh regression tests
+        working-directory: contracts
+        run: bash scripts/test-coverage.sh
 
   # ── Tests: Backend ────────────────────────────────────────────────────────
   test-backend:
@@ -177,7 +186,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - name: Run tests with coverage gate
         # Fails when coverage drops below the thresholds configured in
@@ -220,7 +229,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - run: npm test --workspace=packages/client -- --coverage
 
@@ -335,7 +344,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - name: Run integration tests
         env:
@@ -362,7 +371,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Run E2E smoke tests
         env:
@@ -466,7 +475,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - run: npm run build --workspace=packages/backend
 
@@ -484,7 +493,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - run: npm run build --workspace=packages/client
 

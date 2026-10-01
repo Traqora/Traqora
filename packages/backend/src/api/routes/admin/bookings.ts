@@ -6,6 +6,8 @@ import { Booking, BookingStatus } from '../../../db/entities/Booking';
 import { requireAdmin } from '../../../middleware/adminAuth';
 import { auditLog } from '../../../middleware/adminAudit';
 import { adminPaginationSchema } from '../../schemas/common';
+import { BadRequestError, NotFoundError } from '../../../utils/errors';
+import { createPaginationMeta } from '../../../types/pagination';
 
 const router = Router();
 
@@ -25,16 +27,14 @@ const updateStatusSchema = z.object({
     reason: z.string().optional(),
 });
 
-import { BadRequestError, NotFoundError } from '../../../utils/errors';
-
 // GET /api/v1/admin/bookings
 router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    
+
     const parsed = adminPaginationSchema.safeParse(req.query);
     if (!parsed.success) {
         throw new BadRequestError('Validation Error', parsed.error.flatten());
     }
-    const { limit, offset, status, flightId, passengerId } = parsed.data;
+    const { page, limit, status, flightId, passengerId } = parsed.data;
     const repo = AppDataSource.getRepository(Booking);
 
     const qb = repo
@@ -49,15 +49,16 @@ router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) =
     const [bookings, total] = await qb
         .orderBy('booking.createdAt', 'DESC')
         .take(limit)
-        .skip(offset)
+        .skip((page - 1) * limit)
         .getManyAndCount();
 
-    return res.json({ success: true, data: { bookings, total, limit, offset } });
+    const pagination = createPaginationMeta(page, limit, total);
+    return res.json({ success: true, data: bookings, pagination });
 }));
 
 // GET /api/v1/admin/bookings/:id
 router.get('/:id', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    
+
     const booking = await AppDataSource.getRepository(Booking).findOne({
         where: { id: req.params.id },
         relations: ['flight', 'passenger'],
@@ -78,7 +79,7 @@ router.patch(
         if (!parsed.success) {
             throw new BadRequestError('Validation Error', parsed.error.flatten());
         }
-        
+
         const repo = AppDataSource.getRepository(Booking);
         const booking = await repo.findOne({ where: { id: req.params.id } });
         if (!booking) {

@@ -190,7 +190,46 @@ export class AuthService {
         }
         await this.userRepository.save(user);
 
+        // Check if 2FA is enabled
+        if (user.twoFactorEnabled) {
+            throw new Error('TWO_FACTOR_REQUIRED');
+        }
+
         return this.issueTokens(walletAddress, walletType);
+    }
+
+    /*
+     * Complete login with 2FA token verification
+     */
+    async verifyTwoFactorAndIssueTokens(
+        walletAddress: string,
+        token: string,
+        isBackupCode: boolean = false
+    ): Promise<VerifyResponse> {
+        const user = await this.userRepository.findOne({ where: { walletAddress } });
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        if (!user.twoFactorEnabled) {
+            throw new Error('2FA not enabled for this user');
+        }
+
+        // Import TwoFactorService here to avoid circular dependency
+        const { TwoFactorService } = await import('./twoFactorService');
+        const twoFactorService = new TwoFactorService(this.userRepository);
+
+        if (isBackupCode) {
+            await twoFactorService.verifyBackupCode(walletAddress, token);
+        } else {
+            await twoFactorService.verifyTwoFactorToken(walletAddress, token);
+        }
+
+        // Update last login time
+        user.lastLoginAt = new Date();
+        await this.userRepository.save(user);
+
+        return this.issueTokens(walletAddress, user.walletType);
     }
 
     /*
@@ -222,6 +261,7 @@ export class AuthService {
 
     /*
      * Refresh the token pair using a valid refresh token.
+     * Supports JWT rotation without logout by ensuring token re-use detection.
      */
     async refreshTokens(refreshToken: string): Promise<VerifyResponse> {
         let payload: any;
@@ -239,8 +279,10 @@ export class AuthService {
         const refreshHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
         const storedHash = await this.redis.get(`auth:refresh:${walletAddress}`);
 
-        if (storedHash !== refreshHash) {
-            throw new Error('Refresh token revoked or mismatched');
+        if (!storedHash || storedHash !== refreshHash) {
+            // Replay detection: if a stale or mismatched token is presented, revoke all active tokens for the wallet
+            await this.redis.del(`auth:refresh:${walletAddress}`);
+            throw new Error('Refresh token reuse detected. Session revoked.');
         }
 
         // We fetch user to know the walletType
@@ -249,7 +291,7 @@ export class AuthService {
             throw new Error('User not found');
         }
 
-        // Issue new token pair (rotates refresh token)
+        // Issue new token pair (rotates refresh token and overrides old one)
         return this.issueTokens(walletAddress, user.walletType);
     }
 

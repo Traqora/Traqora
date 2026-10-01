@@ -12,10 +12,8 @@ import {
 } from "../../services/idempotency";
 import { BookingOrchestrationService } from "../../services/bookingOrchestrationService";
 import { getStripe, stripeWebhookSecret } from "../../services/stripe";
-import {
-  submitSignedSorobanXdr,
-  getTransactionStatus,
-} from "../../services/soroban";
+import { submitSignedSorobanXdr } from "../../services/soroban";
+import { confirmBookingTx } from "../../services/bookingConfirmRetry";
 import { withRetries } from "../../services/retry";
 import { getWebSocketServer } from "../../websockets/server";
 import { logger } from "../../utils/logger";
@@ -296,29 +294,15 @@ router.get(
       });
     }
 
-    const txStatus = await getTransactionStatus(booking.sorobanTxHash);
+    // #784: single idempotent confirm transition — re-polling an already
+    // settled transaction no longer re-saves or re-broadcasts.
+    const { outcome, changed, booking: updated, transactionStatus: txStatus } =
+      await confirmBookingTx(booking.id);
 
-    if (txStatus.status === "success" && booking.status !== "confirmed") {
-      booking.status = "confirmed";
-      if (txStatus.result) {
-        booking.sorobanBookingId = txStatus.result.bookingId || null;
-      }
-      await bookingRepo.save(booking);
+    if (changed) {
       try {
         const ws = getWebSocketServer();
-        ws.broadcastBookingStatus(booking.id, booking.status);
-      } catch (e) {
-        logger.warn(
-          "WebSocket server not ready - skipping booking status broadcast",
-        );
-      }
-    } else if (txStatus.status === "failed" && booking.status !== "failed") {
-      booking.status = "failed";
-      booking.lastError = txStatus.error || "Transaction failed";
-      await bookingRepo.save(booking);
-      try {
-        const ws = getWebSocketServer();
-        ws.broadcastBookingStatus(booking.id, booking.status);
+        ws.broadcastBookingStatus(updated.id, updated.status);
       } catch (e) {
         logger.warn(
           "WebSocket server not ready - skipping booking status broadcast",
@@ -329,8 +313,9 @@ router.get(
     return res.json({
       success: true,
       data: {
-        bookingStatus: booking.status,
+        bookingStatus: updated.status,
         transactionStatus: txStatus,
+        confirmOutcome: outcome,
       },
     });
   }),

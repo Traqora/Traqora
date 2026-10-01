@@ -186,9 +186,18 @@ export const initDataSource = async () => {
 // Startup migration check, wrapped in an async IIFE instead of using
 // top-level await so the module stays valid CommonJS under ts-jest.
 // Skipped in test mode: no DB connection exists at import time there.
-(async () => {
+//
+// Exported so one-shot entrypoints (notably the staging seeder) can await the
+// schema instead of racing it (issue #749).
+export const startupMigrations: Promise<void> = (async () => {
   if (isTest) return;
   try {
+    // The connection must exist before `showMigrations` can run. Without this
+    // the first call rejects with CannotExecuteNotConnectedError and the
+    // rethrow below becomes an unhandled rejection that kills the process.
+    await initDataSource();
+    if (!AppDataSource.isInitialized) return;
+
     logger.info("Checking database migrations...");
     const hasPending = await AppDataSource.showMigrations();
     if (hasPending) {

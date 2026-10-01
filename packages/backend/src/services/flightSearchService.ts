@@ -16,6 +16,11 @@ import {
   OffchainFlightDataProvider,
   RepositoryOffchainFlightDataProvider,
 } from './offchainFlightDataProvider';
+import {
+  FailoverFlightDataProvider,
+  NamedFlightDataProvider,
+} from './failoverFlightDataProvider';
+import { AmadeusFlightDataProvider } from './amadeus/amadeusFlightDataProvider';
 import { sloMeasure } from '../monitoring/slo';
 import { createFlightRegistryService, FlightRegistryService } from './flightRegistryService';
 import { measureAsync } from './metrics';
@@ -167,9 +172,25 @@ export const createDefaultFlightSearchService = (): FlightSearchService => {
     ? new PostgresFlightRepository(getPostgresPool())
     : new InMemoryFlightRepository();
 
+  // #779: provider failover — the offchain repository stays primary; the
+  // Amadeus flight-offers API joins the chain as secondary only when AMADEUS
+  // credentials are configured, so dev/test keep single-provider behaviour.
+  const failoverProviders: NamedFlightDataProvider[] = [
+    {
+      name: 'offchain-repository',
+      provider: new RepositoryOffchainFlightDataProvider(repository),
+    },
+  ];
+  const amadeusProvider = new AmadeusFlightDataProvider();
+  if (amadeusProvider.isConfigured()) {
+    failoverProviders.push({ name: 'amadeus', provider: amadeusProvider });
+  }
+  const provider: OffchainFlightDataProvider = new FailoverFlightDataProvider(failoverProviders);
+
   return new FlightSearchService(
     repository,
     getFlightSearchCache(),
     config.flightSearchCacheTtlSeconds,
+    provider,
   );
 };

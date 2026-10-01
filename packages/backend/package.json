@@ -23,11 +23,14 @@
     "typecheck": "rimraf dist && tsc --noEmit",
     "generate:openapi": "ts-node --project tsconfig.json src/api/openapi/generator.ts",
     "verify:openapi": "ts-node --project tsconfig.json scripts/verify-openapi.ts",
+    "docs:env": "ts-node --project tsconfig.json scripts/env-reference.ts",
+    "verify:env-docs": "ts-node --project tsconfig.json scripts/env-reference.ts --check",
     "prebuild": "npm run generate:openapi",
     "typeorm:cli": "ts-node ./node_modules/typeorm/cli.js -d src/db/dataSource.ts",
     "migration:run": "npm run typeorm:cli migration:run",
     "migration:revert": "npm run typeorm:cli migration:revert",
-    "db:seed": "ts-node -r dotenv/config src/db/seeds/seeder.ts"
+    "db:seed": "ts-node -r dotenv/config src/db/seeds/seeder.ts",
+    "db:seed:staging": "ts-node -r dotenv/config src/db/seeds/seedStaging.ts"
   },
   "dependencies": {
     "@opentelemetry/auto-instrumentations-node": "^0.73.0",

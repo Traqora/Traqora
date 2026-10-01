@@ -99,7 +99,10 @@ fn test_unauthorised_cannot_propose_add_signer() {
         &Some(new_signer),
         &None,
     );
-    assert!(res.is_err(), "outsider should not be able to propose AddSigner");
+    assert!(
+        res.is_err(),
+        "outsider should not be able to propose AddSigner"
+    );
 }
 
 #[test]
@@ -117,7 +120,10 @@ fn test_unauthorised_cannot_propose_remove_signer() {
         &Some(s1.clone()),
         &None,
     );
-    assert!(res.is_err(), "outsider should not be able to propose RemoveSigner");
+    assert!(
+        res.is_err(),
+        "outsider should not be able to propose RemoveSigner"
+    );
 }
 
 #[test]
@@ -135,7 +141,10 @@ fn test_unauthorised_cannot_propose_emergency_stop() {
         &None,
         &None,
     );
-    assert!(res.is_err(), "outsider should not be able to propose EmergencyStop");
+    assert!(
+        res.is_err(),
+        "outsider should not be able to propose EmergencyStop"
+    );
 }
 
 #[test]
@@ -153,7 +162,10 @@ fn test_unauthorised_cannot_propose_emergency_resume() {
         &None,
         &None,
     );
-    assert!(res.is_err(), "outsider should not be able to propose EmergencyResume");
+    assert!(
+        res.is_err(),
+        "outsider should not be able to propose EmergencyResume"
+    );
 }
 
 #[test]
@@ -228,8 +240,7 @@ fn test_add_signer_authorised_emits_canonical_events() {
     );
     assert_eq!(created.len(), 1, "expected one (proposal, created) event");
     let (_, _, data) = &created[0];
-    let (evt_pid, evt_action): (u64, AdminActionType) =
-        data.clone().try_into_val(&env).unwrap();
+    let (evt_pid, evt_action): (u64, AdminActionType) = data.clone().try_into_val(&env).unwrap();
     assert_eq!(evt_pid, pid);
     assert_eq!(evt_action, AdminActionType::AddSigner);
 
@@ -271,8 +282,7 @@ fn test_add_signer_authorised_emits_canonical_events() {
     );
     assert_eq!(executed.len(), 1, "expected one (action, executed) event");
     let (_, _, data) = &executed[0];
-    let (exec_pid, exec_action): (u64, AdminActionType) =
-        data.clone().try_into_val(&env).unwrap();
+    let (exec_pid, exec_action): (u64, AdminActionType) = data.clone().try_into_val(&env).unwrap();
     assert_eq!(exec_pid, pid);
     assert_eq!(exec_action, AdminActionType::AddSigner);
 
@@ -336,7 +346,11 @@ fn test_remove_signer_authorised_emits_canonical_events() {
         soroban_sdk::symbol_short!("signer"),
         soroban_sdk::symbol_short!("removed"),
     );
-    assert_eq!(removed_events.len(), 1, "expected one (signer, removed) event");
+    assert_eq!(
+        removed_events.len(),
+        1,
+        "expected one (signer, removed) event"
+    );
     let (_, _, data) = &removed_events[0];
     let (rem_pid, rem_signer): (u64, Address) = data.clone().try_into_val(&env).unwrap();
     assert_eq!(rem_pid, pid);
@@ -384,10 +398,13 @@ fn test_emergency_stop_authorised_emits_canonical_events() {
         soroban_sdk::symbol_short!("proposal"),
         soroban_sdk::symbol_short!("created"),
     );
-    assert_eq!(created.len(), 1, "expected one (proposal, created) for EmergencyStop");
+    assert_eq!(
+        created.len(),
+        1,
+        "expected one (proposal, created) for EmergencyStop"
+    );
     let (_, _, data) = &created[0];
-    let (evt_pid, evt_action): (u64, AdminActionType) =
-        data.clone().try_into_val(&env).unwrap();
+    let (evt_pid, evt_action): (u64, AdminActionType) = data.clone().try_into_val(&env).unwrap();
     assert_eq!(evt_pid, pid);
     assert_eq!(evt_action, AdminActionType::EmergencyStop);
 
@@ -397,7 +414,11 @@ fn test_emergency_stop_authorised_emits_canonical_events() {
         soroban_sdk::symbol_short!("proposal"),
         soroban_sdk::symbol_short!("approved"),
     );
-    assert_eq!(approved.len(), 1, "expected one (proposal, approved) for EmergencyStop");
+    assert_eq!(
+        approved.len(),
+        1,
+        "expected one (proposal, approved) for EmergencyStop"
+    );
 
     client.execute_admin_action(&s1, &pid);
 
@@ -443,7 +464,10 @@ fn test_emergency_resume_authorised_emits_canonical_events() {
         soroban_sdk::symbol_short!("created"),
     );
     // At this point there are 2 proposals (stop and resume), so at least 1 created for resume
-    assert!(created_resume.len() >= 1, "expected proposal created for resume");
+    assert!(
+        created_resume.len() >= 1,
+        "expected proposal created for resume"
+    );
     client.approve_admin_action(&s1, &resume_pid);
     client.execute_admin_action(&s2, &resume_pid);
 

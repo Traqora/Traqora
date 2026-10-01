@@ -318,6 +318,11 @@ export class ComplianceReportService {
   }
 
   private static generateGDPRReportContent(findings: any, options: ComplianceReportOptions): string {
+    const dataAccessStr = JSON.stringify(findings.dataAccessByUser || {}, null, 2);
+    const dataExportStr = JSON.stringify(findings.dataExportByUser || {}, null, 2);
+    const consentChangesStr = JSON.stringify(findings.consentChangesByUser || {}, null, 2);
+    const deletionRequestsStr = JSON.stringify(findings.deletionRequestsByUser || {}, null, 2);
+
     return `
 GDPR Compliance Audit Report
 =============================
@@ -333,13 +338,6 @@ Total Data Export Requests: ${findings.totalDataExportRequests}
 Total Consent Changes: ${findings.totalConsentChanges}
 Total Deletion Requests: ${findings.totalDeletionRequests}
 
-Detailed Findings
-    const dataAccessStr = JSON.stringify(findings.dataAccessByUser || {}, null, 2);
-    const dataExportStr = JSON.stringify(findings.dataExportByUser || {}, null, 2);
-    const consentChangesStr = JSON.stringify(findings.consentChangesByUser || {}, null, 2);
-    const deletionRequestsStr = JSON.stringify(findings.deletionRequestsByUser || {}, null, 2);
-
-    return `
 Detailed Findings
 
 Data Access by User: ${dataAccessStr}

@@ -44,6 +44,34 @@ router.get(
 );
 
 /**
+ * GET /api/services/seats/:flightId/holds
+ * Get active group seat holds without exposing group booking identifiers
+ */
+router.get(
+  "/seats/:flightId/holds",
+  asyncHandler(async (req: Request, res: Response) => {
+    const availability = await seatAvailabilityService.getSeatAvailability(
+      req.params.flightId,
+    );
+    const holds = seatAvailabilityService
+      .getActiveGroupSeatHolds(req.params.flightId)
+      .map(({ seatCount, seats, lockedAt, expiresAt }) => ({
+        seatCount,
+        seats,
+        lockedAt,
+        expiresAt,
+      }));
+
+    return res.json({
+      flightId: req.params.flightId,
+      heldSeats: holds.reduce((total, hold) => total + hold.seatCount, 0),
+      holds,
+      timestamp: availability.timestamp,
+    });
+  }),
+);
+
+/**
  * GET /api/services/seats/:flightId/available
  * Get available seats for a specific cabin class
  */
