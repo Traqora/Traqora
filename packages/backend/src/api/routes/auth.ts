@@ -1,15 +1,21 @@
 // @ts-ignore
 import { Router, Request, Response, NextFunction } from 'express';
 import { AuthService } from '../../services/authService';
+import { TwoFactorService } from '../../services/twoFactorService';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { AppDataSource } from '../../db/dataSource';
+import { User } from '../../db/entities/User';
 import { UnauthorizedError, BadRequestError, NotFoundError } from '../../utils/errors';
 import { twoFAService } from '../../services/TwoFAService';
 import type { TwoFAMethod } from '../../types/twofa';
 
+// @ts-ignore
+import type { Router as ExpressRouter } from 'express';
+
 export const authRoutes = Router();
 
 const getAuthService = () => new AuthService(AppDataSource);
+const getTwoFactorService = () => new TwoFactorService(AppDataSource.getRepository(User));
 
 authRoutes.post('/challenge', async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -27,18 +33,54 @@ authRoutes.post('/verify', async (req: Request, res: Response, next: NextFunctio
         const { walletAddress, signature, walletType } = req.body;
         const authService = getAuthService();
 
-        const result = await authService.verifySignature(walletAddress, signature, walletType);
-        res.json(result);
-    } catch (err: any) {
-        if (
-            err.message.includes('Invalid signature') ||
-            err.message.includes('Nonce missing or expired') ||
-            err.message.includes('Unsupported wallet')
-        ) {
-            next(new UnauthorizedError(err.message));
-        } else {
-            next(err);
+        // Auth errors should generally result in 401
+        try {
+            const result = await authService.verifySignature(walletAddress, signature, walletType);
+            res.json(result);
+        } catch (authErr: any) {
+            if (
+                authErr.message.includes('Invalid signature') ||
+                authErr.message.includes('Nonce missing or expired') ||
+                authErr.message.includes('Unsupported wallet')
+            ) {
+                next(new UnauthorizedError(authErr.message));
+            } else if (authErr.message === 'TWO_FACTOR_REQUIRED') {
+                res.status(200).json({ requiresTwoFactor: true, walletAddress });
+            } else {
+                next(authErr);
+            }
         }
+    } catch (err: any) {
+        next(err);
+    }
+});
+
+// Complete login with 2FA token
+authRoutes.post('/verify-2fa', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { walletAddress, token, isBackupCode } = req.body;
+        const authService = getAuthService();
+
+        try {
+            const result = await authService.verifyTwoFactorAndIssueTokens(
+                walletAddress,
+                token,
+                isBackupCode || false
+            );
+            res.json(result);
+        } catch (authErr: any) {
+            if (
+                authErr.message.includes('Invalid TOTP token') ||
+                authErr.message.includes('Invalid backup code') ||
+                authErr.message.includes('2FA not enabled')
+            ) {
+                next(new UnauthorizedError(authErr.message));
+            } else {
+                next(authErr);
+            }
+        }
+    } catch (err: any) {
+        next(err);
     }
 });
 
@@ -68,111 +110,12 @@ authRoutes.post('/logout', requireAuth, async (req: Request, res: Response, next
     }
 });
 
-authRoutes.post('/2fa/setup', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const userId = req.user?.walletAddress;
-        const { email, method = 'totp' } = req.body as { email?: string; method?: TwoFAMethod };
-        if (!userId || !email) {
-            throw new BadRequestError('Email is required to set up two-factor authentication');
-        }
-        if (method !== 'totp') {
-            throw new BadRequestError('Only TOTP two-factor authentication is supported');
-        }
 
-        const session = await twoFAService.createSetupSession(userId, method, email);
-        res.json({
-            setupId: session.id,
-            method: session.method,
-            secret: session.secret,
-            qrCode: session.qrCode,
-            backupCodes: session.backupCodes,
-            expiresAt: session.expiresAt,
-        });
-    } catch (err) {
         next(err);
     }
 });
 
-authRoutes.post('/2fa/setup/confirm', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const userId = req.user?.walletAddress;
-        const { setupId, code } = req.body as { setupId?: string; code?: string };
-        if (!userId || !setupId || !code) {
-            throw new BadRequestError('Setup ID and verification code are required');
-        }
-        const settings = await twoFAService.confirmSetup(userId, setupId, code);
-        res.json({
-            id: settings.id,
-            method: settings.method,
-            status: settings.status,
-            enabledAt: settings.enabledAt,
-        });
-    } catch (err) {
-        next(err);
-    }
-});
-
-authRoutes.post('/2fa/verify', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const userId = req.user?.walletAddress;
-        const { code, recoveryCode, deviceId, rememberDevice = false } = req.body as {
-            code?: string;
-            recoveryCode?: boolean;
-            deviceId?: string;
-            rememberDevice?: boolean;
-        };
-        if (!userId || !code) {
-            throw new BadRequestError('Verification code is required');
-        }
-        const valid = await twoFAService.verify({
-            userId,
-            method: 'totp',
-            code,
-            recoveryCode,
-            deviceId,
-            rememberDevice,
-        });
-        if (!valid) {
-            throw new UnauthorizedError('Invalid two-factor authentication code');
-        }
-        res.json({ verified: true });
-    } catch (err) {
-        next(err);
-    }
-});
-
-authRoutes.get('/2fa/status', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const userId = req.user?.walletAddress;
-        if (!userId) throw new UnauthorizedError();
-        res.json(await twoFAService.getStats(userId));
-    } catch (err) {
-        next(err);
-    }
-});
-
-authRoutes.post('/2fa/recovery-codes/regenerate', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const userId = req.user?.walletAddress;
-        if (!userId) throw new UnauthorizedError();
-        const codes = await twoFAService.regenerateRecoveryCodes(userId);
-        res.json({ codes });
-    } catch (err) {
-        next(err);
-    }
-});
-
-authRoutes.post('/2fa/disable', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const userId = req.user?.walletAddress;
-        if (!userId) throw new UnauthorizedError();
-        await twoFAService.disable(userId);
-        res.json({ disabled: true });
-    } catch (err) {
-        next(err);
-    }
-});
-
+main
 authRoutes.post('/biometric/register/begin', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
     try {
         const walletAddress = req.user?.walletAddress;
@@ -187,6 +130,83 @@ authRoutes.post('/biometric/register/begin', requireAuth, async (req: Request, r
     }
 });
 
+// 2FA Enable - Verify TOTP token and enable 2FA
+authRoutes.post('/2fa/enable', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const walletAddress = req.user?.walletAddress;
+        if (!walletAddress) {
+            throw new UnauthorizedError();
+        }
+        const { token } = req.body;
+        if (!token) {
+            throw new BadRequestError('Token is required');
+        }
+        const twoFactorService = getTwoFactorService();
+        await twoFactorService.enableTwoFactor(walletAddress, token);
+        res.json({ message: '2FA enabled successfully' });
+    } catch (err: any) {
+        if (err.message.includes('Invalid TOTP token')) {
+            next(new BadRequestError(err.message));
+        } else {
+            next(err);
+        }
+    }
+});
+
+// 2FA Verify - Verify TOTP token during login
+authRoutes.post('/2fa/verify', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { walletAddress, token } = req.body;
+        if (!walletAddress || !token) {
+            throw new BadRequestError('Wallet address and token are required');
+        }
+        const twoFactorService = getTwoFactorService();
+        await twoFactorService.verifyTwoFactorToken(walletAddress, token);
+        res.json({ verified: true });
+    } catch (err: any) {
+        if (err.message.includes('Invalid TOTP token') || err.message.includes('2FA not enabled')) {
+            next(new UnauthorizedError(err.message));
+        } else {
+            next(err);
+        }
+    }
+});
+
+// 2FA Verify Backup Code
+authRoutes.post('/2fa/verify-backup', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { walletAddress, code } = req.body;
+        if (!walletAddress || !code) {
+            throw new BadRequestError('Wallet address and backup code are required');
+        }
+        const twoFactorService = getTwoFactorService();
+        await twoFactorService.verifyBackupCode(walletAddress, code);
+        res.json({ verified: true, message: 'Backup code used. Please regenerate your backup codes.' });
+    } catch (err: any) {
+        if (err.message.includes('Invalid backup code') || err.message.includes('2FA not enabled')) {
+            next(new UnauthorizedError(err.message));
+        } else {
+            next(err);
+        }
+    }
+});
+
+// 2FA Disable
+authRoutes.post('/2fa/disable', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const walletAddress = req.user?.walletAddress;
+        if (!walletAddress) {
+            throw new UnauthorizedError();
+        }
+        const twoFactorService = getTwoFactorService();
+        await twoFactorService.disableTwoFactor(walletAddress);
+        res.json({ message: '2FA disabled successfully' });
+    } catch (err: any) {
+        next(err);
+    }
+});
+
+// Biometric registration complete
 authRoutes.post('/biometric/register/complete', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
     try {
         const walletAddress = req.user?.walletAddress;
@@ -213,6 +233,26 @@ authRoutes.post('/biometric/register/complete', requireAuth, async (req: Request
     }
 });
 
+// 2FA Regenerate Backup Codes
+authRoutes.post('/2fa/regenerate-backup-codes', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const walletAddress = req.user?.walletAddress;
+        if (!walletAddress) {
+            throw new UnauthorizedError();
+        }
+        const twoFactorService = getTwoFactorService();
+        const newBackupCodes = await twoFactorService.regenerateBackupCodes(walletAddress);
+        res.json({ backupCodes: newBackupCodes });
+    } catch (err: any) {
+        if (err.message.includes('2FA not enabled')) {
+            next(new BadRequestError(err.message));
+        } else {
+            next(err);
+        }
+    }
+});
+
+// Biometric authentication begin
 authRoutes.post('/biometric/authenticate/begin', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { walletAddress } = req.body;
@@ -231,6 +271,22 @@ authRoutes.post('/biometric/authenticate/begin', async (req: Request, res: Respo
     }
 });
 
+// 2FA Status
+authRoutes.get('/2fa/status', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const walletAddress = req.user?.walletAddress;
+        if (!walletAddress) {
+            throw new UnauthorizedError();
+        }
+        const twoFactorService = getTwoFactorService();
+        const isEnabled = await twoFactorService.isTwoFactorEnabled(walletAddress);
+        res.json({ enabled: isEnabled });
+    } catch (err: any) {
+        next(err);
+    }
+});
+
+// Biometric authentication complete
 authRoutes.post('/biometric/authenticate/complete', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { walletAddress, assertion } = req.body;
