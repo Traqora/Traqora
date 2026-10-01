@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -28,6 +28,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useFlightSearch } from '@/hooks/use-flight-search';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import {
+  useBookingStepFocus,
+  useBookingFormFocus,
+  useBookingKeyboardNavigation,
+} from '@/hooks/use-booking-focus';
 
 type SplitMethod = 'equal' | 'custom' | 'percentage';
 
@@ -87,23 +92,84 @@ export default function GroupBookingPage() {
   const [costCenter, setCostCenter] = useState('');
   const [department, setDepartment] = useState('');
 
-  const selectedFlight = flights.find((f) => f.id === selectedFlightId);
+  const setupStepRef = useRef<HTMLDivElement>(null);
+  const membersStepRef = useRef<HTMLDivElement>(null);
+  const splitStepRef = useRef<HTMLDivElement>(null);
+  const inviteStepRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const fetchCorporateAccounts = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const res = await fetch('/api/v1/corporate/accounts', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (data.success) {
-          setCorporateAccounts(data.data.accounts || []);
-        }
-      } catch { /* silent fail */ }
-    };
-    fetchCorporateAccounts();
-  }, []);
+  const goToNextStep = useCallback(() => {
+    const steps: Array<'setup' | 'members' | 'split' | 'invite'> = ['setup', 'members', 'split', 'invite'];
+    const currentIndex = steps.indexOf(step);
+    if (currentIndex < steps.length - 1) {
+      setStep(steps[currentIndex + 1]);
+    }
+  }, [step]);
+
+  const goToPreviousStep = useCallback(() => {
+    const steps: Array<'setup' | 'members' | 'split' | 'invite'> = ['setup', 'members', 'split', 'invite'];
+    const currentIndex = steps.indexOf(step);
+    if (currentIndex > 0) {
+      setStep(steps[currentIndex - 1]);
+    }
+  }, [step]);
+
+  const handleSubmit = useCallback(() => {
+    if (step === 'setup' || step === 'members' || step === 'split') {
+      goToNextStep();
+    } else if (step === 'invite') {
+      handleProceedToPayment();
+    }
+  }, [step, goToNextStep, handleProceedToPayment]);
+
+  // Focus management for form validation
+  const setupFormRef = useRef<HTMLFormElement>(null);
+  const { focusFirstError: focusSetupError } = useBookingFormFocus({
+    formRef: setupFormRef,
+    errors: {
+      ...(groupName.length === 0 && { groupName: 'Required' }),
+      ...(selectedFlightId.length === 0 && { selectedFlightId: 'Required' }),
+      ...(organizerEmail.length === 0 && { organizerEmail: 'Required' }),
+    },
+  });
+
+  const membersFormRef = useRef<HTMLFormElement>(null);
+  const { focusFirstError: focusMembersError } = useBookingFormFocus({
+    formRef: membersFormRef,
+    errors: {
+      ...(memberEmails.length === 0 && { memberEmails: 'Required' }),
+    },
+  });
+
+  useBookingKeyboardNavigation(goToNextStep, goToPreviousStep, handleSubmit);
+
+  useBookingStepFocus({
+    stepElement: setupStepRef.current,
+    isActive: step === 'setup',
+    preferredSelector: '#group-name',
+    onStepActivate: () => {
+      // Focus is set by useBookingStepFocus
+    },
+  });
+
+  useBookingStepFocus({
+    stepElement: membersStepRef.current,
+    isActive: step === 'members',
+    preferredSelector: '#member-email',
+  });
+
+  useBookingStepFocus({
+    stepElement: splitStepRef.current,
+    isActive: step === 'split',
+    preferredSelector: '[role="radio"][aria-checked="true"]',
+  });
+
+  useBookingStepFocus({
+    stepElement: inviteStepRef.current,
+    isActive: step === 'invite',
+    preferredSelector: 'button[onclick*="handleProceedToPayment"]',
+  });
+
+  const selectedFlight = flights.find((f) => f.id === selectedFlightId);
 
   // Calculate total amount
   const totalAmount = selectedFlight ? selectedFlight.price * (memberEmails.length + 1) : 0;
@@ -216,54 +282,58 @@ export default function GroupBookingPage() {
   };
 
   const renderSetup = () => (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-serif">Create Group Booking</CardTitle>
-          <CardDescription>Plan a trip together with friends, family, or colleagues.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <label htmlFor="group-name" className="text-sm font-medium mb-1 block">Group Name</label>
-            <Input
-              id="group-name"
-              placeholder="e.g., Summer Vacation 2024"
-              value={groupName}
-              onChange={(e) => setGroupName(e.target.value)}
-              aria-required="true"
-              aria-invalid={groupName.length === 0 && step === 'setup' ? undefined : undefined}
-            />
-          </div>
+    <div ref={setupStepRef} className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <form ref={setupFormRef} onSubmit={(e) => { e.preventDefault(); if (groupName && selectedFlightId && organizerEmail) goToNextStep(); else focusSetupError(); }}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-serif">Create Group Booking</CardTitle>
+            <CardDescription>Plan a trip together with friends, family, or colleagues.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label htmlFor="group-name" className="text-sm font-medium mb-1 block">Group Name</label>
+              <Input
+                id="group-name"
+                name="groupName"
+                placeholder="e.g., Summer Vacation 2024"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                aria-required="true"
+                aria-invalid={groupName.length === 0 && step === 'setup' ? undefined : undefined}
+              />
+            </div>
 
-          <div>
-            <label htmlFor="organizer-email" className="text-sm font-medium mb-1 block">Organizer Email</label>
-            <Input
-              id="organizer-email"
-              type="email"
-              placeholder="your-email@example.com"
-              value={organizerEmail}
-              onChange={(e) => setOrganizerEmail(e.target.value)}
-              aria-required="true"
-            />
-          </div>
+            <div>
+              <label htmlFor="organizer-email" className="text-sm font-medium mb-1 block">Organizer Email</label>
+              <Input
+                id="organizer-email"
+                name="organizerEmail"
+                type="email"
+                placeholder="your-email@example.com"
+                value={organizerEmail}
+                onChange={(e) => setOrganizerEmail(e.target.value)}
+                aria-required="true"
+              />
+            </div>
 
-          <div>
-            <label htmlFor="flight-select" className="text-sm font-medium mb-1 block">Select Flight</label>
-            <select
-              id="flight-select"
-              className="w-full p-2 rounded-md border border-input bg-background"
-              value={selectedFlightId}
-              onChange={(e) => setSelectedFlightId(e.target.value)}
-              aria-required="true"
-            >
-              <option value="">Select a flight...</option>
-              {flights.map((flight) => (
-                <option key={flight.id} value={flight.id}>
-                  {flight.fromCity} → {flight.toCity} | {flight.airline} | ${flight.price}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div>
+              <label htmlFor="flight-select" className="text-sm font-medium mb-1 block">Select Flight</label>
+              <select
+                id="flight-select"
+                name="selectedFlightId"
+                className="w-full p-2 rounded-md border border-input bg-background"
+                value={selectedFlightId}
+                onChange={(e) => setSelectedFlightId(e.target.value)}
+                aria-required="true"
+              >
+                <option value="">Select a flight...</option>
+                {flights.map((flight) => (
+                  <option key={flight.id} value={flight.id}>
+                    {flight.fromCity} → {flight.toCity} | {flight.airline} | ${flight.price}
+                  </option>
+                ))}
+              </select>
+            </div>
 
           {selectedFlight && (
             <Alert className="bg-primary/5 border-primary/20">
@@ -326,82 +396,85 @@ export default function GroupBookingPage() {
   );
 
   const renderMembers = () => (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-serif">Add Group Members</CardTitle>
-          <CardDescription>Add the email addresses of everyone joining this trip.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-2">
-            <label htmlFor="member-email" className="sr-only">Member email address</label>
-            <Input
-              id="member-email"
-              type="email"
-              placeholder="friend@example.com"
-              value={currentEmail}
-              onChange={(e) => setCurrentEmail(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddMember()}
-              aria-describedby="member-email-hint"
-            />
-            <span id="member-email-hint" className="sr-only">Press Enter or click Add to include this member</span>
-            <Button onClick={handleAddMember} variant="outline" aria-label={`Add member ${currentEmail || ''}`}>
-              <UserPlus className="h-4 w-4 mr-2" aria-hidden="true" />
-              Add
-            </Button>
-          </div>
-
-          {memberEmails.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground">
-                {memberEmails.length + 1} members (including organizer)
-              </p>
-              <div className="space-y-1">
-                {/* Organizer */}
-                <div className="flex items-center justify-between p-2 rounded-md bg-primary/5 border border-primary/20">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-primary" />
-                    <span className="font-medium">{organizerEmail}</span>
-                    <Badge variant="secondary" className="text-xs">Organizer</Badge>
-                  </div>
-                </div>
-                {/* Members */}
-                {memberEmails.map((email) => (
-                  <div
-                    key={email}
-                    className="flex items-center justify-between p-2 rounded-md bg-muted/30"
-                  >
-                    <span className="text-sm">{email}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleRemoveMember(email)}
-                    >
-                      <Trash2 className="h-4 w-4 text-muted-foreground hover:text-red-500" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
+    <div ref={membersStepRef} className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <form ref={membersFormRef} onSubmit={(e) => { e.preventDefault(); if (memberEmails.length > 0) goToNextStep(); else focusMembersError(); }}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-serif">Add Group Members</CardTitle>
+            <CardDescription>Add the email addresses of everyone joining this trip.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <label htmlFor="member-email" className="sr-only">Member email address</label>
+              <Input
+                id="member-email"
+                name="memberEmail"
+                type="email"
+                placeholder="friend@example.com"
+                value={currentEmail}
+                onChange={(e) => setCurrentEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddMember()}
+                aria-describedby="member-email-hint"
+              />
+              <span id="member-email-hint" className="sr-only">Press Enter or click Add to include this member</span>
+              <Button onClick={handleAddMember} variant="outline" aria-label={`Add member ${currentEmail || ''}`}>
+                <UserPlus className="h-4 w-4 mr-2" aria-hidden="true" />
+                Add
+              </Button>
             </div>
-          )}
 
-          <div className="flex justify-between">
-            <Button variant="ghost" onClick={() => setStep('setup')}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back
-            </Button>
-            <Button size="lg" onClick={() => setStep('split')} disabled={memberEmails.length === 0} className="px-8">
-              Set Split Method
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </div>
+            {memberEmails.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-muted-foreground">
+                  {memberEmails.length + 1} members (including organizer)
+                </p>
+                <div className="space-y-1">
+                  {/* Organizer */}
+                  <div className="flex items-center justify-between p-2 rounded-md bg-primary/5 border border-primary/20">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-primary" />
+                      <span className="font-medium">{organizerEmail}</span>
+                      <Badge variant="secondary" className="text-xs">Organizer</Badge>
+                    </div>
+                  </div>
+                  {/* Members */}
+                  {memberEmails.map((email) => (
+                    <div
+                      key={email}
+                      className="flex items-center justify-between p-2 rounded-md bg-muted/30"
+                    >
+                      <span className="text-sm">{email}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveMember(email)}
+                      >
+                        <Trash2 className="h-4 w-4 text-muted-foreground hover:text-red-500" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between">
+              <Button variant="ghost" onClick={() => setStep('setup')}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back
+              </Button>
+              <Button size="lg" onClick={() => setStep('split')} disabled={memberEmails.length === 0} className="px-8">
+                Set Split Method
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
         </CardContent>
       </Card>
+    </form>
     </div>
   );
 
   const renderSplit = () => (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div ref={splitStepRef} className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <Card>
         <CardHeader>
           <CardTitle className="font-serif">Split Payment Method</CardTitle>
@@ -498,7 +571,7 @@ export default function GroupBookingPage() {
   );
 
   const renderInvite = () => (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 text-center">
+    <div ref={inviteStepRef} className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 text-center">
       <Card>
         <CardHeader>
           <div className="flex justify-center mb-4">
