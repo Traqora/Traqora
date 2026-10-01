@@ -115,7 +115,7 @@ authRoutes.post('/logout', requireAuth, async (req: Request, res: Response, next
     }
 });
 
-
+main
 authRoutes.post('/biometric/register/begin', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
     try {
         const walletAddress = req.user?.walletAddress;
