@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle2, Clock, XCircle, AlertTriangle, Loader2, Calendar, DollarSign, FileText } from "lucide-react";
+import { CheckCircle2, Clock, XCircle, AlertTriangle, Loader2, Calendar, DollarSign, FileText, Shield, Timer } from "lucide-react";
 
 export type RefundStatus =
   | "pending"
@@ -51,6 +51,54 @@ export interface Refund {
   delayedUntil?: string;
   cancelledAt?: string;
   cancellationReason?: string;
+}
+
+function useTimeRemaining(delayedUntil?: string): number | null {
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!delayedUntil) {
+      setTimeRemaining(null);
+      return;
+    }
+
+    const targetTime = new Date(delayedUntil).getTime();
+    const now = Date.now();
+
+    if (targetTime <= now) {
+      setTimeRemaining(0);
+      return;
+    }
+
+    setTimeRemaining(targetTime - now);
+
+    const interval = setInterval(() => {
+      const remaining = new Date(delayedUntil).getTime() - Date.now();
+      if (remaining <= 0) {
+        setTimeRemaining(0);
+        clearInterval(interval);
+      } else {
+        setTimeRemaining(remaining);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [delayedUntil]);
+
+  return timeRemaining;
+}
+
+function formatTimeRemaining(ms: number): string {
+  if (ms <= 0) return "Ready for processing";
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days}d ${hours % 24}h remaining`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m remaining`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s remaining`;
+  return `${seconds}s remaining`;
 }
 
 interface RefundStatusTrackerProps {
@@ -128,10 +176,10 @@ const statusConfig: Record<
     description: "Requires manual review by our team",
   },
   delayed_pending: {
-    label: "Delayed Pending",
-    icon: <Clock className="h-4 w-4" />,
+    label: "Security Hold",
+    icon: <Shield className="h-4 w-4" />,
     color: "bg-yellow-100 text-yellow-800",
-    description: "Refund is in delayed processing period",
+    description: "Refund is secured by SLA timelock for amounts above threshold",
   },
   delayed_cancelled: {
     label: "Cancelled",
@@ -253,6 +301,8 @@ export function RefundStatusTracker({ refund }: RefundStatusTrackerProps) {
   const timeline = getTimeline(refund);
   const finalAmount = refund.approvedAmountCents ?? refund.requestedAmountCents;
   const netRefund = finalAmount - refund.processingFeeCents;
+  const timeRemaining = useTimeRemaining(refund.delayedUntil);
+  const isDelayedRefund = refund.isDelayed && refund.delayedUntil;
 
   return (
     <div className="space-y-6">
@@ -321,15 +371,28 @@ export function RefundStatusTracker({ refund }: RefundStatusTrackerProps) {
             </>
           )}
 
-          {refund.isDelayed && refund.delayedUntil && (
+          {isDelayedRefund && (
             <>
               <Separator />
-              <div className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4 text-orange-500" />
-                <span className="text-muted-foreground">Delayed until:</span>
-                <span className="font-medium">
-                  {new Date(refund.delayedUntil).toLocaleString()}
-                </span>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <Timer className="h-4 w-4 text-yellow-500" />
+                  <span className="text-muted-foreground">SLA Timelock:</span>
+                  <span className="font-medium text-yellow-700">
+                    {timeRemaining !== null ? formatTimeRemaining(timeRemaining) : "Calculating..."}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Calendar className="h-4 w-4" />
+                  <span>Processing after:</span>
+                  <span className="font-medium">
+                    {new Date(refund.delayedUntil!).toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  For security, refunds above the threshold are held for the SLA period. 
+                  You can cancel during this time.
+                </p>
               </div>
             </>
           )}

@@ -160,6 +160,17 @@ jobs:
         # cannot disagree with a developer's machine.
         run: bash scripts/fmt-clippy-check.sh
 
+      # Keep TEST_GUIDE.md in sync with the integration test inventory.
+      - name: TEST_GUIDE parity check
+        working-directory: contracts
+        run: bash scripts/check-test-guide-parity.sh
+
+      # Ensure coverage.sh keeps enforcing the same gate as CI and rejects
+      # invalid arguments instead of silently skipping the check.
+      - name: coverage.sh regression tests
+        working-directory: contracts
+        run: bash scripts/test-coverage.sh
+
   # ── Tests: Backend ────────────────────────────────────────────────────────
   test-backend:
     name: Tests - Backend

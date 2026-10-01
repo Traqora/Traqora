@@ -1,6 +1,3 @@
-## 1. ✅ CONTRIBUTING.md
-
-```markdown
 # Contributing to Traqora
 
 We welcome contributions from everyone interested in building a decentralized travel future with Stellar!
@@ -50,7 +47,7 @@ For frontend contributions:
 ```bash
 npm run lint
 npm run test
-
+```
 
 ### Contracts Testing Approach
 
@@ -89,3 +86,29 @@ convenience wrappers around it. Full reference:
   - View HTML: `cargo llvm-cov --workspace --open`
 
 Ensure coverage exceeds 90% across contract crates before merging.
+
+## 🔍 CONTRIBUTING.md & PR Template Linter
+
+These files are validated by automated linters that check structure, links, and script references. Run them locally before submitting PRs or modifying templates:
+
+```bash
+npm run lint:contributing
+npm run lint:pr-template
+```
+
+The PR template linter validates:
+
+| Rule | Severity | Description |
+|------|----------|-------------|
+| `required-sections` | error | Mandatory PR template sections (Summary, Type of Change, Related Issues, Checklist, Testing) must be present |
+| `valid-repo-links` | error | Relative links in the PR template must point to existing repository files (e.g. `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`) |
+| `no-placeholder-links` | error | Links must not contain placeholder paths or `file://` URLs |
+| `fenced-code-balance` | error | Every ` ``` ` open must have a matching close |
+| `checklist-format` | warning | Task list items must use valid `- [ ]` or `- [x]` syntax |
+
+To run the linters' regression tests:
+
+```bash
+npm run test:contributing
+npm run test:pr-template
+```

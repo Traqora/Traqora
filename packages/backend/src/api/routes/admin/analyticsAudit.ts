@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { exportAnalyticsAuditLogs, searchAnalyticsAuditLogs, writeAnalyticsAuditLog } from '../../../database/audit-log';
 import { requireAdmin, requireRole } from '../../../middleware/adminAuth';
 import { asyncHandler } from '../../../utils/errorHandler';
+import { createPaginationMeta } from '../../../types/pagination';
 
 const router = Router();
 
@@ -13,8 +14,8 @@ const auditQuerySchema = z.object({
   tenantId: z.string().optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
-  limit: z.coerce.number().int().positive().max(500).optional(),
-  offset: z.coerce.number().int().min(0).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(500).default(100),
 });
 
 router.get('/audit', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
@@ -33,13 +34,10 @@ router.get('/audit', requireAdmin, requireRole('admin'), asyncHandler(async (req
     ipAddress: req.ip || req.socket?.remoteAddress || 'unknown',
     userAgent: req.header('user-agent') ?? null,
   });
+  const pagination = createPaginationMeta(filters.page, filters.limit, result.total);
   res.json({
     data: result.logs,
-    pagination: {
-      total: result.total,
-      limit: filters.limit ?? 100,
-      offset: filters.offset ?? 0,
-    },
+    pagination,
     retentionDays: 365,
   });
 }));

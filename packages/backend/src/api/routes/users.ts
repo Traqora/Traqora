@@ -7,6 +7,7 @@ import { User } from '../../db/entities/User';
 import { Passenger } from '../../db/entities/Passenger';
 import { UserPreference } from '../../db/entities/UserPreference';
 import { UserProfile } from '../../db/entities/UserProfile';
+import { TravelDocument } from '../../db/entities/TravelDocument';
 import { AccountDeletionRequest } from '../../db/entities/AccountDeletionRequest';
 import { BadRequestError, NotFoundError } from '../../utils/errors';
 import {
@@ -18,6 +19,7 @@ import {
 } from '../schemas';
 import { logger } from '../../utils/logger';
 import { consentService } from '../../services/governance/consentService';
+import { buildKycChecklist } from '../../services/kycChecklist';
 
 const router = Router();
 
@@ -296,16 +298,29 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     const walletAddress = ensureAuthenticatedUser(req);
     const profileRepo = AppDataSource.getRepository(UserProfile);
-    const profile = await profileRepo.findOne({ where: { userId: walletAddress } });
+    const documentRepo = AppDataSource.getRepository(TravelDocument);
+    const [profile, documents] = await Promise.all([
+      profileRepo.findOne({ where: { userId: walletAddress } }),
+      documentRepo.find({
+        where: { walletAddress, isDeleted: false },
+        select: { verificationStatus: true },
+      }),
+    ]);
+    const kycChecklist = buildKycChecklist(
+      documents.map((document) => document.verificationStatus),
+    );
 
     return res.json({
       success: true,
-      data: profile ?? {
-        userId: walletAddress,
-        displayName: null,
-        bio: null,
-        avatarUrl: null,
-        travelPreferences: null,
+      data: {
+        ...(profile ?? {
+          userId: walletAddress,
+          displayName: null,
+          bio: null,
+          avatarUrl: null,
+          travelPreferences: null,
+        }),
+        kycChecklist,
       },
     });
   }),
