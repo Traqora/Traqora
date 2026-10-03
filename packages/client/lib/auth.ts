@@ -137,6 +137,7 @@ export class AuthService {
   private static readonly REFRESH_ENDPOINT = '/api/v1/auth/refresh'
   private static readonly LOGOUT_ENDPOINT = '/api/v1/auth/logout'
 
+
   static async getChallenge(walletAddress: string): Promise<AuthChallenge> {
     const response = await api.post(this.CHALLENGE_ENDPOINT, {
       walletAddress,

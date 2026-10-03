@@ -195,11 +195,6 @@ From the repository root, install dependencies for the entire monorepo:
 npm install
 ```
 
-> **Note:** Some packages in this project depend on React 19, which may cause peer dependency warnings with older tooling. If you see `ERESOLVE` errors during install, append the `--legacy-peer-deps` flag:
-> ```bash
-> npm install --legacy-peer-deps
-> ```
-
 ### Step 4: Run the Application
 
 To run both the backend and client packages in development mode:

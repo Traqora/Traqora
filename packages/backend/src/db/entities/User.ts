@@ -25,4 +25,5 @@ export class User {
 
   @Column({ type: 'simple-array', nullable: true })
   backupCodes: string[];
+
 }

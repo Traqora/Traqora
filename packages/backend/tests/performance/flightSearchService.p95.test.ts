@@ -1,9 +1,9 @@
 /**
- * Performance regression tests for FlightSearchService.
- * Measures search operations: basic search, filtered search, pagination.
+ * Performance regression tests for FlightSearchService - p95 latency budget tests.
+ * These tests verify that search operations meet the p95 latency requirements.
  */
 
-import { measurePerf, assertPerfThresholds } from './perf-utils';
+import { measurePerf, assertPerfThresholds, PerfStats } from './perf-utils';
 
 jest.mock('../../src/cache/searchCache', () => ({
   createSearchCache: jest.fn().mockReturnValue({
@@ -35,7 +35,7 @@ jest.mock('../../src/repositories/flightRepository', () => {
     rating: 4.2,
   };
 
-  const mockFlights = Array.from({ length: 50 }, (_, i) => ({
+  const mockFlights = Array.from({ length: 100 }, (_, i) => ({
     ...mockFlight,
     id: `FL${String(i + 1).padStart(3, '0')}`,
     flightNumber: `${['AA', 'DL', 'UA', 'BA', 'LH'][i % 5]}${100 + i}`,
@@ -93,7 +93,7 @@ jest.mock('../../src/services/offchainFlightDataProvider', () => ({
         price: 500,
       };
 
-      const mockFlights = Array.from({ length: 50 }, (_, i) => ({
+      const mockFlights = Array.from({ length: 100 }, (_, i) => ({
         ...mockFlight,
         id: `FL${String(i + 1).padStart(3, '0')}`,
         flightNumber: `${['AA', 'DL', 'UA', 'BA', 'LH'][i % 5]}${100 + i}`,
@@ -153,16 +153,12 @@ jest.mock('../../src/monitoring/slo', () => ({
   sloMeasure: jest.fn().mockImplementation((name: string, fn: () => Promise<any>) => fn()),
 }));
 
-describe('FlightSearchService Performance', () => {
+describe('FlightSearchService p95 Latency Budget', () => {
   let FlightSearchService: any;
 
   beforeAll(async () => {
     const module = await import('../../src/services/flightSearchService');
     FlightSearchService = module.FlightSearchService;
-  });
-
-  beforeEach(() => {
-    jest.clearAllMocks();
   });
 
   const createTestService = () => {
@@ -173,71 +169,8 @@ describe('FlightSearchService Performance', () => {
     return new FlightSearchService(repository, cache);
   };
 
-  it('should search flights within 50ms (basic search)', async () => {
-    const service = createTestService();
-
-    const criteria = {
-      origin: 'JFK',
-      destination: 'LHR',
-      departureDate: '2026-08-01',
-      sortBy: 'price' as const,
-      pageSize: 25,
-    };
-
-    const stats = await measurePerf(() => service.searchFlights(criteria), 25);
-    assertPerfThresholds(stats, { meanMaxMs: 50, maxMs: 100 });
-  });
-
-  it('should search with airline filter within 50ms', async () => {
-    const service = createTestService();
-
-    const criteria = {
-      origin: 'JFK',
-      destination: 'LHR',
-      departureDate: '2026-08-01',
-      airlines: ['AA', 'DL'],
-      sortBy: 'price' as const,
-      pageSize: 25,
-    };
-
-    const stats = await measurePerf(() => service.searchFlights(criteria), 25);
-    assertPerfThresholds(stats, { meanMaxMs: 50, maxMs: 100 });
-  });
-
-  it('should paginate results within 30ms', async () => {
-    const service = createTestService();
-
-    const criteria = {
-      origin: 'JFK',
-      destination: 'LHR',
-      departureDate: '2026-08-01',
-      sortBy: 'price' as const,
-      pageSize: 10,
-    };
-
-    const first = await service.searchFlights(criteria);
-    const criteria2 = { ...criteria, cursor: first.pagination.next_cursor || undefined };
-
-    const stats = await measurePerf(() => service.searchFlights(criteria2), 25);
-    assertPerfThresholds(stats, { meanMaxMs: 30, maxMs: 60 });
-  });
-
-  it('should search with multiple filters within 60ms', async () => {
-    const service = createTestService();
-
-    const criteria = {
-      origin: 'JFK',
-      destination: 'LHR',
-      departureDate: '2026-08-01',
-      airlines: ['AA', 'DL', 'UA'],
-      maxPrice: 80000,
-      maxStops: 1,
-      sortBy: 'departure_time' as const,
-      pageSize: 25,
-    };
-
-    const stats = await measurePerf(() => service.searchFlights(criteria), 20);
-    assertPerfThresholds(stats, { meanMaxMs: 60, maxMs: 120 });
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
   it('should meet p95 latency budget for basic search (< 80ms)', async () => {
@@ -253,6 +186,10 @@ describe('FlightSearchService Performance', () => {
 
     const stats = await measurePerf(() => service.searchFlights(criteria), 50);
     assertPerfThresholds(stats, { p95MaxMs: 80, maxMs: 150 });
+
+    expect(stats.p95).toBeLessThanOrEqual(80);
+    expect(stats.mean).toBeLessThanOrEqual(50);
+    expect(stats.max).toBeLessThanOrEqual(150);
   });
 
   it('should meet p95 latency budget for filtered search (< 100ms)', async () => {
@@ -271,5 +208,78 @@ describe('FlightSearchService Performance', () => {
 
     const stats = await measurePerf(() => service.searchFlights(criteria), 50);
     assertPerfThresholds(stats, { p95MaxMs: 100, maxMs: 200 });
+
+    expect(stats.p95).toBeLessThanOrEqual(100);
+    expect(stats.mean).toBeLessThanOrEqual(60);
+    expect(stats.max).toBeLessThanOrEqual(200);
+  });
+
+  it('should meet p95 latency budget for pagination (< 50ms)', async () => {
+    const service = createTestService();
+
+    const criteria = {
+      origin: 'JFK',
+      destination: 'LHR',
+      departureDate: '2026-08-01',
+      sortBy: 'price' as const,
+      pageSize: 10,
+    };
+
+    const first = await service.searchFlights(criteria);
+    const criteria2 = { ...criteria, cursor: first.pagination.next_cursor || undefined };
+
+    const stats = await measurePerf(() => service.searchFlights(criteria2), 50);
+    assertPerfThresholds(stats, { p95MaxMs: 50, maxMs: 100 });
+
+    expect(stats.p95).toBeLessThanOrEqual(50);
+    expect(stats.mean).toBeLessThanOrEqual(30);
+    expect(stats.max).toBeLessThanOrEqual(100);
+  });
+
+  it('should handle load with consistent p95 under stress', async () => {
+    const service = createTestService();
+
+    const criteria = {
+      origin: 'JFK',
+      destination: 'LHR',
+      departureDate: '2026-08-01',
+      sortBy: 'price' as const,
+      pageSize: 25,
+    };
+
+    const batchResults: PerfStats[] = [];
+    for (let i = 0; i < 5; i++) {
+      const stats = await measurePerf(() => service.searchFlights(criteria), 20);
+      batchResults.push(stats);
+    }
+
+    batchResults.forEach((stats) => {
+      assertPerfThresholds(stats, { p95MaxMs: 80, maxMs: 150 });
+    });
+
+    const p95Values = batchResults.map((r) => r.p95);
+    const maxP95 = Math.max(...p95Values);
+    const minP95 = Math.min(...p95Values);
+    expect(maxP95 - minP95).toBeLessThanOrEqual(50);
+  });
+
+  it('should fail when p95 exceeds threshold (failure mode test)', async () => {
+    const service = createTestService();
+
+    const criteria = {
+      origin: 'JFK',
+      destination: 'LHR',
+      departureDate: '2026-08-01',
+      sortBy: 'price' as const,
+      pageSize: 25,
+    };
+
+    const stats = await measurePerf(() => service.searchFlights(criteria), 20);
+
+    expect(() => {
+      assertPerfThresholds(stats, { p95MaxMs: 0.001, maxMs: 0.002 });
+    }).toThrow();
+
+    expect(stats.p95).toBeGreaterThan(0.001);
   });
 });

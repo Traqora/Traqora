@@ -1,0 +1,340 @@
+name: Flaky Test Quarantine
+
+on:
+  workflow_dispatch:
+    inputs:
+      test-suite:
+        description: 'Test suite to analyze (backend, client, contracts, e2e)'
+        required: true
+        type: choice
+        options:
+          - backend
+          - client
+          - contracts
+          - e2e
+          - all
+      runs-to-analyze:
+        description: 'Number of recent workflow runs to analyze'
+        required: false
+        default: '20'
+        type: string
+      min-failure-rate:
+        description: 'Minimum failure rate to consider flaky (0.0-1.0)'
+        required: false
+        default: '0.1'
+        type: string
+  schedule:
+    - cron: '0 2 * * 1' # Weekly on Monday 2 AM UTC
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: read
+
+env:
+  NODE_VERSION: "20"
+  RUST_TOOLCHAIN: "1.94.1"
+
+jobs:
+  detect-flaky:
+    name: Detect Flaky Tests
+    runs-on: ubuntu-latest
+    outputs:
+      flaky-tests: ${{ steps.analyze.outputs.flaky-tests }}
+      has-flaky: ${{ steps.analyze.outputs.has-flaky }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Download test results from recent runs
+        id: download-results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { testSuite, runsToAnalyze, minFailureRate } = {
+              testSuite: '${{ github.event.inputs.test-suite || "all" }}',
+              runsToAnalyze: parseInt('${{ github.event.inputs.runs-to-analyze || "20" }}'),
+              minFailureRate: parseFloat('${{ github.event.inputs.min-failure-rate || "0.1" }}')
+            };
+
+            const workflowNames = {
+              backend: ['CI', 'CI Pipeline'],
+              client: ['CI', 'CI Pipeline'],
+              contracts: ['CI', 'CI Pipeline'],
+              e2e: ['CI Pipeline'],
+              all: ['CI', 'CI Pipeline']
+            };
+
+            const targetWorkflows = workflowNames[testSuite] || ['CI', 'CI Pipeline'];
+            const allRuns = [];
+
+            for (const workflowName of targetWorkflows) {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflowName + '.yml',
+                per_page: runsToAnalyze,
+                status: 'completed'
+              });
+
+              allRuns.push(...runs.data.workflow_runs);
+            }
+
+            // Sort by created_at descending and take the most recent
+            allRuns.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            const recentRuns = allRuns.slice(0, runsToAnalyze);
+
+            console.log(`Analyzing ${recentRuns.length} workflow runs`);
+
+            const artifacts = [];
+            for (const run of recentRuns) {
+              try {
+                const artifactList = await github.rest.actions.listWorkflowRunArtifacts({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  run_id: run.id,
+                  per_page: 100
+                });
+
+                for (const artifact of artifactList.data.artifacts) {
+                  if (artifact.name.includes('coverage') ||
+                      artifact.name.includes('test-result') ||
+                      artifact.name.includes('e2e-result') ||
+                      artifact.name.includes('test-report')) {
+                    artifacts.push({
+                      run_id: run.id,
+                      run_number: run.run_number,
+                      run_created: run.created_at,
+                      artifact_name: artifact.name,
+                      artifact_id: artifact.id
+                    });
+                  }
+                }
+              } catch (e) {
+                console.log(`Failed to list artifacts for run ${run.id}: ${e.message}`);
+              }
+            }
+
+            console.log(`Found ${artifacts.length} relevant artifacts`);
+            return { artifacts, minFailureRate, testSuite };
+
+      - name: Analyze test results for flakiness
+        id: analyze
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { artifacts, minFailureRate, testSuite } = ${{ steps.download-results.outputs.result }};
+            const fs = require('fs');
+            const path = require('path');
+
+            // Test results structure
+            const testResults = new Map(); // testName -> { passed: [], failed: [], runs: Set }
+
+            for (const artifact of artifacts) {
+              try {
+                const download = await github.rest.actions.downloadArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.artifact_id,
+                  archive_format: 'zip'
+                });
+
+                // In real implementation, we'd unzip and parse
+                // For now, we'll simulate with a simpler approach
+                console.log(`Downloaded artifact: ${artifact.artifact_name} from run #${artifact.run_number}`);
+              } catch (e) {
+                console.log(`Failed to download artifact ${artifact.artifact_id}: ${e.message}`);
+              }
+            }
+
+            // Simulated flaky test detection - in production, parse actual test results
+            // This is a template that would be replaced with actual parsing logic
+            const flakyTests = [];
+
+            // Output for next steps
+            const output = {
+              flakyTests: JSON.stringify(flakyTests),
+              hasFlaky: flakyTests.length > 0
+            };
+
+            console.log('Flaky tests found:', flakyTests.length);
+            core.setOutput('flaky-tests', output.flakyTests);
+            core.setOutput('has-flaky', output.hasFlaky);
+            return output;
+
+  quarantine-flaky:
+    name: Quarantine Flaky Tests
+    needs: detect-flaky
+    if: needs.detect-flaky.outputs.has-flaky == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create quarantine issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const flakyTests = JSON.parse('${{ needs.detect-flaky.outputs.flaky-tests }}');
+
+            const body = `## 🚨 Flaky Tests Detected
+
+            The following tests have been identified as flaky (failure rate ≥ ${github.event.inputs.min-failure-rate || '0.1'}) across recent workflow runs.
+
+            ### Flaky Tests
+            ${flakyTests.map(t => `- **${t.name}** (${t.file}): ${(t.failureRate * 100).toFixed(1)}% failure rate (${t.failures}/${t.totalRuns} runs)`).join('\n')}
+
+            ### Recommended Actions
+            1. **Quarantine**: Add \`test.skip\` or move to \`__flaky__\` directory
+            2. **Investigate**: Check for async timing issues, shared state, or external dependencies
+            3. **Fix**: Resolve root cause and remove quarantine
+            4. **Monitor**: Re-enable after fix and verify stability
+
+            ### Quarantine Template
+            \`\`\`typescript
+            // Before
+            test('should do something', async () => { ... })
+
+            // After quarantine
+            test.skip('should do something - QUARANTINED: flaky', async () => { ... })
+            // OR move to tests/__flaky__/
+            \`\`\`
+
+            *Auto-generated by Flaky Test Quarantine workflow*
+            `;
+
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[FLAKY] ${flakyTests.length} flaky test(s) detected - ${new Date().toISOString().split('T')[0]}`,
+              body,
+              labels: ['flaky-test', 'quarantine', 'automated']
+            });
+
+            console.log(`Created quarantine issue #${issue.number}`);
+
+            // Add quarantine labels to PR if this was triggered from PR
+            if (context.payload.pull_request) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: ['has-flaky-tests']
+              });
+            }
+
+            return { issueNumber: issue.number };
+
+      - name: Generate quarantine report artifact
+        run: |
+          cat > flaky-quarantine-report.json << 'EOF'
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflow_run": "${{ github.run_id }}",
+            "test_suite": "${{ github.event.inputs.test-suite || 'all' }}",
+            "flaky_tests": ${{ needs.detect-flaky.outputs.flaky-tests }},
+            "quarantine_issue": "${{ steps.create-issue.outputs.issueNumber }}"
+          }
+          EOF
+
+      - name: Upload quarantine report
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-quarantine-report
+          path: flaky-quarantine-report.json
+          retention-days: 30
+
+  auto-quarantine-pr:
+    name: Auto-Quarantine in PR
+    needs: detect-flaky
+    if: github.event_name == 'pull_request' && needs.detect-flaky.outputs.has-flaky == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Apply quarantine markers
+        run: |
+          echo "Flaky tests detected in PR #${{ github.event.pull_request.number }}"
+          echo "This workflow would automatically add test.skip to flaky tests"
+          echo "Implementation requires parsing test files and applying quarantines"
+          # This is a placeholder - actual implementation would:
+          # 1. Parse the flaky test list
+          # 2. Find test files
+          # 3. Add test.skip or move to __flaky__ directory
+          # 4. Commit changes back to PR branch
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const flakyTests = JSON.parse('${{ needs.detect-flaky.outputs.flaky-tests }}');
+
+            const body = `## ⚠️ Flaky Tests Detected in This PR
+
+            ${flakyTests.length} test(s) have been identified as flaky.
+
+            | Test | File | Failure Rate |
+            |------|------|--------------|
+            ${flakyTests.map(t => `| ${t.name} | ${t.file} | ${(t.failureRate * 100).toFixed(1)}% |`).join('\n')}
+
+            ### Next Steps
+            - These tests should be quarantined (skip or move to \`__flaky__\`)
+            - Investigate root cause before re-enabling
+            - See quarantine issue for details
+
+            *Auto-generated by Flaky Test Quarantine workflow*
+            `;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body
+            });
+
+  monitor-quarantine:
+    name: Monitor Quarantined Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Find quarantined tests
+        id: find-quarantined
+        run: |
+          # Find tests marked as quarantined
+          QUARANTINED=$(find . -name "*.test.ts" -o -name "*.spec.ts" -o -name "*_test.rs" | xargs grep -l "QUARANTINED\|test.skip.*flaky" 2>/dev/null | head -20)
+          echo "quarantined_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$QUARANTINED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Report quarantined tests
+        if: steps.find-quarantined.outputs.quarantined_files != ''
+        run: |
+          echo "## 📋 Currently Quarantined Tests"
+          echo ""
+          echo "Files with quarantined tests:"
+          echo "\`\`\`"
+          cat <<< "${{ steps.find-quarantined.outputs.quarantined_files }}"
+          echo "\`\`\`"
+          echo ""
+          echo "Please review and fix these tests to remove quarantine."
+          echo ""
+          echo "*Report generated by Flaky Test Quarantine monitor*"
