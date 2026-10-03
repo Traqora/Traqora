@@ -1,4 +1,4 @@
-import { Keypair } from '@stellar/stellar-base';
+import { Keypair } from '@stellar/stellar-sdk';
 import { getLogger } from './logger';
 
 const logger = getLogger({ component: 'wallet-signature-adapter' });

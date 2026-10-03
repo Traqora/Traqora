@@ -6,6 +6,9 @@ import { requireAuth } from '../../middleware/authMiddleware';
 import { AppDataSource } from '../../db/dataSource';
 
 
+// @ts-ignore
+import type { Router as ExpressRouter } from 'express';
+
 export const authRoutes = Router();
 
 const getAuthService = () => new AuthService(AppDataSource);
@@ -29,15 +32,36 @@ authRoutes.post('/verify', async (req: Request, res: Response, next: NextFunctio
 
 
     } catch (err: any) {
-        if (
-            err.message.includes('Invalid signature') ||
-            err.message.includes('Nonce missing or expired') ||
-            err.message.includes('Unsupported wallet')
-        ) {
-            next(new UnauthorizedError(err.message));
-        } else {
-            next(err);
+        next(err);
+    }
+});
+
+// Complete login with 2FA token
+authRoutes.post('/verify-2fa', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const { walletAddress, token, isBackupCode } = req.body;
+        const authService = getAuthService();
+
+        try {
+            const result = await authService.verifyTwoFactorAndIssueTokens(
+                walletAddress,
+                token,
+                isBackupCode || false
+            );
+            res.json(result);
+        } catch (authErr: any) {
+            if (
+                authErr.message.includes('Invalid TOTP token') ||
+                authErr.message.includes('Invalid backup code') ||
+                authErr.message.includes('2FA not enabled')
+            ) {
+                next(new UnauthorizedError(authErr.message));
+            } else {
+                next(authErr);
+            }
         }
+    } catch (err: any) {
+        next(err);
     }
 });
 

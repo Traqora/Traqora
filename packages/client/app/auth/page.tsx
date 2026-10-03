@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
+
 import Link from "next/link"
 
 export default function AuthPage() {
@@ -16,6 +17,7 @@ export default function AuthPage() {
   const { authenticate, isAuthenticating, canAuthenticate } = useAuth()
   const { isAuthenticated, biometric, setBiometric } = useAuthStore()
   const [authSuccess, setAuthSuccess] = useState(false)
+
 
 
       if (result && typeof result === 'object' && 'requiresTwoFactor' in result) {
@@ -34,6 +36,7 @@ export default function AuthPage() {
 
 
     }
+
 
     setIsVerifyingTwoFactor(true)
     setTwoFactorError('')

@@ -89,7 +89,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - run: npm run typecheck --workspace=packages/backend
 
@@ -111,7 +111,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - run: npm run typecheck --workspace=packages/client
 
@@ -186,7 +186,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - name: Run tests with coverage gate
         # Fails when coverage drops below the thresholds configured in
@@ -229,7 +229,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - run: npm test --workspace=packages/client -- --coverage
 
@@ -344,7 +344,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - name: Run integration tests
         env:
@@ -371,7 +371,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Run E2E smoke tests
         env:
@@ -475,7 +475,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - run: npm run build --workspace=packages/backend
 
@@ -493,7 +493,7 @@ jobs:
           cache: npm
           cache-dependency-path: '**/package.json'
 
-      - run: npm install --legacy-peer-deps
+      - run: npm install
 
       - run: npm run build --workspace=packages/client
 
