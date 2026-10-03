@@ -19,9 +19,7 @@ export default function AuthPage() {
   const [authSuccess, setAuthSuccess] = useState(false)
 
 
-  const handleAuthenticate = async () => {
-    try {
-      const result = await authenticate()
+
       if (result && typeof result === 'object' && 'requiresTwoFactor' in result) {
         setRequiresTwoFactor(true)
         setPendingWalletAddress(result.walletAddress)
@@ -38,6 +36,7 @@ export default function AuthPage() {
 
 
     }
+
 
     setIsVerifyingTwoFactor(true)
     setTwoFactorError('')
