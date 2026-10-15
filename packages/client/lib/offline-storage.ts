@@ -1,6 +1,6 @@
 import { Flight } from './api'
 import { useCallback, useEffect, useState } from "react";
-import type { Flight } from "@/lib/api";
+import type { Flight, CheckInRecord } from "@/lib/api";
 
 
 export interface CachedBooking {
@@ -403,8 +403,15 @@ export interface FlightStatusCacheItem {
   updatedAt: string
 }
 
+export interface CheckInCacheItem {
+  bookingId: string
+  checkIn: CheckInRecord
+  updatedAt: string
+}
+
 const FLIGHT_STATUS_CACHE_PREFIX = 'traqora_flight_status_cache_'
 const FLIGHT_SEARCH_CACHE_PREFIX = 'traqora_flight_search_cache_'
+const CHECKIN_CACHE_PREFIX = 'traqora_checkin_cache_'
 
 export function cacheFlightStatus(flightId: string, statusData: Partial<FlightStatusCacheItem>): void {
   if (typeof window === 'undefined') return
@@ -440,6 +447,36 @@ export function getCachedFlightStatus(flightId: string): FlightStatusCacheItem |
   }
 }
 
+/**
+ * Cache a completed/known check-in record so its boarding pass can be viewed
+ * offline. Keyed per booking, mirroring the flight-status cache convention.
+ */
+export function cacheCheckIn(bookingId: string, checkIn: CheckInRecord): void {
+  if (typeof window === 'undefined' || !checkIn) return
+  try {
+    const item: CheckInCacheItem = {
+      bookingId,
+      checkIn,
+      updatedAt: new Date().toISOString(),
+    }
+    localStorage.setItem(`${CHECKIN_CACHE_PREFIX}${bookingId}`, JSON.stringify(item))
+  } catch (err) {
+    console.error('Failed to cache check-in', err)
+  }
+}
+
+export function getCachedCheckIn(bookingId: string): CheckInCacheItem | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(`${CHECKIN_CACHE_PREFIX}${bookingId}`)
+    if (!raw) return null
+    return JSON.parse(raw) as CheckInCacheItem
+  } catch (err) {
+    console.error('Failed to read cached check-in', err)
+    return null
+  }
+}
+
 export function cacheSearchResults(
   query: CachedSearchQuery,
   flights: Flight[],
@@ -463,7 +500,12 @@ export function clearAllOfflineData(): void {
     const keysToRemove: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (key && (key.startsWith(FLIGHT_STATUS_CACHE_PREFIX) || key.startsWith(FLIGHT_SEARCH_CACHE_PREFIX))) {
+      if (
+        key &&
+        (key.startsWith(FLIGHT_STATUS_CACHE_PREFIX) ||
+          key.startsWith(FLIGHT_SEARCH_CACHE_PREFIX) ||
+          key.startsWith(CHECKIN_CACHE_PREFIX))
+      ) {
         keysToRemove.push(key)
       }
     }

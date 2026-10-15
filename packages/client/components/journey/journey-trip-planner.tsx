@@ -1,4 +1,4 @@
-"client"
+"use client"
 
 import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -8,21 +8,59 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { MapPin, Plus, Trash2, ArrowRight, Loader2, Sparkles, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
-import { apiClient } from "@/lib/api"
+import { apiClient, type MultiCityItinerary, type MultiCitySegmentInput } from "@/lib/api"
 
-interface FlightSegmentInput {
-  origin: string
-  destination: string
-  date: string
-  passengers: number
-  travelClass?: 'economy' | 'premium_economy' | 'business' | 'first'
+const IATA_PATTERN = /^[A-Z]{3}$/
+const MIN_SEGMENTS = 2
+const MAX_SEGMENTS = 5
+
+/** Client-side guard so obviously invalid multi-city requests are caught early. */
+export function validateMultiCitySegments(segments: MultiCitySegmentInput[]): string | null {
+  if (segments.length < MIN_SEGMENTS) {
+    return `Multi-city trip requires at least ${MIN_SEGMENTS} segments`
+  }
+  if (segments.length > MAX_SEGMENTS) {
+    return `Maximum ${MAX_SEGMENTS} segments allowed for multi-city trips`
+  }
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i]
+    const origin = segment.origin.trim().toUpperCase()
+    const destination = segment.destination.trim().toUpperCase()
+    if (!IATA_PATTERN.test(origin)) {
+      return `Leg ${i + 1}: origin must be a 3-letter airport code`
+    }
+    if (!IATA_PATTERN.test(destination)) {
+      return `Leg ${i + 1}: destination must be a 3-letter airport code`
+    }
+    if (origin === destination) {
+      return `Leg ${i + 1}: origin and destination must be different`
+    }
+    if (!segment.date) {
+      return `Leg ${i + 1}: departure date is required`
+    }
+    if (i > 0) {
+      const previousDate = new Date(segments[i - 1].date)
+      const currentDate = new Date(segment.date)
+      if (currentDate.getTime() < previousDate.getTime()) {
+        return `Leg ${i + 1}: departure date cannot be before leg ${i}`
+      }
+    }
+  }
+  return null
 }
 
 export function JourneyTripPlanner() {
   const [passengers, setPassengers] = useState<number>(1)
-  const [segments, setSegments] = useState<FlightSegmentInput[]>([
+  const [segments, setSegments] = useState<MultiCitySegmentInput[]>([
     { origin: "JFK", destination: "LHR", date: "2026-09-01", passengers: 1, travelClass: "economy" },
     { origin: "LHR", destination: "CDG", date: "2026-09-05", passengers: 1, travelClass: "economy" },
   ])
@@ -30,11 +68,11 @@ export function JourneyTripPlanner() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>("asc")
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
-  const [itinerary, setItinerary] = useState<any | null>(null)
+  const [itinerary, setItinerary] = useState<MultiCityItinerary | null>(null)
 
   const addSegment = () => {
-    if (segments.length >= 5) {
-      toast.error("Maximum 5 segments allowed for multi-city trips")
+    if (segments.length >= MAX_SEGMENTS) {
+      toast.error(`Maximum ${MAX_SEGMENTS} segments allowed for multi-city trips`)
       return
     }
     const lastSegment = segments[segments.length - 1]
@@ -51,14 +89,14 @@ export function JourneyTripPlanner() {
   }
 
   const removeSegment = (index: number) => {
-    if (segments.length <= 2) {
-      toast.error("Multi-city trip requires at least 2 segments")
+    if (segments.length <= MIN_SEGMENTS) {
+      toast.error(`Multi-city trip requires at least ${MIN_SEGMENTS} segments`)
       return
     }
     setSegments(segments.filter((_, i) => i !== index))
   }
 
-  const updateSegment = (index: number, field: keyof FlightSegmentInput, value: any) => {
+  const updateSegment = (index: number, field: keyof MultiCitySegmentInput, value: any) => {
     const next = [...segments]
     next[index] = { ...next[index], [field]: value }
     setSegments(next)
@@ -67,14 +105,21 @@ export function JourneyTripPlanner() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    setLoading(true)
 
+    const validationError = validateMultiCitySegments(segments)
+    if (validationError) {
+      setError(validationError)
+      toast.error(validationError)
+      return
+    }
+
+    setLoading(true)
     try {
-      const res = await apiClient.post('/api/v1/flights/multi-city', {
-        segments: segments.map(s => ({
+      const res = await apiClient.searchMultiCity({
+        segments: segments.map((s) => ({
           ...s,
-          origin: s.origin.toUpperCase(),
-          destination: s.destination.toUpperCase(),
+          origin: s.origin.trim().toUpperCase(),
+          destination: s.destination.trim().toUpperCase(),
           passengers,
         })),
         passengers,
@@ -111,21 +156,48 @@ export function JourneyTripPlanner() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSearch} className="space-y-6">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="passengers-input" className="font-medium">Passengers</Label>
-              <Input
-                id="passengers-input"
-                type="number"
-                min={1}
-                max={9}
-                value={passengers}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value) || 1;
-                  setPassengers(val);
-                  setSegments(segments.map(s => ({ ...s, passengers: val })))
-                }}
-                className="w-24"
-              />
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-8">
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="passengers-input" className="font-medium">Passengers</Label>
+                <Input
+                  id="passengers-input"
+                  type="number"
+                  min={1}
+                  max={9}
+                  value={passengers}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 1;
+                    setPassengers(val);
+                    setSegments(segments.map(s => ({ ...s, passengers: val })))
+                  }}
+                  className="w-24"
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="sort-by-select" className="font-medium">Sort by</Label>
+                <Select
+                  value={`${sortBy}:${sortOrder}`}
+                  onValueChange={(value) => {
+                    const [nextSortBy, nextSortOrder] = value.split(":") as [
+                      'total_price' | 'total_duration',
+                      'asc' | 'desc',
+                    ]
+                    setSortBy(nextSortBy)
+                    setSortOrder(nextSortOrder)
+                  }}
+                >
+                  <SelectTrigger id="sort-by-select" className="w-48" aria-label="Sort itineraries by">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="total_price:asc">Lowest total price</SelectItem>
+                    <SelectItem value="total_price:desc">Highest total price</SelectItem>
+                    <SelectItem value="total_duration:asc">Shortest duration</SelectItem>
+                    <SelectItem value="total_duration:desc">Longest duration</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <Separator />
@@ -274,4 +346,5 @@ export function JourneyTripPlanner() {
         </Card>
       )}
     </div>
-  }
+  )
+}

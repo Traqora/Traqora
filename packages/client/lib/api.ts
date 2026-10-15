@@ -19,6 +19,47 @@ export interface FlightSearchParams {
 
 export type SearchFlightsRequest = FlightSearchParams
 
+export type CabinClass = "economy" | "premium_economy" | "business" | "first"
+
+export interface MultiCitySegmentInput {
+  origin: string
+  destination: string
+  date: string
+  passengers: number
+  travelClass?: CabinClass
+}
+
+export interface MultiCitySearchRequest {
+  segments: MultiCitySegmentInput[]
+  passengers: number
+  sortBy?: "total_price" | "total_duration"
+  sortOrder?: "asc" | "desc"
+}
+
+export interface MultiCityFlight extends Flight {
+  flightNumber?: string
+  airlineCode?: string
+}
+
+export interface MultiCitySegmentResult {
+  segment: MultiCitySegmentInput
+  flights: MultiCityFlight[]
+  bestFlight: MultiCityFlight | null
+}
+
+export interface MultiCityItinerary {
+  segments: MultiCitySegmentResult[]
+  totalPrice: number
+  totalDuration: number
+  isOpenJaw: boolean
+  baggageAllowance?: {
+    checkIn: number
+    carryOn: number
+    currency: string
+    note: string
+  }
+}
+
 export type InsuranceCoverageType = "basic" | "standard" | "premium"
 
 export interface InsuranceCoverageDetails {
@@ -390,7 +431,7 @@ export interface PerformanceSnapshot {
 
 export type ApiResult<T> = { success: true; data: T } | { success: false; error: { message: string } }
 
-function getAuthHeader(): Record<string, string> {
+export function getAuthHeader(): Record<string, string> {
   if (typeof window === 'undefined') return {}
   try {
     const raw = window.localStorage.getItem('traqora-auth')
@@ -732,6 +773,18 @@ export const apiClient = {
     try {
       const response = await searchFlights(params)
       return { success: true, data: response.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  searchMultiCity: async (request: MultiCitySearchRequest): Promise<ApiResult<MultiCityItinerary>> => {
+    try {
+      const body = await authedFetch('/api/v1/flights/multi-city', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      })
+      return { success: true, data: body.data as MultiCityItinerary }
     } catch (error: any) {
       return { success: false, error: { message: error.message } }
     }

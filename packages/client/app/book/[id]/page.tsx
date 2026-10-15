@@ -6,25 +6,20 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Separator } from "@/components/ui/separator"
 import {
   Plane,
   CheckCircle,
   Wallet,
   Shield,
-  Leaf,
   ArrowLeft,
   ArrowRight,
-  CreditCard,
-  QrCode,
-  Download,
-  ExternalLink,
-  FileText
+  CreditCard
 } from "lucide-react"
 
 import { SeatSelector } from "@/components/booking/seat-selector"
 import { AncillarySelector } from "@/components/booking/ancillary-selector"
 import { BookingSummary } from "@/components/booking/booking-summary"
+import { BookingConfirmation } from "@/components/booking/booking-confirmation"
 import { InsuranceSelector } from "@/components/booking/insurance-selector"
 import { CarbonFootprintDisplay } from "@/components/booking/carbon-footprint-display"
 import { CarbonOffsetSelector } from "@/components/booking/carbon-offset-selector"
@@ -310,6 +305,11 @@ export default function BookFlightPage() {
 
     setCurrentStep("success")
   }
+
+  const passengerName =
+    passengers[0] && (passengers[0].firstName || passengers[0].lastName)
+      ? `${passengers[0].firstName} ${passengers[0].lastName}`.trim()
+      : "Valued Traveler"
 
   return (
     <div className="min-h-screen bg-background">
@@ -615,123 +615,19 @@ export default function BookFlightPage() {
             )}
 
             {currentStep === "success" && (
-              <div className="space-y-8 animate-in zoom-in duration-500">
-                <div className="text-center space-y-4">
-                  <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-                    <CheckCircle className="h-10 w-10 text-green-600" />
-                  </div>
-                  <h2 className="text-3xl font-bold font-serif">Booking Confirmed!</h2>
-                  <p className="text-muted-foreground max-w-md mx-auto">
-                    Your flight to {flight.toCity} is all set. We've sent a confirmation to your email and secured your ticket on the blockchain.
-                  </p>
-                </div>
-
-                <div className="bg-card rounded-3xl border border-border overflow-hidden shadow-2xl">
-                  <div className="bg-primary p-6 text-primary-foreground flex justify-between items-center">
-                    <div>
-                      <p className="text-xs uppercase tracking-widest opacity-80">Booking Reference</p>
-                      <p className="text-2xl font-mono font-bold">{bookingId}</p>
-                    </div>
-                    <QrCode className="h-12 w-12" />
-                  </div>
-                  <div className="p-8">
-                    <div className="grid grid-cols-2 gap-8">
-                      <div>
-                        <p className="text-xs text-muted-foreground uppercase font-bold">Passenger</p>
-                        <p className="font-medium">John Doe</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground uppercase font-bold">Seat</p>
-                        <p className="font-medium">{selectedSeat?.id}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground uppercase font-bold">Departure</p>
-                        <p className="font-medium">{flight.date} at {flight.departure}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground uppercase font-bold">Terminal</p>
-                        <p className="font-medium">Terminal 4, Gate B23</p>
-                      </div>
-                    </div>
-                    <Separator className="my-6" />
-                    <div className="flex gap-4">
-                      <Button variant="outline" className="flex-1">
-                        <Download className="mr-2 h-4 w-4" /> Receipt
-                      </Button>
-                      <Button variant="outline" className="flex-1">
-                        <ExternalLink className="mr-2 h-4 w-4" /> Explorer
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                {insurancePolicy && (
-                  <div className="bg-card rounded-2xl border border-border p-6 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Shield className="h-5 w-5 text-primary" />
-                        <span className="font-bold">Travel Insurance</span>
-                      </div>
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">
-                        Insured &middot; {insurancePolicy.coverageType}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Policy {insurancePolicy.providerPolicyRef} is active. Premium is fully refundable until{" "}
-                      {new Date(insurancePolicy.refundEligibleUntil).toLocaleString()}.
-                    </p>
-                    <div className="flex gap-3">
-                      <a
-                        href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/v1/insurance/policy/${insurancePolicy.id}/pdf`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <Button variant="outline" size="sm">
-                          <FileText className="mr-2 h-4 w-4" /> Download Policy PDF
-                        </Button>
-                      </a>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => router.push(`/insurance/claims?policyId=${insurancePolicy.id}`)}
-                      >
-                        File a Claim
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {offsetCertificate && (
-                  <div className="bg-card rounded-2xl border border-green-200 p-6 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Leaf className="h-5 w-5 text-green-600" />
-                        <span className="font-bold">Carbon Offset</span>
-                      </div>
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">
-                        Carbon Neutral
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      This flight has been offset through {offsetCertificate.projectName}.
-                      {offsetCertificate.co2Kg} kg CO₂ offset &middot; Certificate: {offsetCertificate.certificateRef}
-                    </p>
-                    <a
-                      href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/api/v1/carbon/certificate/${offsetCertificate.purchaseId}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <Button variant="outline" size="sm">
-                        <FileText className="mr-2 h-4 w-4" /> Download Certificate
-                      </Button>
-                    </a>
-                  </div>
-                )}
-
-                <Button className="w-full h-12" variant="secondary" onClick={() => router.push("/dashboard")}>
-                  Go to Dashboard
-                </Button>
-              </div>
+              <BookingConfirmation
+                bookingId={bookingId}
+                booking={booking}
+                passengerName={passengerName}
+                seatNumber={selectedSeat?.id}
+                departureDate={flight.date}
+                departureTime={flight.departure}
+                destinationCity={flight.toCity}
+                insurancePolicy={insurancePolicy}
+                offsetCertificate={offsetCertificate}
+                onGoToDashboard={() => router.push("/dashboard")}
+                onFileClaim={(policyId) => router.push(`/insurance/claims?policyId=${policyId}`)}
+              />
             )}
           </div>
 

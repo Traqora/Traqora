@@ -2,66 +2,53 @@
 
 import React, { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
-
-interface CheckInWindow {
-  isOpen: boolean;
-  opensAt?: string;
-  closesAt?: string;
-  message?: string;
-}
-
-interface CheckInData {
-  id: string;
-  bookingId: string;
-  seatNumber?: string;
-  status: string;
-  checkedInAt?: string;
-}
+import { apiClient, CheckInWindow } from '@/lib/api';
+import { useCheckInOffline } from '@/hooks/use-check-in-offline';
+import { BoardingPassView } from '@/src/components/BoardingPassView';
 
 export default function CheckInPage({ params }: { params: Promise<{ bookingId: string }> }) {
   const resolvedParams = use(params);
   const bookingId = resolvedParams.bookingId;
   const router = useRouter();
 
+  const {
+    checkIn,
+    isLoading,
+    isFromCache,
+    error: checkInError,
+    applyCheckIn,
+  } = useCheckInOffline(bookingId);
+
   const [windowInfo, setWindowInfo] = useState<CheckInWindow | null>(null);
-  const [checkInResult, setCheckInResult] = useState<CheckInData | null>(null);
   const [seatNumber, setSeatNumber] = useState('');
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchCheckInState() {
+    async function fetchWindow() {
       try {
-        setLoading(true);
         setError(null);
-        const windowRes = await fetch(`/api/v1/check-in/${bookingId}/window`);
-        const windowJson = await windowRes.json();
-        if (windowJson.success) {
-          setWindowInfo(windowJson.data);
-    } else {
-          setError(windowJson.error?.message || 'Failed to fetch check-in window.');
-    }
-
-        const statusRes = await fetch(`/api/v1/check-in/${bookingId}`);
-        const statusJson = await statusRes.json();
-        if (statusJson.success && statusJson.data) {
-          setCheckInResult(statusJson.data);
-          if (statusJson.data.seatNumber) {
-            setSeatNumber(statusJson.data.seatNumber);
-  }
+        const res = await apiClient.getCheckInWindow(bookingId);
+        if (res.success && res.data) {
+          setWindowInfo(res.data);
+        } else {
+          setError(res.error?.message || 'Failed to fetch check-in window.');
         }
       } catch (err: any) {
         setError(err.message || 'Network error while loading check-in details.');
-      } finally {
-        setLoading(false);
       }
     }
 
     if (bookingId) {
-      fetchCheckInState();
+      fetchWindow();
     }
   }, [bookingId]);
+
+  useEffect(() => {
+    if (checkIn?.seatNumber) {
+      setSeatNumber(checkIn.seatNumber);
+    }
+  }, [checkIn]);
 
   const handleCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,29 +56,23 @@ export default function CheckInPage({ params }: { params: Promise<{ bookingId: s
     setError(null);
 
     try {
-      const res = await fetch(`/api/v1/check-in/${bookingId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          seatNumber: seatNumber.trim() || undefined,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        }),
-      });
-
-      const json = await res.json();
-      if (json.success) {
-        setCheckInResult(json.data);
-    } else {
-        setError(json.error?.message || 'Check-in failed. Please verify your details and try again.');
-    }
+      const res = await apiClient.checkIn(bookingId, seatNumber.trim() || undefined);
+      if (res.success && res.data) {
+        applyCheckIn(res.data);
+      } else {
+        setError(
+          res.error?.message ||
+            'Check-in failed. Please verify your details and try again.',
+        );
+      }
     } catch (err: any) {
       setError(err.message || 'An error occurred during check-in.');
     } finally {
       setSubmitting(false);
-  }
+    }
   };
 
-  if (loading) {
+  if (isLoading && !checkIn) {
     return (
       <main className="min-h-screen p-8 max-w-2xl mx-auto" aria-busy="true" aria-label="Loading check-in details">
         <h1 className="text-2xl font-bold mb-4">Flight Check-In</h1>
@@ -100,6 +81,8 @@ export default function CheckInPage({ params }: { params: Promise<{ bookingId: s
     );
   }
 
+  const displayError = error || checkInError;
+
   return (
     <main className="min-h-screen p-8 max-w-2xl mx-auto">
       <header className="mb-6">
@@ -107,25 +90,26 @@ export default function CheckInPage({ params }: { params: Promise<{ bookingId: s
         <p className="text-sm text-gray-600 mt-1">Booking Reference: <span className="font-mono font-medium">{bookingId}</span></p>
       </header>
 
-      {error && (
+      {displayError && (
         <div role="alert" className="mb-6 p-4 bg-red-50 border border-red-200 text-red-800 rounded-lg">
           <p className="font-semibold">Error</p>
-          <p className="text-sm mt-1">{error}</p>
+          <p className="text-sm mt-1">{displayError}</p>
         </div>
       )}
 
-      {checkInResult && checkInResult.status === 'checked_in' ? (
-        <section aria-labelledby="success-heading" className="bg-green-50 border border-green-200 rounded-xl p-6 text-green-900">
-          <h2 id="success-heading" className="text-xl font-bold text-green-800 mb-2">You are Checked In!</h2>
-          <p className="text-sm mb-4">Your boarding pass has been successfully issued.</p>
-          <div className="bg-white rounded-lg p-4 border border-green-100 shadow-sm space-y-2 mb-6">
-            <p><strong className="text-gray-700">Seat Number:</strong> <span className="font-mono">{checkInResult.seatNumber || 'Unassigned'}</span></p>
-            <p><strong className="text-gray-700">Status:</strong> <span className="uppercase text-xs bg-green-100 text-green-800 px-2 py-1 rounded font-semibold">Confirmed</span></p>
+      {checkIn && checkIn.status === 'checked_in' ? (
+        <section aria-labelledby="success-heading" className="space-y-6">
+          <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-green-900">
+            <h2 id="success-heading" className="text-xl font-bold text-green-800 mb-2">You are Checked In!</h2>
+            <p className="text-sm">Your boarding pass has been successfully issued.</p>
           </div>
+
+          <BoardingPassView bookingId={bookingId} checkIn={checkIn} isFromCache={isFromCache} />
+
           <button
             type="button"
             onClick={() => router.push('/dashboard')}
-            className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+            className="w-full bg-gray-900 hover:bg-gray-800 text-white font-medium py-2.5 px-4 rounded-lg transition focus:outline-none focus:ring-2 focus:ring-gray-700 focus:ring-offset-2"
           >
             Return to Dashboard
           </button>
@@ -141,9 +125,8 @@ export default function CheckInPage({ params }: { params: Promise<{ bookingId: s
                   {windowInfo.isOpen ? 'Check-in window is currently OPEN' : 'Check-in window is CLOSED or not yet active'}
                 </span>
               </div>
-              {windowInfo.message && <p className="text-sm text-gray-600 mt-2">{windowInfo.message}</p>}
             </section>
-            )}
+          )}
 
           <form onSubmit={handleCheckIn} className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Passenger Check-In</h2>
@@ -170,7 +153,7 @@ export default function CheckInPage({ params }: { params: Promise<{ bookingId: s
               {submitting ? 'Processing Check-In...' : 'Complete Check-In'}
             </button>
           </form>
-    </div>
+        </div>
       )}
     </main>
   );
