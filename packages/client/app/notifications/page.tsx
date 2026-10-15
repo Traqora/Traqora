@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNotifications } from "@/hooks/use-notifications";
 import { NotificationPreferences } from "@/components/notifications/notification-preferences";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,7 +39,7 @@ export default function NotificationCenterPage() {
           <Button variant="outline" onClick={() => refresh()} aria-label="Refresh notifications">
             Refresh
           </Button>
-          {activeTab === "inbox" && (noduplicateCount => notifications.some(n => !n.read))(notifications) && (
+          {activeTab === "inbox" && notifications.some((n) => !n.read) && (
             <Button variant="secondary" onClick={() => markAllRead()} aria-label="Mark all notifications as read">
               <CheckCircle2 className="h-4 w-4 mr-2" />
               Mark All Read
@@ -108,7 +108,7 @@ export default function NotificationCenterPage() {
                             {notification.category}
                           </Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground">{notification.message}</p>
+                        <p className="text-sm text-muted-foreground">{notification.body}</p>
                         <span className="text-xs text-muted-foreground/80">
                           {new Date(notification.createdAt).toLocaleString()}
                         </span>

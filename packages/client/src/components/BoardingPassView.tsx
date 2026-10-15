@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
-import { Plane, Download, Wallet, Printer } from 'lucide-react';
+import { Plane, Download, Wallet, Printer, WifiOff } from 'lucide-react';
 import { apiClient, CheckInRecord } from '@/lib/api';
 
 interface BoardingPassViewProps {
@@ -17,6 +17,8 @@ interface BoardingPassViewProps {
   departureTime?: string;
   gate?: string;
   terminal?: string;
+  /** True when the pass is being served from the offline cache. */
+  isFromCache?: boolean;
 }
 
 export function BoardingPassView({
@@ -30,8 +32,24 @@ export function BoardingPassView({
   departureTime,
   gate,
   terminal,
+  isFromCache = false,
 }: BoardingPassViewProps) {
   const pdfUrl = apiClient.getBoardingPassPdfUrl(bookingId);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  );
+  const [walletError, setWalletError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
 
   const handlePrint = () => {
     window.print();
@@ -39,6 +57,20 @@ export function BoardingPassView({
 
   return (
     <div className="w-full max-w-3xl mx-auto p-4 space-y-4">
+      {(isFromCache || !isOnline) && (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800"
+        >
+          <WifiOff className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>
+            {isOnline
+              ? 'Showing your saved boarding pass. Connect to refresh the latest details.'
+              : 'You are offline. Showing your saved boarding pass; PDF and wallet downloads require a connection.'}
+          </span>
+        </div>
+      )}
+
       <div className="flex justify-end gap-2 print:hidden">
         <Button variant="outline" onClick={handlePrint} aria-label="Print boarding pass">
           <Printer className="h-4 w-4 mr-2" />
@@ -115,18 +147,41 @@ export function BoardingPassView({
             </div>
             {checkIn.status === 'checked_in' && (
               <div className="flex flex-wrap gap-2 w-full sm:w-auto print:hidden">
-                <a href={pdfUrl} target="_blank" rel="noreferrer" className="flex-1 sm:flex-initial">
-                  <Button variant="outline" className="w-full justify-start">
+                {isOnline ? (
+                  <a href={pdfUrl} target="_blank" rel="noreferrer" className="flex-1 sm:flex-initial">
+                    <Button variant="outline" className="w-full justify-start">
+                      <Download className="h-4 w-4 mr-2" />
+                      PDF
+                    </Button>
+                  </a>
+                ) : (
+                  <Button
+                    variant="outline"
+                    className="flex-1 sm:flex-initial"
+                    disabled
+                    title="Connect to the internet to download your boarding pass PDF"
+                  >
                     <Download className="h-4 w-4 mr-2" />
                     PDF
                   </Button>
-                </a>
+                )}
                 <Button
                   variant="outline"
                   className="flex-1 sm:flex-initial"
+                  disabled={!isOnline}
+                  title={
+                    isOnline
+                      ? undefined
+                      : 'Connect to the internet to add your pass to Apple Wallet'
+                  }
                   onClick={async () => {
-                    const response = await apiClient.getWalletPass(bookingId);
-                    if (response.success) {
+                    if (!isOnline) return;
+                    setWalletError(null);
+                    try {
+                      const response = await apiClient.getWalletPass(bookingId);
+                      if (!response.success) {
+                        throw new Error(response.error?.message || 'Failed to fetch wallet pass');
+                      }
                       const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' });
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement('a');
@@ -134,6 +189,8 @@ export function BoardingPassView({
                       a.download = `apple-boarding-pass-${bookingId}.pkpass.json`;
                       a.click();
                       URL.revokeObjectURL(url);
+                    } catch (err: any) {
+                      setWalletError(err?.message || 'Unable to download wallet pass');
                     }
                   }}
                 >
@@ -141,6 +198,11 @@ export function BoardingPassView({
                   Apple Wallet
                 </Button>
               </div>
+            )}
+            {walletError && (
+              <p role="alert" className="text-xs text-destructive w-full">
+                {walletError}
+              </p>
             )}
           </div>
         </CardContent>
