@@ -23,28 +23,7 @@ import { tenantAnalyticsRoutes } from './api/routes/admin/tenantAnalytics';
 import { analyticsAuditRoutes } from './api/routes/admin/analyticsAudit';
 import { collaborationRoutes } from './api/routes/collaboration';
 import { authRoutes } from './api/routes/auth';
-import disputeRoutes from './api/routes/disputes';
-import serviceRoutes from './api/routes/services';
-import ancillaryRoutes from './api/routes/ancillary';
-import contractEventRoutes from './api/routes/contract-events';
-import transactionRoutes from './api/routes/transactions';
-import checkinRoutes from './api/routes/checkin';
-import notificationRoutes from './api/routes/notifications';
-import journeyRoutes from './api/routes/journeys';
-import { documentRoutes } from './api/routes/documents';
-import { alertRoutes } from './api/routes/alerts';
-import { reviewRoutes } from './api/routes/reviews';
-import { userRoutes } from './api/routes/users';
-import { carbonRoutes } from './api/routes/carbon';
-import { trackingRoutes } from './api/routes/tracking';
-import { feedbackRoutes } from './api/routes/feedback';
-import { createCurrencyRoutes } from './api/routes/currencies';
-import { referralRoutes } from './api/routes/referrals';
-import { recommendationRoutes } from './api/routes/recommendations';
-import { flightStatusRoutes } from './api/routes/flightStatus';
-import { stellarExpertRoutes } from './api/routes/stellarExpert';
-import { analyticsRoutes } from './api/routes/analytics';
-import { auditRoutes } from './api/routes/audit';
+
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
@@ -216,16 +195,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/bookings', requireAuth, validateRequest('/api/v1/bookings'), bookingRoutes);
   app.use('/api/v1/refunds', requireAuth, validateRequest('/api/v1/refunds/request'), refundRoutes);
   app.use('/api/v1/security', requireAuth, securityRoutes);
-  app.use('/api/v1/bookings', requireAuth, bookingRoutes);
-  app.use('/api/v1/refunds', requireAuth, refundRoutes);
-  app.use('/api/v1/insurance', insuranceRoutes);
-  app.use('/api/v1/group-bookings', requireAuth, groupBookingRoutes); // <-- Added group booking routes
-  app.use('/api/v1/corporate', requireAuth, corporateRoutes);
-  app.use('/api/v1/security', securityRoutes);
-  app.use('/api/v1/documents', requireAuth, documentRoutes);
-  app.use('/api/v1/referrals', referralRoutes);
-  app.use('/api/v1/recommendations', recommendationRoutes);
-  app.use('/api/v1/users', userRoutes);
+
 
   // Admin routes
   app.use('/api/v1/admin/auth', adminAuthRoutes);
