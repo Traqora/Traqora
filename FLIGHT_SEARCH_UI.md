@@ -172,6 +172,48 @@ const response = await searchFlights({
 
 The flight search UI is now fully functional and ready for production use with the Traqora blockchain flight booking platform.
 
+### Search UI state contract (issue #672)
+
+The search page renders exactly one UI state at a time. The single source of
+truth is `getSearchUiState()` in
+`packages/client/components/flight-search/search-state.ts`; `ResultsList`
+derives its branches from it, and `app/search/page.tsx` feeds the raw signals.
+
+**States:** `idle` (no search submitted this session), `loading` (first results
+still in flight), `success` (results on screen), `empty` (search completed, no
+matches), `error` (the most recent attempt failed).
+
+**Inputs / outputs:**
+
+| Input | Meaning |
+| --- | --- |
+| `hasSearched` | A search has been submitted this session (URL prefill counts) |
+| `isLoading` | The request is in flight |
+| `error` | Error message of the most recent attempt, or `null` |
+| `resultCount` | Results currently held (may include cached results) |
+
+| Precedence | Condition | State |
+| --- | --- | --- |
+| 1 | `error` is not `null` | `error` |
+| 2 | `isLoading` and `resultCount === 0` | `loading` |
+| 3 | `resultCount === 0`, `hasSearched` true | `empty` |
+| 3′ | `resultCount === 0`, `hasSearched` false | `idle` |
+| 4 | `resultCount > 0` | `success` |
+
+**Error cases and behaviors operators/contributors should expect:**
+
+- *First load without search params* shows the `idle` card ("Start a flight
+search") instead of a misleading "No flights found" empty state.
+- *Retry*: the error card's "Try Again" action re-runs the last search in place
+  (`onRetry` on `ResultsList`); the fallback remains a full page reload when no
+  handler is supplied.
+- *Stale responses*: `useFlightSearch` issues a monotonic request token and
+  discards any response (success or failure) from a superseded search, so the
+  newest request always wins and no stale `isLoading` flag leaks.
+- Regression tests live in `packages/client/tests/flight-search-states.test.tsx`
+  (contract + list states) and
+  `packages/client/tests/use-flight-search-race.test.ts` (request ordering).
+
 ### Cancellation policy explainer
 
 Expanded fare rules state whether refunds are permitted, list the cancellation
