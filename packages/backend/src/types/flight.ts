@@ -42,7 +42,7 @@ export interface FlightSearchCriteria {
   priceMin?: number;
   priceMax?: number;
   airlines?: string[];
-  stops?: number;
+  stops?: number[];
   durationMax?: number;
   sortBy: FlightSortBy;
   sortOrder?: SortOrder;
@@ -50,13 +50,11 @@ export interface FlightSearchCriteria {
   pageSize: number;
 }
 
+import { CursorPaginationMeta } from './pagination';
+
 export interface FlightSearchResponse {
   data: EnrichedFlight[];
-  pagination: {
-    next_cursor: string | null;
-    has_more: boolean;
-    page_size: number;
-  };
+  pagination: CursorPaginationMeta;
 }
 
 export interface FlightPagination {

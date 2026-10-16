@@ -383,4 +383,387 @@ describe('RefundService', () => {
       });
     });
   });
+
+  describe('calculateRefundAmount', () => {
+    it('should return 100% refund for 72+ hours before departure', () => {
+      const result = refundService.calculateRefundAmount(50000, 96);
+      expect(result.refundPercentage).toBe(100);
+      expect(result.refundAmountCents).toBe(50000);
+      expect(result.tier).toBe('full');
+    });
+
+    it('should return 50% refund for 24-72 hours before departure', () => {
+      const result = refundService.calculateRefundAmount(50000, 48);
+      expect(result.refundPercentage).toBe(50);
+      expect(result.refundAmountCents).toBe(25000);
+      expect(result.tier).toBe('partial');
+    });
+
+    it('should return 0% refund for < 24 hours before departure', () => {
+      const result = refundService.calculateRefundAmount(50000, 12);
+      expect(result.refundPercentage).toBe(0);
+      expect(result.refundAmountCents).toBe(0);
+      expect(result.tier).toBe('no_refund');
+    });
+
+    it('should handle zero amount', () => {
+      const result = refundService.calculateRefundAmount(0, 96);
+      expect(result.refundPercentage).toBe(100);
+      expect(result.refundAmountCents).toBe(0);
+      expect(result.tier).toBe('full');
+    });
+  });
+
+  describe('processAutomatedRefund', () => {
+    it('should process automated refund for eligible booking', async () => {
+      const result = await refundService.processAutomatedRefund(mockBooking.id);
+
+      expect(result.bookingId).toBe(mockBooking.id);
+      expect(result.refundPercentage).toBeGreaterThan(0);
+      expect(result.status).toBe('approved');
+      expect(['full', 'partial']).toContain(result.tier);
+    });
+
+    it('should reject refund for ineligible booking status', async () => {
+      mockBooking.status = 'awaiting_payment';
+      await AppDataSource.getRepository(Booking).save(mockBooking);
+
+      const result = await refundService.processAutomatedRefund(mockBooking.id);
+
+      expect(result.status).toBe('rejected');
+      expect(result.refundPercentage).toBe(0);
+    });
+
+    it('should throw error for non-existent booking', async () => {
+      await expect(
+        refundService.processAutomatedRefund('00000000-0000-0000-0000-000000000000')
+      ).rejects.toThrow('Booking not found');
+    });
+  });
+
+  describe('processBatchRefunds', () => {
+    it('should process multiple refunds and return results', async () => {
+      const result = await refundService.processBatchRefunds([mockBooking.id]);
+
+      expect(result.processed).toBeGreaterThan(0);
+      expect(result.results.length).toBeGreaterThan(0);
+      expect(result.results[0].status).toBe('approved');
+    });
+
+    it('should handle empty booking list', async () => {
+      const result = await refundService.processBatchRefunds([]);
+
+      expect(result.processed).toBe(0);
+      expect(result.failed).toBe(0);
+      expect(result.results.length).toBe(0);
+    });
+  });
+
+  describe('handleDisputeResolution', () => {
+    it('should approve refund via dispute resolution', async () => {
+      const refund = await refundService.createRefundRequest({
+        bookingId: mockBooking.id,
+        reason: 'customer_request',
+      });
+
+      const resolved = await refundService.handleDisputeResolution(
+        refund.id,
+        {
+          resolution: 'approved',
+          resolvedBy: 'admin@test.com',
+          notes: 'Approved after dispute review',
+          customRefundPercentage: 100,
+        }
+      );
+
+      expect(resolved.status).toBe('approved');
+      expect(resolved.reviewedBy).toBe('admin@test.com');
+    });
+
+    it('should reject refund via dispute resolution', async () => {
+      const futureDate = new Date();
+      futureDate.setHours(futureDate.getHours() + 12);
+      mockBooking.flight.departureTime = futureDate;
+      await AppDataSource.getRepository(Booking).save(mockBooking);
+
+      const refund = await refundService.createRefundRequest({
+        bookingId: mockBooking.id,
+        reason: 'customer_request',
+      });
+
+      const resolved = await refundService.handleDisputeResolution(
+        refund.id,
+        {
+          resolution: 'rejected',
+          resolvedBy: 'admin@test.com',
+          notes: 'Rejected after dispute review',
+        }
+      );
+
+      expect(resolved.status).toBe('rejected');
+    });
+  });
+
+  describe('getRefundStats', () => {
+    it('should return refund statistics', async () => {
+      await refundService.createRefundRequest({
+        bookingId: mockBooking.id,
+        reason: 'customer_request',
+      });
+
+      const stats = await refundService.getRefundStats();
+
+      expect(stats.totalRefunds).toBeGreaterThan(0);
+      expect(stats.byReason).toBeDefined();
+      expect(stats.byStatus).toBeDefined();
+      expect(typeof stats.totalAmountCents).toBe('number');
+    });
+  });
+
+  describe('checkAutomatedEligibility', () => {
+    it('should return eligibility for valid booking', async () => {
+      const eligibility = await refundService.checkAutomatedEligibility(mockBooking.id);
+
+      expect(eligibility).toBeDefined();
+      expect(typeof eligibility.isEligible).toBe('boolean');
+      expect(typeof eligibility.refundPercentage).toBe('number');
+    });
+
+    it('should throw for non-existent booking', async () => {
+      await expect(
+        refundService.checkAutomatedEligibility('00000000-0000-0000-0000-000000000000')
+      ).rejects.toThrow('Booking not found');
+    });
+  });
+
+  describe('calculatePartialRefund', () => {
+    it('should calculate full refund for refundable ticket', () => {
+      (mockBooking as any).ticketType = 'refundable';
+      const breakdown = refundService.calculatePartialRefund(mockBooking);
+
+      expect(breakdown).toBeDefined();
+      expect(breakdown.originalAmountCents).toBe(mockBooking.amountCents);
+      expect(breakdown.baseRefundPercentage).toBe(100);
+      expect(breakdown.finalRefundPercentage).toBeGreaterThan(0);
+      expect(breakdown.appliedRules).toBeDefined();
+      expect(breakdown.appliedRules.length).toBeGreaterThan(0);
+    });
+
+    it('should calculate zero refund for non-refundable ticket', () => {
+      (mockBooking as any).ticketType = 'non_refundable';
+      const breakdown = refundService.calculatePartialRefund(mockBooking);
+
+      expect(breakdown.baseRefundPercentage).toBe(0);
+      expect(breakdown.finalRefundAmountCents).toBe(0);
+      expect(breakdown.appliedRules).toContainEqual(
+        expect.objectContaining({
+          ruleType: 'ticket_type',
+          ruleValue: 'non_refundable',
+        })
+      );
+    });
+
+    it('should apply processing fees correctly', () => {
+      const breakdown = refundService.calculatePartialRefund(mockBooking);
+
+      expect(breakdown.processingFeeCents).toBeGreaterThan(0);
+      expect(breakdown.processingFeePercentage).toBeGreaterThan(0);
+      expect(breakdown.appliedRules).toContainEqual(
+        expect.objectContaining({
+          ruleType: 'processing_fee',
+        })
+      );
+    });
+
+    it('should adjust for segment usage', () => {
+      (mockBooking as any).segments = [
+        { used: false },
+        { used: true },
+        { used: false },
+      ];
+      const breakdown = refundService.calculatePartialRefund(mockBooking);
+
+      expect(breakdown.segmentAdjustmentFactor).toBe(2/3);
+      expect(breakdown.segmentDeductionCents).toBeGreaterThan(0);
+      expect(breakdown.appliedRules).toContainEqual(
+        expect.objectContaining({
+          ruleType: 'segment_usage',
+        })
+      );
+    });
+
+    it('should handle 100% unused segments', () => {
+      (mockBooking as any).segments = [
+        { used: false },
+        { used: false },
+      ];
+      const breakdown = refundService.calculatePartialRefund(mockBooking);
+
+      expect(breakdown.segmentAdjustmentFactor).toBe(1);
+      expect(breakdown.segmentDeductionCents).toBe(0);
+    });
+
+    it('should apply cancellation fees when present in fare rules', () => {
+      (mockBooking as any).fareRules = {
+        cancellationFeeCents: 2500,
+      };
+      const breakdown = refundService.calculatePartialRefund(mockBooking);
+
+      expect(breakdown.cancellationFeeCents).toBe(2500);
+      expect(breakdown.cancellationFeePercentage).toBeGreaterThan(0);
+      expect(breakdown.appliedRules).toContainEqual(
+        expect.objectContaining({
+          ruleType: 'cancellation_fee',
+          ruleValue: '2500 cents',
+        })
+      );
+    });
+
+    it('should include timing-based refund percentages', () => {
+      const breakdown = refundService.calculatePartialRefund(mockBooking);
+
+      expect(breakdown.appliedRules).toContainEqual(
+        expect.objectContaining({
+          ruleType: 'refund_percentage',
+        })
+      );
+    });
+
+    it('should have calculatedAt timestamp', () => {
+      const breakdown = refundService.calculatePartialRefund(mockBooking);
+
+      expect(breakdown.calculatedAt).toBeDefined();
+      expect(new Date(breakdown.calculatedAt)).toBeInstanceOf(Date);
+    });
+
+    it('should sort applied rules by priority', () => {
+      const breakdown = refundService.calculatePartialRefund(mockBooking);
+
+      for (let i = 1; i < breakdown.appliedRules.length; i++) {
+        expect(breakdown.appliedRules[i].priority).toBeGreaterThanOrEqual(
+          breakdown.appliedRules[i - 1].priority
+        );
+      }
+    });
+  });
+
+  describe('partial refund requests', () => {
+    it('should accept partial refund by percentage', async () => {
+      const refund = await refundService.createRefundRequest({
+        bookingId: mockBooking.id,
+        reason: 'customer_request',
+        requestedRefundPercentage: 50,
+      });
+
+      expect(refund.requestedAmountCents).toBe(25000); // 50% of 50000
+      expect(refund.isEligible).toBe(true);
+    });
+
+    it('should accept partial refund by amount', async () => {
+      const refund = await refundService.createRefundRequest({
+        bookingId: mockBooking.id,
+        reason: 'customer_request',
+        requestedRefundAmountCents: 15000,
+      });
+
+      expect(refund.requestedAmountCents).toBe(15000);
+      expect(refund.isEligible).toBe(true);
+    });
+
+    it('should reject partial refund exceeding booking amount', async () => {
+      await expect(
+        refundService.createRefundRequest({
+          bookingId: mockBooking.id,
+          reason: 'customer_request',
+          requestedRefundAmountCents: 60000,
+        })
+      ).rejects.toThrow('Requested refund amount cannot exceed booking amount');
+    });
+
+    it('should reject negative refund amount', async () => {
+      await expect(
+        refundService.createRefundRequest({
+          bookingId: mockBooking.id,
+          reason: 'customer_request',
+          requestedRefundAmountCents: -1000,
+        })
+      ).rejects.toThrow('Requested refund amount cannot be negative');
+    });
+
+    it('should reject invalid refund percentage', async () => {
+      await expect(
+        refundService.createRefundRequest({
+          bookingId: mockBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 150,
+        })
+      ).rejects.toThrow('Requested refund percentage must be between 0 and 100');
+    });
+
+    it('should trigger manual review when partial exceeds eligibility', async () => {
+      // Make booking nearly ineligible
+      const nearFutureDate = new Date();
+      nearFutureDate.setHours(nearFutureDate.getHours() + 12);
+      mockBooking.flight.departureTime = nearFutureDate;
+      await AppDataSource.getRepository(Booking).save(mockBooking);
+
+      const refund = await refundService.createRefundRequest({
+        bookingId: mockBooking.id,
+        reason: 'customer_request',
+        requestedRefundPercentage: 80, // Request more than eligible
+      });
+
+      expect(refund.requiresManualReview).toBe(true);
+    });
+
+    it('should reject partial refund for ineligible booking', async () => {
+      mockBooking.status = 'awaiting_payment';
+      await AppDataSource.getRepository(Booking).save(mockBooking);
+
+      await expect(
+        refundService.createRefundRequest({
+          bookingId: mockBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 50,
+        })
+      ).rejects.toThrow('Partial refund requested but booking is not eligible for any refund');
+    });
+  });
+
+  describe('approveRefund with partial amounts', () => {
+    it('should calculate final amount for partial refund percentage', async () => {
+      const refund = await refundService.createRefundRequest({
+        bookingId: mockBooking.id,
+        reason: 'customer_request',
+        requestedRefundPercentage: 60,
+      });
+
+      // Get the refund after auto-processing
+      const refundRepo = AppDataSource.getRepository(Refund);
+      const updatedRefund = await refundRepo.findOne({
+        where: { id: refund.id },
+        relations: ['booking', 'booking.passenger'],
+      });
+
+      expect(updatedRefund).toBeDefined();
+      expect(updatedRefund!.approvedAmountCents).toBeLessThan(mockBooking.amountCents);
+      expect(updatedRefund!.requestedAmountCents).toBe(30000); // 60% of 50000
+    });
+
+    it('should apply processing fees to partial refunds', async () => {
+      const refund = await refundService.createRefundRequest({
+        bookingId: mockBooking.id,
+        reason: 'customer_request',
+        requestedRefundPercentage: 50,
+      });
+
+      const refundRepo = AppDataSource.getRepository(Refund);
+      const updatedRefund = await refundRepo.findOne({
+        where: { id: refund.id },
+      });
+
+      expect(updatedRefund!.processingFeeCents).toBeGreaterThan(0);
+      expect(updatedRefund!.approvedAmountCents).toBeLessThan(updatedRefund!.requestedAmountCents);
+    });
+  });
 });

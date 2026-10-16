@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -10,7 +10,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
-import { MapPin, Calendar, Users, Search, ArrowUpDown, Plane } from "lucide-react"
+import { MapPin, Calendar, Users, Search, ArrowUpDown, Plane, Loader2 } from "lucide-react"
+import { useDebounce } from "@/hooks/use-debounce"
+import { apiClient, Airport } from "@/lib/api"
 
 const searchFormSchema = z.object({
   from: z.string().min(3, "Origin is required").max(3, "Use 3-letter airport code"),
@@ -43,6 +45,12 @@ const popularAirports = [
 export function SearchForm({ onSearch, isLoading = false, initialValues }: SearchFormProps) {
   const [showFromSuggestions, setShowFromSuggestions] = useState(false)
   const [showToSuggestions, setShowToSuggestions] = useState(false)
+  
+  const [fromSuggestions, setFromSuggestions] = useState<Airport[]>([])
+  const [toSuggestions, setToSuggestions] = useState<Airport[]>([])
+  const [isFromLoading, setIsFromLoading] = useState(false)
+  const [isToLoading, setIsToLoading] = useState(false)
+
 
   const form = useForm<SearchFormData>({
     resolver: zodResolver(searchFormSchema),
@@ -55,6 +63,37 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
       class: initialValues?.class || "economy",
     },
   })
+
+  const fromValue = form.watch("from")
+  const toValue = form.watch("to")
+  const debouncedFrom = useDebounce(fromValue, 300)
+  const debouncedTo = useDebounce(toValue, 300)
+
+  useEffect(() => {
+    if (!debouncedFrom || debouncedFrom.length < 1) {
+      setFromSuggestions([])
+      setIsFromLoading(false)
+      return
+    }
+    setIsFromLoading(true)
+    apiClient.searchAirports(debouncedFrom).then(res => {
+      if (res.success) setFromSuggestions(res.data)
+      setIsFromLoading(false)
+    }).catch(() => setIsFromLoading(false))
+  }, [debouncedFrom])
+
+  useEffect(() => {
+    if (!debouncedTo || debouncedTo.length < 1) {
+      setToSuggestions([])
+      setIsToLoading(false)
+      return
+    }
+    setIsToLoading(true)
+    apiClient.searchAirports(debouncedTo).then(res => {
+      if (res.success) setToSuggestions(res.data)
+      setIsToLoading(false)
+    }).catch(() => setIsToLoading(false))
+  }, [debouncedTo])
 
   const handleSubmit = (data: SearchFormData) => {
     onSearch(data)
@@ -113,22 +152,31 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
                         />
                         {showFromSuggestions && (
                           <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-auto">
-                            {popularAirports
-                              .filter(airport => 
-                                airport.code.includes(field.value) || 
-                                airport.city.toLowerCase().includes(field.value.toLowerCase())
-                              )
-                              .map((airport) => (
+                            {isFromLoading ? (
+                              <div className="p-4 text-center text-sm text-muted-foreground flex items-center justify-center">
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Loading suggestions...
+                              </div>
+                            ) : fromSuggestions.length > 0 ? (
+                              fromSuggestions.map((airport) => (
                                 <button
                                   key={airport.code}
                                   type="button"
                                   className="w-full px-3 py-2 text-left hover:bg-accent hover:text-accent-foreground text-sm"
-                                  onClick={() => selectAirport(airport.code, "from")}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault()
+                                    selectAirport(airport.code, "from")
+                                  }}
                                 >
                                   <div className="font-medium">{airport.code} - {airport.city}</div>
                                   <div className="text-xs text-muted-foreground">{airport.name}</div>
                                 </button>
-                              ))}
+                              ))
+                            ) : field.value ? (
+                              <div className="p-4 text-center text-sm text-muted-foreground">
+                                No airports found.
+                              </div>
+                            ) : null}
                           </div>
                         )}
                       </div>
@@ -173,22 +221,31 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
                         </Button>
                         {showToSuggestions && (
                           <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-auto">
-                            {popularAirports
-                              .filter(airport => 
-                                airport.code.includes(field.value) || 
-                                airport.city.toLowerCase().includes(field.value.toLowerCase())
-                              )
-                              .map((airport) => (
+                            {isToLoading ? (
+                              <div className="p-4 text-center text-sm text-muted-foreground flex items-center justify-center">
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Loading suggestions...
+                              </div>
+                            ) : toSuggestions.length > 0 ? (
+                              toSuggestions.map((airport) => (
                                 <button
                                   key={airport.code}
                                   type="button"
                                   className="w-full px-3 py-2 text-left hover:bg-accent hover:text-accent-foreground text-sm"
-                                  onClick={() => selectAirport(airport.code, "to")}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault()
+                                    selectAirport(airport.code, "to")
+                                  }}
                                 >
                                   <div className="font-medium">{airport.code} - {airport.city}</div>
                                   <div className="text-xs text-muted-foreground">{airport.name}</div>
                                 </button>
-                              ))}
+                              ))
+                            ) : field.value ? (
+                              <div className="p-4 text-center text-sm text-muted-foreground">
+                                No airports found.
+                              </div>
+                            ) : null}
                           </div>
                         )}
                       </div>

@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { AncillaryRevenueDashboard } from "@/components/booking/ancillary-revenue-dashboard"
 import {
   Plane,
   Users,
@@ -192,6 +193,10 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        <div className="mb-8">
+          <AncillaryRevenueDashboard />
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8">

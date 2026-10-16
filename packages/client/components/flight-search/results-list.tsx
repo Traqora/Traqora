@@ -27,6 +27,9 @@ interface ResultsListProps {
   sortBy?: string
   sortOrder?: string
   onSortChange?: (sortBy: string, sortOrder: string) => void
+  compareSelectable?: boolean
+  compareSelectedIds?: string[]
+  onToggleCompare?: (flightId: string) => void
 }
 
 export function ResultsList({
@@ -41,6 +44,9 @@ export function ResultsList({
   sortBy = "price",
   sortOrder = "asc",
   onSortChange,
+  compareSelectable = false,
+  compareSelectedIds = [],
+  onToggleCompare,
 }: ResultsListProps) {
   const [showSortOptions, setShowSortOptions] = useState(false)
 
@@ -228,7 +234,13 @@ export function ResultsList({
       {/* Flight Cards */}
       <div className="space-y-4">
         {flights.map((flight) => (
-          <FlightCard key={flight.id} flight={flight} />
+          <FlightCard
+            key={flight.id}
+            flight={flight}
+            compareSelectable={compareSelectable}
+            compareSelected={compareSelectedIds.includes(flight.id)}
+            onToggleCompare={onToggleCompare}
+          />
         ))}
       </div>
 

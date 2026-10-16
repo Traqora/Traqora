@@ -1,18 +1,19 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { apiClient, TransactionStatus } from '@/lib/api';
+import { apiClient, BookingTransactionStatusResponse } from '@/lib/api';
 import { toast } from 'sonner';
+import { useSocketEvents } from './use-socket-events';
 
 interface UseTransactionStatusOptions {
   bookingId: string | null;
   enabled?: boolean;
   pollingInterval?: number;
   maxAttempts?: number;
-  onSuccess?: (status: TransactionStatus) => void;
+  onSuccess?: (status: BookingTransactionStatusResponse) => void;
   onError?: (error: string) => void;
 }
 
 interface UseTransactionStatusResult {
-  status: TransactionStatus | null;
+  status: BookingTransactionStatusResponse | null;
   isPolling: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -27,7 +28,7 @@ export const useTransactionStatus = ({
   onSuccess,
   onError,
 }: UseTransactionStatusOptions): UseTransactionStatusResult => {
-  const [status, setStatus] = useState<TransactionStatus | null>(null);
+  const [status, setStatus] = useState<BookingTransactionStatusResponse | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const attemptCountRef = useRef(0);
@@ -79,7 +80,7 @@ export const useTransactionStatus = ({
 
         attemptCountRef.current += 1;
       } else {
-        const errorMsg = response.error?.message || 'Failed to fetch status';
+        const errorMsg = (!response.success && response.error?.message) || 'Failed to fetch status';
         setError(errorMsg);
         
         if (attemptCountRef.current >= maxAttempts) {
@@ -102,6 +103,14 @@ export const useTransactionStatus = ({
     attemptCountRef.current = 0;
     await fetchStatus();
   }, [fetchStatus]);
+
+  useSocketEvents({
+    onBookingStatus: useCallback((data: any) => {
+      if (data.bookingId === bookingId) {
+        fetchStatus();
+      }
+    }, [bookingId, fetchStatus])
+  });
 
   useEffect(() => {
     if (!enabled || !bookingId) {

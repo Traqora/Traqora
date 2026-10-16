@@ -1,0 +1,111 @@
+# SLO recording rules and alerts for the booking funnel (issue #593).
+#
+# Input metrics (exposed by packages/backend/src/services/metrics.ts):
+#   traqora_slo_events_total{operation="search|booking|refund", result="good|bad"}
+#
+# Latency targets per operation (seconds) — must stay in sync with
+# SLO_TARGETS in packages/backend/src/services/metrics.ts:
+#   search : 2s
+#   booking: 300s
+#   refund : 3600s
+#
+# The SLO is a 95% good-events ratio over a 30-day window (error budget 5%).
+# Burn rate = bad_ratio / (1 - 0.95); a rate of 14.4 over 5m means the
+# 30-day budget is exhausted in ~2.5 days if sustained.
+
+groups:
+  - name: traqora_slo_recording_rules
+    interval: 1m
+    rules:
+      # Share of events classified "bad" over the 5m burn window, per operation.
+      - record: traqora:slo_bad_ratio:rate5m
+        expr: |
+          sum by (operation) (
+            rate(traqora_slo_events_total{result="bad"}[5m])
+          )
+          / clamp_min(
+            sum by (operation) (
+              rate(traqora_slo_events_total[5m])
+            ),
+            1e-9
+          )
+
+      # Share of events classified "bad" over the full 30-day SLO window.
+      - record: traqora:slo_bad_ratio:rate30d
+        expr: |
+          sum by (operation) (
+            rate(traqora_slo_events_total{result="bad"}[30d])
+          )
+          / clamp_min(
+            sum by (operation) (
+              rate(traqora_slo_events_total[30d])
+            ),
+            1e-9
+          )
+
+      # Fraction of the 5% error budget still remaining (1 = full, 0 = spent).
+      - record: traqora:slo_error_budget_remaining
+        expr: 1 - traqora:slo_bad_ratio:rate30d / 0.05
+
+      # Booking funnel: conversion rates between funnel stages (24h window).
+      - record: traqora:booking_funnel_search_to_created:ratio24h
+        expr: |
+          sum(increase(traqora_bookings_created_total[24h]))
+          / clamp_min(
+            sum(increase(traqora_slo_events_total{operation="search"}[24h])),
+            1e-9
+          )
+
+      - record: traqora:booking_funnel_created_to_confirmed:ratio24h
+        expr: |
+          sum(increase(traqora_bookings_confirmed_total[24h]))
+          / clamp_min(
+            sum(increase(traqora_bookings_created_total[24h])),
+            1e-9
+          )
+
+  - name: traqora_slo_alerts
+    interval: 1m
+    rules:
+      # Multi-window, multi-burn-rate alerting (Google SRE workbook):
+      #  - critical: budget exhausted in ~2.5 days (burn rate 14.4 over 5m)
+      #  - warning : budget exhausted in ~5 days   (burn rate 6 over 30m)
+      - alert: SLOFastBurnRate
+        expr: |
+          (
+            traqora:slo_bad_ratio:rate5m / 0.05
+          ) > 14.4
+        for: 5m
+        labels:
+          severity: critical
+          component: bookings
+        annotations:
+          summary: "Booking funnel SLO fast burn for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} latency SLO is burning error budget at {{ printf \"%.1f\" $value }}x the sustainable rate over 5m (runbook: <https://github.com/traqora/runbooks/slo-burn.md|SLO burn runbook>)."
+          runbook: "https://github.com/traqora/runbooks/slo-burn.md"
+
+      - alert: SLOSlowBurnRate
+        expr: |
+          (
+            traqora:slo_bad_ratio:rate5m / 0.05
+          ) > 6
+        for: 30m
+        labels:
+          severity: warning
+          component: bookings
+        annotations:
+          summary: "Booking funnel SLO sustained burn for {{ $labels.operation }}"
+          description: "{{ $labels.operation }} latency SLO is burning error budget at {{ printf \"%.1f\" $value }}x the sustainable rate over 30m (runbook: <https://github.com/traqora/runbooks/slo-burn.md|SLO burn runbook>)."
+          runbook: "https://github.com/traqora/runbooks/slo-burn.md"
+
+      - alert: SLOErrorBudgetExhausted
+        expr: |
+          traqora:slo_error_budget_remaining <= 0
+        for: 1h
+        labels:
+          severity: critical
+          component: bookings
+        annotations:
+          summary: "{{ $labels.operation }} latency SLO error budget exhausted"
+          description: "The 30-day error budget for {{ $labels.operation }} latency is fully consumed (runbook: <https://github.com/traqora/runbooks/slo-burn.md|SLO burn runbook>)."
+          runbook: "https://github.com/traqora/runbooks/slo-burn.md"

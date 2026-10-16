@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { config } from '../../config';
 import { abuseListManager } from '../../utils/rateLimiter';
+import { getRateLimitSnapshot } from '../../services/metrics';
 
 const router = Router();
 
@@ -104,6 +105,34 @@ router.get('/rate-limits/status/:ip', async (req, res) => {
       blocked: blockedStatus.blocked,
       blockMsRemaining: blockedStatus.msRemaining,
       violations,
+    },
+  });
+});
+
+/**
+ * Throttling monitoring dashboard (issue #371).
+ *
+ * Returns per-endpoint, per-tier allow/block counts since process start.
+ * Prometheus scraping (`/metrics`) remains the source of truth for
+ * alerting; this endpoint gives the admin dashboard a structured summary
+ * without parsing the exposition format.
+ */
+router.get('/rate-limits/metrics', async (_req, res) => {
+  const snapshot = getRateLimitSnapshot();
+  const totals = snapshot.reduce(
+    (acc, entry) => {
+      acc.allowed += entry.allowed;
+      acc.blocked += entry.blocked;
+      return acc;
+    },
+    { allowed: 0, blocked: 0 },
+  );
+
+  return res.json({
+    success: true,
+    data: {
+      totals,
+      byEndpoint: snapshot,
     },
   });
 });

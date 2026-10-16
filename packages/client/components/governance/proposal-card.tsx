@@ -30,6 +30,8 @@ export interface ProposalData {
   executed: boolean
   quorum: number
   totalVoters: number
+  /** ISO timestamp when a passed proposal leaves the timelock; derived client-side when absent. */
+  executionEta?: string | null
 }
 
 function getStatusBadge(status: string) {
