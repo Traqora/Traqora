@@ -53,7 +53,6 @@ impl TraqoraBooking {
     }
 }
 
-
 #[contract]
 pub struct TraqoraAirline;
 
@@ -72,5 +71,35 @@ impl TraqoraAirline {
         passenger.require_auth();
 
         // Verify reservation exists for passenger and clear it...
+    }
+}
+
+#[contract]
+pub struct TraqoraLoyalty;
+
+#[contractimpl]
+impl TraqoraLoyalty {
+    pub fn add_points(env: Env, user: Address, points: u64) {
+        user.require_auth();
+        if points == 0 {
+            panic!("Points to add must be greater than zero");
+        }
+        // Accumulate active points for user...
+    }
+
+    pub fn expire_points(env: Env, admin: Address, user: Address, expired_amount: u64) {
+        admin.require_auth();
+        if expired_amount == 0 {
+            panic!("Expired amount must be greater than zero");
+        }
+        // Deduct expired points from user balance and trigger tier recalculation...
+    }
+
+    pub fn recalc_tier(env: Env, user: Address) -> u32 {
+        user.require_auth();
+        // Determine tier based on active unexpired points balance
+        // 1: Bronze (< 1000), 2: Silver (1000 - 4999), 3: Gold (5000+)
+        // Mock calculation for demonstration:
+        3
     }
 }
