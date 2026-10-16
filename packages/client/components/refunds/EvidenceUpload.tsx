@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Upload, X, FileText, Image as ImageIcon, File, CheckCircle2, AlertCircle } from "lucide-react";
 
-interface UploadedFile {
+export interface UploadedFile {
   id: string;
   name: string;
   size: number;
@@ -105,13 +105,9 @@ export function EvidenceUpload({
       );
     }
 
-    // In a real implementation, you would upload to a server here
-    // For now, we'll create a local URL
-    const url = URL.createObjectURL(file);
-
     const completedFile: UploadedFile = {
       ...newFile,
-      url,
+      url: "",
       progress: 100,
       status: "completed",
     };
@@ -251,6 +247,21 @@ export function EvidenceUpload({
                   {file.status === "uploading" && (
                     <Progress value={file.progress} className="h-1 mt-1" />
                   )}
+
+                  {file.status === "completed" && (
+                    <input
+                      value={file.url || ""}
+                      onChange={(e) =>
+                        setFiles((prev) =>
+                          prev.map((f) =>
+                            f.id === file.id ? { ...f, url: e.target.value } : f
+                          )
+                        )
+                      }
+                      placeholder="ipfs://<CID> or https://.../ipfs/..."
+                      className="mt-2 flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs"
+                    />
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {file.status === "completed" && (
@@ -264,8 +275,9 @@ export function EvidenceUpload({
                     variant="ghost"
                     size="icon"
                     onClick={() => removeFile(file.id)}
+                    aria-label={`Remove ${file.name}`}
                   >
-                    <X className="h-4 w-4" />
+                    <X className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </div>
               </div>

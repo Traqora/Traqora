@@ -1,0 +1,87 @@
+name: Deploy to Testnet
+
+on:
+    push:
+        branches: [main]
+
+jobs:
+    deploy:
+        name: Build, Optimize, and Deploy Contracts
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  toolchain: stable
+                  targets: wasm32-unknown-unknown
+
+            - name: Cache Cargo
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/bin/
+                      ~/.cargo/registry/index/
+                      ~/.cargo/registry/cache/
+                      ~/.cargo/git/db/
+                      contracts/target/
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+            - name: Install System Dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev binaryen
+
+            - name: Install Stellar CLI
+              run: cargo install --locked stellar-cli
+
+            - name: Build optimized WASM binaries
+              run: |
+                  cd contracts
+                  cargo build --target wasm32-unknown-unknown --release
+                  for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
+                    wasm-opt -O4 "$wasm" -o "$wasm"
+                  done
+
+            - name: Deploy changed contracts to Stellar testnet
+              env:
+                  STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
+                  NETWORK: testnet
+                  RPC_URL: https://soroban-testnet.stellar.org:443
+                  NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
+              run: |
+                  stellar network add \
+                    --rpc-url "$RPC_URL" \
+                    --network-passphrase "$NETWORK_PASSPHRASE" \
+                    "$NETWORK"
+
+                  printf '%s' "$STELLAR_SECRET_KEY" | stellar keys generate deployer --secret-key
+
+                  SUMMARY="## Testnet Deployment Summary\n\n| Contract | Contract ID |\n|---|---|\n"
+                  for wasm in contracts/target/wasm32-unknown-unknown/release/*.wasm; do
+                    name=$(basename "$wasm" .wasm)
+                    contract_id=$(stellar contract deploy \
+                      --wasm "$wasm" \
+                      --source deployer \
+                      --network "$NETWORK" 2>&1 | tail -1)
+                    echo "Deployed $name: $contract_id"
+                    SUMMARY="$SUMMARY| $name | $contract_id |\n"
+                  done
+                  echo -e "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Post deployment summary as PR comment
+              if: github.event_name == 'pull_request'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const summary = process.env.GITHUB_STEP_SUMMARY
+                        ? fs.readFileSync(process.env.GITHUB_STEP_SUMMARY, 'utf8')
+                        : 'Deployment complete.';
+                      github.rest.issues.createComment({
+                        issue_number: context.issue.number,
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        body: summary,
+                      });

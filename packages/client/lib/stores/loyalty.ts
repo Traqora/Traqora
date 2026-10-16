@@ -1,28 +1,28 @@
-import { create } from 'zustand'
-import { subscribeWithSelector } from 'zustand/middleware'
+import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
 
 interface LoyaltyState {
   // Account data
-  userId: string | null
-  tier: string
-  totalPoints: number
-  availablePoints: number
-  nextTier: string | null
-  progressPct: number
+  userId: string | null;
+  tier: string;
+  totalPoints: number;
+  availablePoints: number;
+  nextTier: string | null;
+  progressPct: number;
 
   // History
-  transactions: any[]
-  historyLoading: boolean
-  historyPage: number
-  historyTotal: number
+  transactions: any[];
+  historyLoading: boolean;
+  historyPage: number;
+  historyTotal: number;
 
   // Actions
-  setUser: (userId: string) => void
-  updateAccount: (data: Partial<LoyaltyState>) => void
-  setTransactions: (transactions: any[], total: number, page: number) => void
-  setHistoryLoading: (loading: boolean) => void
-  refreshAccount: () => Promise<void>
-  refreshHistory: (page?: number) => Promise<void>
+  setUser: (userId: string) => void;
+  updateAccount: (data: Partial<LoyaltyState>) => void;
+  setTransactions: (transactions: any[], total: number, page: number) => void;
+  setHistoryLoading: (loading: boolean) => void;
+  refreshAccount: () => Promise<void>;
+  refreshHistory: (page?: number) => Promise<void>;
 }
 
 export const useLoyaltyStore = create<LoyaltyState>()(
@@ -58,46 +58,48 @@ export const useLoyaltyStore = create<LoyaltyState>()(
     setHistoryLoading: (loading) => set({ historyLoading: loading }),
 
     refreshAccount: async () => {
-      const { userId } = get()
-      if (!userId) return
+      const { userId } = get();
+      if (!userId) return;
 
       try {
-        const res = await fetch(`/api/v1/loyalty/account/${userId}`)
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        const res = await fetch(`${baseUrl}/api/v1/loyalty/account/${userId}`);
         if (res.ok) {
-          const data = await res.json()
+          const data = await res.json();
           set({
             tier: data.tier,
             totalPoints: data.totalPoints,
             availablePoints: data.availablePoints,
             nextTier: data.nextTier,
             progressPct: data.progress
-          })
+          });
         }
       } catch (error) {
-        console.error('Failed to refresh loyalty account:', error)
+        console.error('Failed to refresh loyalty account:', error);
       }
     },
 
     refreshHistory: async (page = 1) => {
-      const { userId } = get()
-      if (!userId) return
+      const { userId } = get();
+      if (!userId) return;
 
-      set({ historyLoading: true })
+      set({ historyLoading: true });
       try {
-        const res = await fetch(`/api/v1/loyalty/history/${userId}?page=${page}&limit=20`)
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
+        const res = await fetch(`${baseUrl}/api/v1/loyalty/history/${userId}?page=${page}&limit=20`);
         if (res.ok) {
-          const data = await res.json()
+          const data = await res.json();
           set({
-            transactions: data.data.items,
-            historyTotal: data.data.total,
+            transactions: data.data?.items || [],
+            historyTotal: data.data?.total || 0,
             historyPage: page,
             historyLoading: false
-          })
+          });
         }
       } catch (error) {
-        console.error('Failed to refresh transaction history:', error)
-        set({ historyLoading: false })
+        console.error('Failed to refresh transaction history:', error);
+        set({ historyLoading: false });
       }
     }
   }))
-)
+);

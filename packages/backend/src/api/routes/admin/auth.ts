@@ -3,7 +3,7 @@ import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { asyncHandler } from '../../../utils/errorHandler';
-import { initDataSource, AppDataSource } from '../../../db/dataSource';
+import { AppDataSource } from '../../../db/dataSource';
 import { AdminUser } from '../../../db/entities/AdminUser';
 import { config } from '../../../config';
 
@@ -23,7 +23,7 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
         });
     }
 
-    await initDataSource();
+    
     const adminRepo = AppDataSource.getRepository(AdminUser);
     const admin = await adminRepo.findOne({ where: { email: parsed.data.email } });
 
