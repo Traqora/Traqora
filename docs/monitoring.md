@@ -40,6 +40,80 @@ To track requests as they flow through the system, a `correlationId` is generate
 
 This makes debugging easier in Loki by filtering with `{job="traqora-backend"} |= "your-correlation-id"`.
 
+## Background Job Logs (issue #594)
+
+Every job in `packages/backend/src/jobs` emits structured JSON logs with a
+stable field set so Loki queries can analyse failures across runs:
+
+| Field | Meaning |
+| --- | --- |
+| `job` | Stable job name (e.g. `cache-warming`, `flight-status-polling`, `notification-worker`) |
+| `jobId` | Unique id for one invocation — a uuid for cron runs, or the queue's job id for Bull/Redis-queue jobs (stable across retries) |
+| `step` | Where in the lifecycle the event happened (`start`, a named step, `complete`, `failed`) |
+| `durationMs` | Milliseconds elapsed since this run started |
+| `outcome` | `success` or `failure` on terminal events |
+| `error` | Human-readable error message on failures |
+
+Promtail promotes `job`, `step` and `outcome` to Loki labels (under the
+`jobName` label, so the scrape-level `job` label is untouched); `jobId` and
+`durationMs` stay in the JSON body because they are high cardinality.
+
+### Example Loki queries
+
+```logql
+# All failures for a specific job in the last hour
+{job="traqora-backend"} | json | jobName="cache-warming" | outcome="failure" | __error__=""
+
+# Every step of a single run (group retries by jobId)
+{job="traqora-backend"} | json | jobId="<uuid>" | __error__=""
+
+# Slow job runs (any job event slower than 10s in the last 24h)
+{job="traqora-backend"} | json | jobName=~"cache-warming|flight-status-polling" | durationMs > 10000 | __error__=""
+
+# Failure rate per job over the last hour (label-based)
+sum by (jobName) (rate({job="traqora-backend"} | json | jobName=~".*" | outcome="failure" | __error__="" [1h]))
+
+# Promtail-derived metric: job events by job, step and outcome
+sum by (jobName, outcome) (rate(traqora_loki_job_events_total[5m]))
+```
+
+## SLO Monitoring for the Booking Funnel (issue #593)
+
+The backend classifies every booking-funnel operation (search, booking, refund)
+against a latency SLO target and exposes them as Prometheus metrics:
+
+| Metric | Meaning |
+| --- | --- |
+| `traqora_slo_events_total{operation, result}` | Counter of events classified `good`/`bad` against the latency target |
+| `traqora_slo_observed_latency_seconds{operation}` | Histogram of observed latencies |
+
+Latency targets (keep in sync with `SLO_TARGETS` in
+`packages/backend/src/services/metrics.ts`):
+
+| Operation | Target | Instrumented at |
+| --- | --- | --- |
+| `search` | 2s (p95, 95% of events) | `services/flightSearchService.ts` (whole-search latency incl. cache hits) |
+| `booking` | 300s (p95, 95% of events) | `recordBookingConfirmed()` in `services/metrics.ts` |
+| `refund` | 3600s (p95, 95% of events) | `recordRefundProcessed()` in `services/metrics.ts` |
+
+Recording rules and burn-rate alerts live in
+`monitoring/prometheus/slo-rules.yml` (loaded via `prometheus.yml`):
+
+- `traqora:slo_bad_ratio:rate5m` / `rate30d` — share of bad events per operation
+- `traqora:slo_error_budget_remaining` — fraction of the 5% (30-day) error
+  budget still available (1 = full, 0 = spent)
+- `traqora:booking_funnel_search_to_created:ratio24h` and
+  `...created_to_confirmed:ratio24h` — funnel conversion rates used by the
+  Grafana dashboard
+- Alerts: `SLOFastBurnRate` (burn rate > 14.4x over 5m), `SLOSlowBurnRate`
+  (> 6x over 30m) and `SLOErrorBudgetExhausted`, all linking the SLO burn
+  runbook (`https://github.com/traqora/runbooks/slo-burn.md`)
+
+The Grafana dashboard `monitoring/grafana/dashboards/traqora-slo.json` shows
+**Traqora - Booking Funnel SLO**: the booking funnel (searches → created →
+confirmed with conversion rates), p95 latency vs target per operation, and
+remaining error budget per operation.
+
 ## Distributed Tracing
 
 Traqora uses **OpenTelemetry** for distributed tracing. The SDK is initialized in `packages/backend/src/tracing.ts` before the application starts, providing auto-instrumentation for HTTP, Express, PostgreSQL, and other standard libraries.

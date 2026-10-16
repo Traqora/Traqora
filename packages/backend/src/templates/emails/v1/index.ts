@@ -42,3 +42,34 @@ export const refundTemplate = (data: any) => ({
     </div>
   `,
 });
+
+export const analyticsExportTemplate = (data: any) => ({
+  subject: `Analytics export ready: ${data.dataset}`,
+  text: `Your ${data.dataset} analytics export is ready. Download it here: ${data.downloadUrl}. This link expires at ${data.expiresAt}.`,
+  html: `
+    <div style="font-family: Arial, sans-serif; padding: 20px;">
+      <h2>Analytics Export Ready</h2>
+      <p>Your requested analytics export is ready for download.</p>
+      <ul>
+        <li><strong>Dataset:</strong> ${data.dataset}</li>
+        <li><strong>Format:</strong> ${data.format}</li>
+        <li><strong>Rows:</strong> ${data.rowCount}</li>
+        <li><strong>Expires:</strong> ${data.expiresAt}</li>
+      </ul>
+      <p><a href="${data.downloadUrl}">Download export</a></p>
+    </div>
+  `,
+});
+
+export const referralInviteTemplate = (data: any) => ({
+  subject: `${data.inviterName} invited you to Traqora`,
+  text: `${data.inviterName} thinks you'd like Traqora. Sign up with their referral code ${data.referralCode} to get started: ${data.inviteUrl}`,
+  html: `
+    <div style="font-family: Arial, sans-serif; padding: 20px;">
+      <h2>You've been invited to Traqora</h2>
+      <p><strong>${data.inviterName}</strong> thinks you'd like Traqora and wants to share their referral code with you.</p>
+      <p>Referral code: <strong>${data.referralCode}</strong></p>
+      <p><a href="${data.inviteUrl}">Accept invitation</a></p>
+    </div>
+  `,
+});

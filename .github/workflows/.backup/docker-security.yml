@@ -1,0 +1,81 @@
+# Issue #162 — Docker image security scan with Trivy.
+#
+# Builds both production images (backend + client) for the current PR /
+# push and runs aquasecurity/trivy on them at HIGH+CRITICAL severity. A
+# CRITICAL/HIGH finding fails the workflow. The job runs in a matrix so
+# results for each image are surfaced independently.
+
+name: Docker Security Scan
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'packages/backend/Dockerfile'
+      - 'packages/client/Dockerfile'
+      - 'docker-compose*.yml'
+      - '.github/workflows/docker-security.yml'
+  pull_request:
+    paths:
+      - 'packages/backend/Dockerfile'
+      - 'packages/client/Dockerfile'
+      - 'docker-compose*.yml'
+      - '.github/workflows/docker-security.yml'
+
+jobs:
+  scan:
+    name: Scan ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: packages/backend
+          - image: client
+            context: packages/client
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          target: production
+          push: false
+          load: true
+          tags: traqora-${{ matrix.image }}:scan
+
+      - name: Scan with Trivy (HIGH, CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: traqora-${{ matrix.image }}:scan
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          format: table
+
+      - name: Upload Trivy SARIF (advisory)
+        if: always()
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: traqora-${{ matrix.image }}:scan
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-${{ matrix.image }}.sarif
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: Upload SARIF as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.image }}-sarif
+          path: trivy-${{ matrix.image }}.sarif
+          retention-days: 14

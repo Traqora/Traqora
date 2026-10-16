@@ -107,10 +107,79 @@ Verify that the services are healthy and running correctly.
 
 ---
 
-## Phase 4: Rollback Strategy
-If critical issues occur during deployment and cannot be quickly patched:
+## Phase 4: Rollback Runbook
 
-1. **Revert Frontend**: Restore the previous Next.js production build/container image.
-2. **Revert Backend**: Restore the previous backend build/container image.
-3. **Database Restore**: If schema changes are breaking and cannot be backward-compatible, restore the database from the pre-deployment backup.
-4. **On-chain Action**: If contract bugs are present, freeze operations (if the contract supports a pause/admin freeze method) or redeploy/upgrade the contract address.
+Traqora has two independent rollback mechanisms, because "the backend
+deployment" and "the on-chain contracts" fail and recover in completely
+different ways:
+
+| What broke                              | Script                          | Triggered by |
+| ---------------------------------------- | -------------------------------- | ------------ |
+| Backend/frontend app deploy is unhealthy | `scripts/rollback-backend.sh`    | Automatically, in CD (see below) |
+| A deployed Soroban contract is bad       | `scripts/rollback.sh`            | Manually, by an operator |
+
+### 4.1 Automated backend rollback (issue #589)
+
+`.github/workflows/cd.yml` runs `deploy-app` then `smoke-tests` on every
+deploy. If **either** fails, the `rollback` job runs automatically:
+
+1. **Determine previous tag** — looks up the most recent successful workflow
+   run on `main` and uses its commit SHA as the rollback target (falls back
+   to the `latest` tag if none is found).
+2. **Roll back** — runs `scripts/rollback-backend.sh <environment>
+   <previous_tag> --force`, which:
+   - Re-points the `docker-compose.prod.yml` stack at the previous image
+     tag and waits for the containers to come up.
+   - Polls `GET /health` (up to 6 retries, 5s apart) until it returns
+     `200`/`204`, or gives up.
+   - Posts a Slack alert (via `SLACK_WEBHOOK_URL`, if configured) both when
+     the rollback starts and when its outcome is known — success or
+     "still unhealthy, needs a human".
+   - Exits non-zero if the rollback itself didn't restore health, which
+     fails the `rollback` job and is visible in `notify`.
+3. **Contract rollback (if applicable)** — if contracts were deployed as
+   part of this release, `scripts/rollback.sh <network> latest` is also run
+   to point contract references back at the last known-good deployment.
+
+Run it by hand against a live environment:
+
+```bash
+API_URL=https://api.staging.traqora.example \
+SLACK_WEBHOOK_URL=https://hooks.slack.com/... \
+  ./scripts/rollback-backend.sh staging <previous-tag> --api-url "$API_URL"
+```
+
+Add `--force` to roll back even when the health check currently passes
+(e.g. rolling back for a reason the health check can't see, like a bad
+migration). Add `--dry-run` to print the exact plan — health verdict, the
+`docker compose` command that would run, and the alert text — without
+changing anything or sending a real alert.
+
+**Verified by a dry-run test.** `.github/workflows/rollback-drill.yml` runs
+`scripts/rollback-backend.sh --dry-run` against both an unreachable target
+(rollback path) and a stub healthy server (no-op path) on every change to
+the script, plus monthly on a schedule, so the runbook can't silently rot.
+
+### 4.2 Manual contract rollback
+
+If a deployed Soroban contract has a bug and needs to point back at a
+previous on-chain deployment:
+
+```bash
+STELLAR_SECRET_KEY=... ./scripts/rollback.sh <network> <deployment-tag>
+```
+
+Lists available deployment tags for the network when `<deployment-tag>` is
+omitted, and asks for confirmation before repointing `latest`. See the
+script's own header for full usage.
+
+### 4.3 If rollback doesn't fix it
+
+1. **Database Restore** — if schema changes are breaking and cannot be
+   backward-compatible, restore the database from the pre-deployment
+   backup (Phase 1).
+2. **On-chain Action** — if the bug is in contract logic itself (not just
+   which address is referenced), freeze operations via the contract's
+   pause/admin mechanism if it has one, then plan a proper upgrade.
+3. Escalate per `SECURITY_INCIDENT_RESPONSE.md` if user funds or data are at
+   risk.

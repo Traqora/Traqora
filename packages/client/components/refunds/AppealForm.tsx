@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertCircle, CheckCircle2, Scale } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { EvidenceUpload, UploadedFile } from "./EvidenceUpload";
+import { apiClient } from "@/lib/api";
 
 const appealFormSchema = z.object({
   disputeId: z.string().min(1, "Dispute ID is required"),
@@ -45,26 +46,17 @@ export function AppealForm({ disputeId: propDisputeId, onSuccess, onCancel }: Ap
   const onSubmit = async (data: AppealFormValues) => {
     setIsSubmitting(true);
     try {
-      // Placeholder API call - replace with actual appeal API when available
-      // const response = await fetch("/api/v1/disputes/appeal", {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify({
-      //     ...data,
-      //     evidence: evidenceFiles.map(f => ({ name: f.name, type: f.type, url: f.url })),
-      //   }),
-      // });
+      const response = await apiClient.appealDispute(data.disputeId, data.appealReason);
+      if (!response.success) {
+        throw new Error(response.error.message || "Failed to submit appeal");
+      }
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      setSubmittedAppealId(response.data.id);
 
-      const appealId = `APL-${Math.random().toString(36).substring(7).toUpperCase()}`;
-      setSubmittedAppealId(appealId);
-      
       toast({
         description: "Appeal submitted successfully",
       });
-      onSuccess?.(appealId);
+      onSuccess?.(response.data.id);
     } catch (error: any) {
       toast({
         variant: "destructive",
