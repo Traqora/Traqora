@@ -40,6 +40,23 @@ const popularAirports = [
   { code: "LAS", city: "Las Vegas", name: "McCarran International" },
   { code: "SEA", city: "Seattle", name: "Seattle-Tacoma International" },
   { code: "DEN", city: "Denver", name: "Denver International" },
+  { code: "ATL", city: "Atlanta", name: "Hartsfield-Jackson Atlanta International" },
+  { code: "DFW", city: "Dallas", name: "Dallas/Fort Worth International" },
+  { code: "BOS", city: "Boston", name: "Logan International" },
+  { code: "PHX", city: "Phoenix", name: "Phoenix Sky Harbor International" },
+  { code: "IAH", city: "Houston", name: "George Bush Intercontinental" },
+  { code: "LGA", city: "New York", name: "LaGuardia" },
+  { code: "EWR", city: "Newark", name: "Newark Liberty International" },
+  { code: "CLT", city: "Charlotte", name: "Charlotte Douglas International" },
+  { code: "MCO", city: "Orlando", name: "Orlando International" },
+  { code: "FLL", city: "Fort Lauderdale", name: "Fort Lauderdale-Hollywood International" },
+  { code: "SAN", city: "San Diego", name: "San Diego International" },
+  { code: "TPA", city: "Tampa", name: "Tampa International" },
+  { code: "DTW", city: "Detroit", name: "Detroit Metropolitan" },
+  { code: "MSP", city: "Minneapolis", name: "Minneapolis-Saint Paul International" },
+  { code: "PHL", city: "Philadelphia", name: "Philadelphia International" },
+  { code: "BWI", city: "Baltimore", name: "Baltimore/Washington International" },
+  { code: "DCA", city: "Washington", name: "Ronald Reagan Washington National" },
 ]
 
 export function SearchForm({ onSearch, isLoading = false, initialValues }: SearchFormProps) {
