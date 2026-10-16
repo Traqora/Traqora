@@ -95,39 +95,91 @@ export const setupNotificationWorker = () => {
     }
 
     // Push
-    if (
-      targetChannels.includes("push") &&
-      userPref.pushEnabled &&
-      userPref.fcmToken
-    ) {
-      try {
-        await pushNotificationService.send(userPref.fcmToken, type, data);
-        const log = logRepo.create({
-          userId,
-          channel: "push",
-          type,
-          payload: job.data,
-          status: "sent",
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({ channel: "push", status: "success" });
-      } catch (error: any) {
-        const log = logRepo.create({
-          userId,
-          channel: "push",
-          type,
-          payload: job.data,
-          status: "failed",
-          errorMessage: error.message,
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({
-          channel: "push",
-          status: "error",
-          error: error.message,
-        });
+    if (targetChannels.includes("push") && userPref.pushEnabled && userPref.pushOptedIn) {
+      // Check type-specific opt-in
+      let typeEnabled = false;
+      switch (type) {
+        case 'booking':
+          typeEnabled = userPref.pushBookingEnabled;
+          break;
+        case 'reminder':
+          typeEnabled = userPref.pushReminderEnabled;
+          break;
+        case 'refund':
+          typeEnabled = userPref.pushRefundEnabled;
+          break;
+        case 'promo':
+          typeEnabled = userPref.pushPromoEnabled;
+          break;
+        default:
+          typeEnabled = true; // Default to enabled for unknown types
+      }
+
+      if (typeEnabled && userPref.pushDeviceTokens && userPref.pushDeviceTokens.length > 0) {
+        // Send to all registered device tokens
+        for (const deviceToken of userPref.pushDeviceTokens) {
+          try {
+            await pushNotificationService.send(deviceToken.token, type, data);
+            const log = logRepo.create({
+              userId,
+              channel: "push",
+              type,
+              payload: job.data,
+              status: "sent",
+              attempts: job.attemptsMade + 1,
+            });
+            await logRepo.save(log);
+            results.push({ channel: "push", status: "success", platform: deviceToken.platform });
+          } catch (error: any) {
+            const log = logRepo.create({
+              userId,
+              channel: "push",
+              type,
+              payload: job.data,
+              status: "failed",
+              errorMessage: error.message,
+              attempts: job.attemptsMade + 1,
+            });
+            await logRepo.save(log);
+            results.push({
+              channel: "push",
+              status: "error",
+              error: error.message,
+              platform: deviceToken.platform,
+            });
+          }
+        }
+      } else if (userPref.fcmToken) {
+        // Fallback to old single token for backward compatibility
+        try {
+          await pushNotificationService.send(userPref.fcmToken, type, data);
+          const log = logRepo.create({
+            userId,
+            channel: "push",
+            type,
+            payload: job.data,
+            status: "sent",
+            attempts: job.attemptsMade + 1,
+          });
+          await logRepo.save(log);
+          results.push({ channel: "push", status: "success" });
+        } catch (error: any) {
+          const log = logRepo.create({
+            userId,
+            channel: "push",
+            type,
+            payload: job.data,
+            status: "failed",
+            errorMessage: error.message,
+            attempts: job.attemptsMade + 1,
+          });
+          await logRepo.save(log);
+          results.push({
+            channel: "push",
+            status: "error",
+            error: error.message,
+          });
+        }
       }
     }
 
