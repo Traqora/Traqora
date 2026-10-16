@@ -28,3 +28,27 @@ impl TraqoraToken {
         // Burn logic...
     }
 }
+
+#[contract]
+pub struct TraqoraBooking;
+
+#[contractimpl]
+impl TraqoraBooking {
+    pub fn pay(env: Env, client: Address, provider: Address, amount: i128) {
+        client.require_auth();
+        if amount <= 0 {
+            panic!("Payment amount must be positive");
+        }
+        // Lock funds / record booking state...
+    }
+
+    pub fn release(env: Env, provider: Address, booking_id: u64) {
+        provider.require_auth();
+        // Verify booking is active and release funds to provider...
+    }
+
+    pub fn refund(env: Env, admin_or_client: Address, booking_id: u64) {
+        admin_or_client.require_auth();
+        // Verify booking is refundable and return funds to client...
+    }
+}
