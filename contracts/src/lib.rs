@@ -49,3 +49,12 @@ pub mod admin;
 
 #[path = "booking_receipt/lib.rs"]
 pub mod booking_receipt;
+
+#[path = "nutrition_care/lib.rs"]
+pub mod nutrition_care;
+
+#[path = "medical_claims/lib.rs"]
+pub mod medical_claims;
+
+#[path = "financial_records/lib.rs"]
+pub mod financial_records;

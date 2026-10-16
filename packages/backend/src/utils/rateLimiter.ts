@@ -7,6 +7,7 @@ import {
   RateLimiterRes,
 } from 'rate-limiter-flexible';
 import { logger } from './logger';
+import { recordRateLimitDecision } from '../services/metrics';
 
 export interface IpRateLimitOptions {
   points: number;
@@ -142,8 +143,10 @@ class InMemoryAbuseStore {
   }
 }
 
+const inMemoryStore = new InMemoryAbuseStore();
+
 class RedisAbuseStore {
-  private readonly inMemoryStore = new InMemoryAbuseStore();
+  private readonly inMemoryStore = inMemoryStore;
   private readonly redisUrl: string;
   private redisClient: Redis | null = null;
   private redisDisabled = false;
@@ -307,7 +310,6 @@ class RedisAbuseStore {
   }
 }
 
-const inMemoryStore = new InMemoryAbuseStore();
 let sharedRedisStore: RedisAbuseStore | null = null;
 
 const getAbuseStore = (redisUrl?: string) => {
@@ -545,6 +547,7 @@ export const createTieredRateLimiter = (options: TieredRateLimitOptions) => {
       const retryAfter = Math.max(1, Math.ceil(blockedStatus.msRemaining / 1000));
       setThrottledHeaders(res, options.public.points, retryAfter);
       res.setHeader('X-Captcha-Required', 'true');
+      recordRateLimitDecision(path, tier, 'blocked');
       return res.status(429).json({
         error: {
           code: 'IP_BLOCKED',
@@ -566,6 +569,7 @@ export const createTieredRateLimiter = (options: TieredRateLimitOptions) => {
       });
       setThrottledHeaders(res, options.ddos.points, Math.ceil(options.blockDurationSeconds));
       res.setHeader('X-Captcha-Required', 'true');
+      recordRateLimitDecision(path, tier, 'blocked');
       return res.status(429).json({
         error: {
           code: 'DDOS_PROTECTION_TRIGGERED',
@@ -581,6 +585,7 @@ export const createTieredRateLimiter = (options: TieredRateLimitOptions) => {
     try {
       const result = await limiter.consume(`${keyIdentity}:${path}`);
       setRateLimitHeaders(res, limit, result);
+      recordRateLimitDecision(path, tier, 'allowed');
       return next();
     } catch (tierError: any) {
       const violations = await abuseStore.incrementViolation(ip, 3600);
@@ -603,6 +608,7 @@ export const createTieredRateLimiter = (options: TieredRateLimitOptions) => {
         blocked: violations >= options.blockAfterViolations,
       });
 
+      recordRateLimitDecision(path, tier, 'blocked');
       return res.status(429).json({
         error: {
           code: 'RATE_LIMIT_EXCEEDED',

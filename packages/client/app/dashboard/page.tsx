@@ -27,6 +27,17 @@ import {
 import { NavWalletButton } from "@/components/nav-wallet-button"
 // NEW: import useWalletStore and useWallet for the real wallet info in the Wallet tab
 import { useWalletStore, useWallet } from "@/lib/stellar-wallet-connect"
+// NEW: real transaction/booking history replacing mocked bookings
+import { useTransactionHistory } from "@/hooks/use-transaction-history"
+// NEW: offline access to cached bookings when the network is unavailable
+import { useOffline } from "@/components/offline-provider"
+import { OfflineItineraryView } from "@/components/offline-itinerary-view"
+import { getTransactionReceiptPdf } from "@/lib/api"
+import { toast } from "sonner"
+// NEW: real-time flight status alerts (delays, cancellations, gate changes)
+import { FlightStatusBanner } from "@/components/flight-status/FlightStatusBanner"
+// NEW: flight-following widget with live status + on-time performance (issue #332)
+import { FollowedFlightsCard } from "@/components/flight-status/FollowedFlightsCard"
 
 // Mock user data
 const mockUser = {
@@ -113,6 +124,9 @@ const getStatusColor = (status: string) => {
       return "bg-primary text-primary-foreground"
     case "refunded":
       return "bg-muted text-muted-foreground"
+    case "failed":
+    case "refund_rejected":
+      return "bg-destructive text-destructive-foreground"
     default:
       return "bg-muted text-muted-foreground"
   }
@@ -126,6 +140,9 @@ const getStatusIcon = (status: string) => {
       return <Plane className="h-4 w-4" />
     case "refunded":
       return <RefreshCw className="h-4 w-4" />
+    case "failed":
+    case "refund_rejected":
+      return <AlertCircle className="h-4 w-4" />
     default:
       return <AlertCircle className="h-4 w-4" />
   }
@@ -223,6 +240,8 @@ function DashboardWalletCard() {
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("bookings")
+  const { transactions, isLoading: transactionsLoading, error: transactionsError } = useTransactionHistory()
+  const { isOnline } = useOffline()
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -234,6 +253,22 @@ export default function DashboardPage() {
 
   const formatTransactionHash = (hash: string) => {
     return `${hash.slice(0, 10)}...${hash.slice(-8)}`
+  }
+
+  const handleDownloadReceipt = async (bookingId: string) => {
+    try {
+      const blob = await getTransactionReceiptPdf(bookingId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `receipt-${bookingId}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (error: any) {
+      toast.error("Failed to download receipt", {
+        description: error?.message || "Please try again",
+      })
+    }
   }
 
   const getRefundCountdown = (deadline: string) => {
@@ -251,37 +286,47 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2">
-              <Plane className="h-8 w-8 text-primary" />
-              <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
-            </div>
-            <div className="hidden md:flex items-center space-x-8">
-              <a href="/" className="text-muted-foreground hover:text-foreground transition-colors">
-                Home
-              </a>
-              <a href="/search" className="text-muted-foreground hover:text-foreground transition-colors">
-                Search Flights
-              </a>
-              <Link href="/governance" className="text-muted-foreground hover:text-foreground transition-colors">
-                Governance
-              </Link>
-              {/* NEW: replaced static badge with real wallet connect/disconnect button */}
-              <NavWalletButton />
+      {/* Navigation — landmark: banner */}
+      <header role="banner">
+        <nav aria-label="Main navigation" className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center space-x-2">
+                <Plane className="h-8 w-8 text-primary" aria-hidden="true" />
+                <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
+              </div>
+              <div className="hidden md:flex items-center space-x-8">
+                <a href="/" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Home
+                </a>
+                <a href="/search" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Search Flights
+                </a>
+                <Link href="/governance" className="text-muted-foreground hover:text-foreground transition-colors">
+                  Governance
+                </Link>
+                <NavWalletButton />
+              </div>
             </div>
           </div>
-        </div>
-      </nav>
+        </nav>
+      </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="font-serif font-bold text-3xl text-foreground mb-2">My Dashboard</h1>
-          <p className="text-muted-foreground">Manage your bookings, track refunds, and view your travel history</p>
-        </div>
+      {/* Primary content — landmark: main */}
+      <div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="mb-8">
+            <h1 className="font-serif font-bold text-3xl text-foreground mb-2">My Dashboard</h1>
+            <p className="text-muted-foreground">Manage your bookings, track refunds, and view your travel history</p>
+          </div>
+
+          <div className="mb-8">
+            <FlightStatusBanner />
+          </div>
+
+          <div className="mb-8">
+            <FollowedFlightsCard />
+          </div>
 
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -355,116 +400,108 @@ export default function DashboardPage() {
               </Button>
             </div>
 
-            <div className="space-y-4">
-              {mockBookings.map((booking) => (
-                <Card key={booking.id} className="hover:shadow-lg transition-shadow">
-                  <CardContent className="p-6">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                      {/* Flight Info */}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-4 mb-4">
-                          <img
-                            src={booking.logo || "/placeholder.svg"}
-                            alt={`${booking.airline} logo`}
-                            className="w-10 h-10 rounded-lg"
-                          />
-                          <div>
-                            <h3 className="font-semibold text-foreground">{booking.airline}</h3>
-                            <p className="text-sm text-muted-foreground">{booking.flightNumber}</p>
-                          </div>
-                          <Badge className={getStatusColor(booking.status)}>
-                            {getStatusIcon(booking.status)}
-                            <span className="ml-1 capitalize">{booking.status}</span>
-                          </Badge>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div className="flex items-center gap-3">
-                            <MapPin className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">
-                                {booking.from} → {booking.to}
-                              </p>
-                              <p className="text-sm text-muted-foreground">
-                                {booking.fromCity} to {booking.toCity}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            <Calendar className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">{booking.date}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {booking.departure} - {booking.arrival}
-                              </p>
-                            </div>
+            {!isOnline ? (
+              <OfflineItineraryView />
+            ) : transactionsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading your bookings...</p>
+            ) : transactionsError ? (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{transactionsError}</AlertDescription>
+              </Alert>
+            ) : transactions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No bookings with on-chain transactions yet.</p>
+            ) : (
+              <div className="space-y-4">
+                {transactions.map((tx) => (
+                  <Card key={tx.bookingId} className="hover:shadow-lg transition-shadow">
+                    <CardContent className="p-6">
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-4 mb-4">
+                            <Badge className={getStatusColor(tx.bookingStatus)}>
+                              {getStatusIcon(tx.bookingStatus)}
+                              <span className="ml-1 capitalize">{tx.bookingStatus.replace(/_/g, " ")}</span>
+                            </Badge>
                           </div>
 
                           <div className="flex items-center gap-3">
                             <Coins className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <p className="font-medium">
-                                {booking.price} {booking.currency}
-                              </p>
-                              <p className="text-sm text-muted-foreground">+{booking.trqEarned} TRQ earned</p>
-                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              Last updated {new Date(tx.updatedAt).toLocaleString()}
+                            </p>
                           </div>
+                          {tx.lastError && (
+                            <p className="text-sm text-destructive mt-2">{tx.lastError}</p>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col gap-2 lg:min-w-50">
+                          {tx.bookingStatus === "confirmed" && (
+                            <Link href={`/checkin/${tx.bookingId}`}>
+                              <Button variant="outline" size="sm" className="justify-start bg-transparent w-full">
+                                <QrCode className="h-4 w-4 mr-2" />
+                                Check In / View Ticket
+                              </Button>
+                            </Link>
+                          )}
+                          {tx.explorerUrl && (
+                            <a href={tx.explorerUrl} target="_blank" rel="noreferrer">
+                              <Button variant="outline" size="sm" className="justify-start bg-transparent w-full">
+                                <ExternalLink className="h-4 w-4 mr-2" />
+                                View on Stellar Expert
+                              </Button>
+                            </a>
+                          )}
+                          {tx.txHash && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="justify-start bg-transparent w-full"
+                              onClick={() => handleDownloadReceipt(tx.bookingId)}
+                            >
+                              <Download className="h-4 w-4 mr-2" />
+                              Download Receipt
+                            </Button>
+                          )}
                         </div>
                       </div>
 
-                      {/* Actions */}
-                      <div className="flex flex-col gap-2 lg:min-w-50">
-                        <Button variant="outline" size="sm" className="justify-start bg-transparent">
-                          <QrCode className="h-4 w-4 mr-2" />
-                          View Ticket
-                        </Button>
-                        <Button variant="outline" size="sm" className="justify-start bg-transparent">
-                          <ExternalLink className="h-4 w-4 mr-2" />
-                          View on Stellar Expert
-                        </Button>
-                        {booking.refundEligible && (
-                          <Button variant="outline" size="sm" className="justify-start text-secondary bg-transparent">
-                            <RefreshCw className="h-4 w-4 mr-2" />
-                            Request Refund
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Transaction Details */}
-                    <div className="mt-4 pt-4 border-t border-border">
-                      <div className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">Booking ID:</span>
-                          <span className="font-mono">{booking.id}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                            onClick={() => copyToClipboard(booking.id)}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">Transaction:</span>
-                          <span className="font-mono">{formatTransactionHash(booking.transactionHash)}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                            onClick={() => copyToClipboard(booking.transactionHash)}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
+                      <div className="mt-4 pt-4 border-t border-border">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">Booking ID:</span>
+                            <span className="font-mono">{tx.bookingId}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => copyToClipboard(tx.bookingId)}
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          {tx.txHash && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-muted-foreground">Transaction:</span>
+                              <span className="font-mono">{formatTransactionHash(tx.txHash)}</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                onClick={() => copyToClipboard(tx.txHash!)}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           {/* Refunds Tab */}
@@ -664,6 +701,12 @@ export default function DashboardPage() {
           </TabsContent>
         </Tabs>
       </div>
+      </div>
+
+      {/* Footer — landmark: contentinfo */}
+      <footer role="contentinfo" className="sr-only">
+        <p>© {new Date().getFullYear()} Traqora. Decentralized flight booking powered by Stellar.</p>
+      </footer>
     </div>
   )
 }

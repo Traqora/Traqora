@@ -1,0 +1,56 @@
+# Issue #168 — accessibility audits on the client app's core pages.
+#
+# Boots the Next.js dev server, drives Playwright + axe-core against the
+# pages the issue lists (/, /search, /book), and fails the workflow on
+# any HIGH or CRITICAL impact violation. A `serious` finding becomes a
+# warning in the job summary but does not block — gives the team a place
+# to ratchet thresholds tighter as the surface gets cleaner.
+
+name: Accessibility (axe)
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'packages/client/**'
+      - '.github/workflows/a11y.yml'
+  pull_request:
+    paths:
+      - 'packages/client/**'
+      - '.github/workflows/a11y.yml'
+
+jobs:
+  axe:
+    name: Playwright + axe-core
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: packages/client
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: packages/client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts
+
+      - name: Install Playwright + axe-core test deps
+        run: npm install --no-save --legacy-peer-deps @playwright/test @axe-core/playwright
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run axe a11y suite
+        env:
+          # Disable telemetry / analytics during the audit so axe doesn't
+          # flag third-party iframes the team can't fix.
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npx playwright test tests/a11y --reporter=list

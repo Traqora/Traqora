@@ -1,0 +1,138 @@
+name: CI
+
+on:
+    pull_request:
+        branches: [main]
+    push:
+        branches: [main]
+
+jobs:
+    contracts:
+        name: Contracts CI
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  toolchain: 1.94.1
+                  targets: wasm32-unknown-unknown
+
+            - name: Cache Cargo
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/bin/
+                      ~/.cargo/registry/index/
+                      ~/.cargo/registry/cache/
+                      ~/.cargo/git/db/
+                      contracts/target/
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+            - name: Install rustfmt and clippy
+              run: rustup component add rustfmt clippy
+
+            - name: Install System Dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev binaryen
+
+            - name: Install Soroban CLI
+              run: |
+                  cargo install --locked --version 26.1.0 soroban-cli
+
+            - name: Check formatting
+              run: |
+                  cd contracts
+                  cargo fmt --check
+
+            - name: Clippy (zero warnings)
+              run: |
+                  cd contracts
+                  cargo clippy -- -D warnings
+
+            - name: Contract Compilation
+              run: |
+                  cd contracts
+                  cargo build --locked --target wasm32-unknown-unknown --release
+
+            - name: Optimize and check WASM binary sizes
+              run: make check-size
+
+            - name: Contract Tests
+              run: |
+                  cd contracts
+                  cargo test --workspace
+
+            - name: Upload Contract Artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: traqora-contracts-wasm
+                  path: contracts/target/wasm32-unknown-unknown/release/*.wasm
+
+            - name: Install cargo-llvm-cov
+              run: cargo install cargo-llvm-cov
+
+            - name: Contract Coverage
+              run: |
+                  cd contracts
+                  cargo llvm-cov --summary-only --fail-under-lines 90
+
+    backend:
+        name: Backend CI
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  cache: "npm"
+                  cache-dependency-path: package-lock.json
+
+            - name: Install Dependencies
+              run: |
+                  npm install --legacy-peer-deps
+
+            - name: Typecheck
+              run: |
+                  npm run typecheck --workspace=packages/backend
+
+            - name: Lint
+              run: |
+                  npm run lint --workspace=packages/backend
+
+            - name: Tests
+              run: |
+                  npm test --workspace=packages/backend
+
+            - name: Metrics Smoke Test
+              run: |
+                  npm test --workspace=packages/backend -- --runInBand tests/integration/metrics.smoke.integration.test.ts
+
+    client:
+        name: Client CI
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  cache: "npm"
+                  cache-dependency-path: package-lock.json
+
+            - name: Install Dependencies
+              run: |
+                  npm install --legacy-peer-deps
+
+            - name: Lint
+              run: |
+                  npm run lint --workspace=packages/client || true
+
+            - name: Build
+              run: |
+                  npm run build --workspace=packages/client

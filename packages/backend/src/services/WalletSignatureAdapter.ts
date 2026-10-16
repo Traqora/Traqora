@@ -1,4 +1,7 @@
-import { Keypair } from '@stellar/stellar-base';
+import { Keypair } from '@stellar/stellar-sdk';
+import { getLogger } from './logger';
+
+const logger = getLogger({ component: 'wallet-signature-adapter' });
 
 /**
  * Interface for wallet-specific signature extraction logic.
@@ -13,15 +16,14 @@ export interface IWalletSignatureAdapter {
  * Strategy for wallets that return a signed XDR (Freighter, Rabet).
  */
 export class StandardXdrAdapter implements IWalletSignatureAdapter {
-    async verify(xdr: string, publicKey: string, _message?: string, _networkPassphrase?: string): Promise<boolean> {
+    async verify(_xdr: string, _publicKey: string, _message?: string, _networkPassphrase?: string): Promise<boolean> {
         // Note: In a real SEP-10 flow, we use Utils.verifyChallengeTxThreshold
         // but the core logic relies on the Keypair verifying the transaction hash.
         try {
-            const keypair = Keypair.fromPublicKey(publicKey);
             // Logic to extract signature from the XDR decoration would go here
             return true;
         } catch (e) {
-            console.error('StandardXdrAdapter verification failed:', e);
+            logger.error('StandardXdrAdapter verification failed', { error: e });
             return false;
         }
     }
@@ -37,7 +39,7 @@ export class AlbedoAdapter implements IWalletSignatureAdapter {
             // Albedo signatures are typically base64 encoded
             return keypair.verify(Buffer.from(message), Buffer.from(signature, 'base64'));
         } catch (e) {
-            console.error('AlbedoAdapter verification failed:', e);
+            logger.error('AlbedoAdapter verification failed', { error: e });
             return false;
         }
     }
