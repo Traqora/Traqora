@@ -52,3 +52,25 @@ impl TraqoraBooking {
         // Verify booking is refundable and return funds to client...
     }
 }
+
+
+#[contract]
+pub struct TraqoraAirline;
+
+#[contractimpl]
+impl TraqoraAirline {
+    pub fn reserve_seat(env: Env, passenger: Address, flight_id: u64, seat_number: u32) {
+        passenger.require_auth();
+
+        // Check seat bounds and availability logic...
+        if seat_number == 0 || seat_number > 300 {
+            panic!("Invalid seat number");
+        }
+    }
+
+    pub fn cancel_seat(env: Env, passenger: Address, flight_id: u64, seat_number: u32) {
+        passenger.require_auth();
+
+        // Verify reservation exists for passenger and clear it...
+    }
+}

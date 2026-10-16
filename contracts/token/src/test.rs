@@ -89,3 +89,39 @@ fn test_unauthorized_release_fails() {
     // Unauthorized user attempting to release funds should panic/fail
     client_contract.release(&unauthorized_user, &1);
 }
+
+#[test]
+fn test_reserve_and_cancel_seat_happy_path() {
+    let env = Env.default();
+    env.mock_all_auths();
+
+    let passenger = Address::generate(&env);
+    let flight_id = 101_u64;
+    let seat_number = 12_u32;
+
+    let contract_id = env.register(TraqoraAirline, ());
+    let client = TraqoraAirlineClient::new(&env, &contract_id);
+
+    // 1. Reserve seat
+    client.reserve_seat(&passenger, &flight_id, &seat_number);
+
+    // 2. Cancel seat reservation
+    client.cancel_seat(&passenger, &flight_id, &seat_number);
+}
+
+#[test]
+#[should_panic(expected = "HostError")]
+fn test_reserve_invalid_seat_number_fails() {
+    let env = Env.default();
+    env.mock_all_auths();
+
+    let passenger = Address::generate(&env);
+    let flight_id = 101_u64;
+    let invalid_seat = 999_u32; // Exceeds max seat bounds
+
+    let contract_id = env.register(TraqoraAirline, ());
+    let client = TraqoraAirlineClient::new(&env, &contract_id);
+
+    // Attempting to reserve an out-of-bounds seat should panic
+    client.reserve_seat(&passenger, &flight_id, &invalid_seat);
+}
