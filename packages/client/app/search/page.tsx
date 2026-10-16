@@ -209,6 +209,12 @@ export default function SearchPage() {
     }, FILTER_DEBOUNCE_MS)
   }
 
+  // Retry the most recent search in place instead of reloading the whole page (issue #672)
+  const handleRetrySearch = useCallback(() => {
+    if (!lastQuery) return
+    runSearch(lastQuery, filters)
+  }, [lastQuery, filters, runSearch])
+
   const handleClearFilters = useCallback(() => {
     persistFilters(DEFAULT_FILTERS)
     if (lastQuery) runSearch(lastQuery, DEFAULT_FILTERS)
@@ -610,6 +616,8 @@ export default function SearchPage() {
               flights={flights}
               isLoading={isLoading}
               error={error}
+              hasSearched={lastQuery !== null}
+              onRetry={lastQuery ? handleRetrySearch : undefined}
               hasMore={false}
               onLoadMore={() => {}}
               isLoadingMore={false}
