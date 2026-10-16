@@ -23,6 +23,7 @@ import type {
 } from "./fareRulesService";
 import { getWebSocketServer } from "../websockets/server";
 import { executeIdempotentOperation, hashObject } from "./idempotency";
+import { recordSloLatency } from "./metrics";
 
 // ── Booking cancel policy engine (#785) ────────────────────────────────────
 //
@@ -383,6 +384,8 @@ export class BookingOrchestrationService {
   }
 
   private async pollTransactionStatus(bookingId: string, txHash: string) {
+    const start = Date.now();
+    let terminalFailed: boolean | undefined;
     try {
       await withRetries(
         async () => {
@@ -412,6 +415,7 @@ export class BookingOrchestrationService {
                 error: wsError,
               });
             }
+            terminalFailed = false;
           } else if (status.status === "failed") {
             booking.status = "failed";
             booking.lastError = status.error || "Transaction failed";
@@ -438,6 +442,7 @@ export class BookingOrchestrationService {
                 error: wsError,
               });
             }
+            terminalFailed = true;
           } else if (status.status === "pending") {
             throw new Error("Transaction still pending");
           } else if (status.status === "not_found") {
@@ -450,7 +455,11 @@ export class BookingOrchestrationService {
           backoff: true,
         },
       );
+      if (terminalFailed !== undefined) {
+        recordSloLatency("booking", (Date.now() - start) / 1000, terminalFailed);
+      }
     } catch (error: any) {
+      recordSloLatency("booking", (Date.now() - start) / 1000, true);
       logger.error("Max retries reached for booking status polling", {
         bookingId,
         txHash,
