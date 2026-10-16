@@ -16,6 +16,7 @@ import { adminBookingRoutes } from './api/routes/admin/bookings';
 import { adminAnalyticsRoutes } from './api/routes/admin/analytics';
 import { adminRefundRoutes } from './api/routes/admin/refunds';
 import { authRoutes } from './api/routes/auth';
+import { referralRoutes } from './api/routes/referral';
 // @ts-ignore
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
@@ -182,6 +183,7 @@ export const createApp = (options: AppOptions = {}) => {
   app.use('/api/v1/bookings', requireAuth, validateRequest('/api/v1/bookings'), bookingRoutes);
   app.use('/api/v1/refunds', requireAuth, validateRequest('/api/v1/refunds/request'), refundRoutes);
   app.use('/api/v1/security', requireAuth, securityRoutes);
+  app.use('/api/v1/referral', requireAuth, referralRoutes);
 
   // Admin routes
   app.use('/api/v1/admin/auth', adminAuthRoutes);

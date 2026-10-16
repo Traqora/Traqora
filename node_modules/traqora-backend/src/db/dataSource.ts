@@ -12,6 +12,7 @@ import { AdminUser } from "./entities/AdminUser";
 import { AdminAuditLog } from "./entities/AdminAuditLog";
 import { Refund } from "./entities/Refund";
 import { User } from "./entities/User";
+import { Referral } from "./entities/Referral";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -33,6 +34,7 @@ export const AppDataSource = new DataSource(
         AdminAuditLog,
         Refund,
         User,
+        Referral,
       ],
       logging: false,
     }
@@ -52,6 +54,7 @@ export const AppDataSource = new DataSource(
         AdminAuditLog,
         Refund,
         User,
+        Referral,
       ],
       ssl:
         config.environment === "production"
