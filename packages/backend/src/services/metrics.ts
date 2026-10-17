@@ -461,12 +461,12 @@ export const measureAsync = async <T>(
 
 /**
  * Classify one completed operation against its latency SLO target and record
- * it as good/bad plus an observation in the SLO histogram.
+ * it as good/bad plus an observation. Failed operations are always bad.
  */
-export const recordSloLatency = (operation: string, durationSeconds: number) => {
+export const recordSloLatency = (operation: string, durationSeconds: number, failed = false) => {
   const target = SLO_TARGETS[operation as SloOperation];
   if (!target) return;
-  const result = durationSeconds <= target.latencySeconds ? 'good' : 'bad';
+  const result = !failed && durationSeconds <= target.latencySeconds ? 'good' : 'bad';
   sloEventsTotal.inc({ operation, result });
   sloObservedLatency.observe({ operation }, durationSeconds);
   logger.debug('Metric recorded: SLO latency', { operation, durationSeconds, result, targetSeconds: target.latencySeconds });

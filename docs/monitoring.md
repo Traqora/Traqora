@@ -79,8 +79,12 @@ sum by (jobName, outcome) (rate(traqora_loki_job_events_total[5m]))
 
 ## SLO Monitoring for the Booking Funnel (issue #593)
 
-The backend classifies every booking-funnel operation (search, booking, refund)
-against a latency SLO target and exposes them as Prometheus metrics:
+The backend records one terminal SLO event for each measured operation
+(`search`, `booking`, or `refund`). A fulfilled operation is `good` when its
+elapsed time is at or below the configured target; an operation that exceeds
+the target or rejects is `bad`, even when the rejection is fast. Rejected calls
+are rethrown unchanged after recording. The event counter and latency histogram
+are exposed as Prometheus metrics:
 
 | Metric | Meaning |
 | --- | --- |
@@ -92,9 +96,15 @@ Latency targets (keep in sync with `SLO_TARGETS` in
 
 | Operation | Target | Instrumented at |
 | --- | --- | --- |
-| `search` | 2s (p95, 95% of events) | `services/flightSearchService.ts` (whole-search latency incl. cache hits) |
-| `booking` | 300s (p95, 95% of events) | `recordBookingConfirmed()` in `services/metrics.ts` |
-| `refund` | 3600s (p95, 95% of events) | `recordRefundProcessed()` in `services/metrics.ts` |
+| `search` | 2s (95% of events) | `services/flightSearchService.ts` (whole search, including cache hits) |
+| `booking` | 300s (95% of events) | `BookingOrchestrationService.pollTransactionStatus()` (confirmation polling through terminal confirmation or failure) |
+| `refund` | 3600s (95% of events) | `RefundService.processRefund()` (processing through completion or rejection) |
+
+Contract: `sloMeasure(operation, fn)` accepts a configured operation and an
+async function, returns the function's value on success, and records one event
+with the elapsed seconds. It records an event as `bad` and rethrows the same
+error when the function rejects. Booking's asynchronous poll records once at
+confirmation, terminal transaction failure, or exhausted polling retries.
 
 Recording rules and burn-rate alerts live in
 `monitoring/prometheus/slo-rules.yml` (loaded via `prometheus.yml`):
