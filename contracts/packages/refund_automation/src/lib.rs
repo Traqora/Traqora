@@ -35,6 +35,7 @@ pub trait BookingInterface {
 
 #[contractclient(name = "RefundClient")]
 pub trait RefundInterface {
+    fn calculate_refund_bps(env: Env, airline: Address, departure_time: u64) -> u32;
     fn request_refund(
         env: Env,
         passenger: Address,
@@ -231,28 +232,26 @@ impl RefundAutomationContract {
             .get_booking(&booking_numeric_id)
             .expect("Booking not found");
 
-        let now = env.ledger().timestamp();
-        let time_until_departure = booking.departure_time.saturating_sub(now);
-
-        let (tier, passenger_refund_bps) = if time_until_departure > FULL_REFUND_WINDOW_SECS {
-            (symbol_short!("full"), FULL_REFUND_BPS)
-        } else if time_until_departure >= PARTIAL_REFUND_WINDOW_SECS {
-            (symbol_short!("partial"), PARTIAL_REFUND_BPS)
+        let refund_contract: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::RefundContract)
+            .expect("Refund contract not initialized");
+        let refund_client = RefundClient::new(&env, &refund_contract);
+        let passenger_refund_bps = refund_client
+            .calculate_refund_bps(&booking.airline, &booking.departure_time);
+        let tier = if passenger_refund_bps == FULL_REFUND_BPS {
+            symbol_short!("full")
+        } else if passenger_refund_bps > NO_REFUND_BPS {
+            symbol_short!("partial")
         } else {
-            (symbol_short!("no_refund"), NO_REFUND_BPS)
+            symbol_short!("no_refund")
         };
 
         let settlement =
             booking_client.settle_cancellation(&booking_numeric_id, &caller, &passenger_refund_bps);
 
-        if passenger_refund_bps > 0 {
-            let refund_contract: Address = env
-                .storage()
-                .instance()
-                .get(&DataKey::RefundContract)
-                .expect("Refund contract not initialized");
-
-            let refund_client = RefundClient::new(&env, &refund_contract);
+        if settlement.0 > 0 {
             refund_client.request_refund(
                 &booking.passenger,
                 &booking_numeric_id,

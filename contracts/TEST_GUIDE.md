@@ -163,6 +163,31 @@ Expected output ends with something like `test test_full_booking_lifecycle ... o
 
 ## Testing different behaviors
 
+### Automated cross-contract refunds
+
+`RefundAutomationContract::automate_refund(caller, booking_id, cancellation_reason)` accepts the
+registered booking symbol, an authenticated caller authorized by the booking contract, and a
+reason. It loads the booking from the configured booking contract, asks the configured refund
+contract for the airline's policy-based refund percentage, settles the escrow through the booking
+contract, and creates a refund request for the passenger when the settled refund is greater than
+zero. Because the refund contract requires passenger authorization for that request, a
+positive-refund call must be authorized by the passenger; an airline caller can complete a
+no-refund cancellation, but cannot create a positive-refund request alone. The result contains the
+`full`, `partial`, or `no_refund` tier plus passenger and airline amounts;
+`full` means the policy returns 10,000 basis points, while any positive lower percentage is
+`partial`.
+
+The call fails if the automation contract is not initialized, the booking symbol is unregistered,
+the booking or airline policy is missing, the caller cannot cancel that booking, the refund
+percentage is invalid for booking settlement, or a positive-refund call lacks passenger
+authorization at the refund contract. A failed cross-contract call rolls back the escrow
+settlement. Tests for the configured-policy happy path
+and missing-policy rollback are in `tests/refund_automation_integration_test.rs`; run them with:
+
+```bash
+cargo test -p integration-tests --test refund_automation_integration_test
+```
+
 ### Recording and asserting events
 
 Workflow contracts (booking, governance, loyalty) publish events as `(contract, action)` topics with an `(actor, timestamp, id, ...payload)` data payload; the token contract uses `(action, status)` topics with `(from, to, amount)` data. Collect and inspect events with `env.events().all()`:
