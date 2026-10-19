@@ -15,7 +15,6 @@ jest.mock('../../src/services/stripe', () => ({
       }),
     },
   },
-  executeStripeOperation: jest.fn().mockImplementation((name, fn) => fn()),
 }));
 
 jest.mock('../../src/services/soroban', () => ({
@@ -58,7 +57,6 @@ describe('Time-Locked Refund Safety Mechanism', () => {
   let mockPassenger: Passenger;
 
   beforeAll(async () => {
-    process.env.ENCRYPTION_KEY = 'test-encryption-key-for-traqora-database-encryption-!!!';
     if (!AppDataSource.isInitialized) {
       await AppDataSource.initialize();
     }
@@ -89,7 +87,6 @@ describe('Time-Locked Refund Safety Mechanism', () => {
 
     mockFlight = flightRepo.create({
       flightNumber: 'TEST123',
-      airlineCode: 'AA',
       fromAirport: 'JFK',
       toAirport: 'LAX',
       departureTime: futureDate,

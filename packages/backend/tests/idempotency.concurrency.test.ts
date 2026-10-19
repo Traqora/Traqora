@@ -139,6 +139,44 @@ describe('Idempotency Key Store Concurrency Tests', () => {
   });
 
   describe('Concurrent executeIdempotentOperation', () => {
+    it('rejects a different payload while the original request is still in flight', async () => {
+      const key = 'test-inflight-payload-conflict';
+      const firstHash = hashObject({ amount: 100 });
+      const secondHash = hashObject({ amount: 200 });
+      let markStarted!: () => void;
+      let finishOperation!: (value: { result: { id: string } }) => void;
+      const started = new Promise<void>((resolve) => { markStarted = resolve; });
+
+      const first = executeIdempotentOperation(
+        {
+          key,
+          method: 'POST',
+          path: '/api/v1/bookings',
+          requestHash: firstHash,
+          execute: () => {
+            markStarted();
+            return new Promise((resolve) => { finishOperation = resolve; });
+          },
+        },
+        testDataSource,
+      );
+
+      await started;
+      await expect(executeIdempotentOperation(
+        {
+          key,
+          method: 'POST',
+          path: '/api/v1/bookings',
+          requestHash: secondHash,
+          execute: async () => ({ result: { id: 'must-not-run' } }),
+        },
+        testDataSource,
+      )).rejects.toThrow(ConflictError);
+
+      finishOperation!({ result: { id: 'booking-1' } });
+      await expect(first).resolves.toMatchObject({ result: { id: 'booking-1' } });
+    });
+
     it('executes operation exactly once when called concurrently and returns same result to all callers', async () => {
       const key = 'test-execute-once-key';
       const requestHash = hashObject({ booking: 'TQ-999' });
@@ -292,7 +330,7 @@ describe('Idempotency Key Store Concurrency Tests', () => {
 
     it('hashes objects deterministically regardless of key ordering', () => {
       const obj1 = { a: 1, b: 2, c: { d: 'test' } };
-      const obj2 = { a: 1, b: 2, c: { d: 'test' } };
+      const obj2 = { c: { d: 'test' }, b: 2, a: 1 };
       expect(hashObject(obj1)).toBe(hashObject(obj2));
       expect(hashObject(null)).toBe(hashObject(undefined));
     });
