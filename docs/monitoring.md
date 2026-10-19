@@ -114,6 +114,36 @@ The Grafana dashboard `monitoring/grafana/dashboards/traqora-slo.json` shows
 confirmed with conversion rates), p95 latency vs target per operation, and
 remaining error budget per operation.
 
+## Flight Offer Ingestion Delay (#933)
+
+Flight synchronization publishes how stale a provider's offer was when it was
+ingested:
+
+| Metric | Meaning |
+| --- | --- |
+| `traqora_flight_offer_ingestion_delay_seconds{provider}` | Histogram of `ingestion_time - provider_updated_at` for each offer that carries a provider timestamp |
+
+The backend only observes offers whose adapter sets `providerUpdatedAt` on
+`AirlineFlightData`. Missing or unparseable timestamps and timestamps in the
+future are skipped rather than recorded as fresh. Provider names are
+normalized to a bounded set (`amadeus`, `lufthansa`, `air-france`,
+`british-airways`, `offchain-repository`); anything else collapses to `other`
+so a new/typo'd provider cannot create unbounded Prometheus cardinality.
+
+Example stale-feed alert (p95 ingestion delay over 15 minutes):
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, provider) (
+    rate(traqora_flight_offer_ingestion_delay_seconds_bucket[15m])
+  )
+) > 1800
+```
+
+Implementation: `packages/backend/src/services/metrics.ts`
+(`recordFlightOfferIngestionDelay`) and
+`packages/backend/src/services/amadeus/flightSyncService.ts`.
+
 ## Distributed Tracing
 
 Traqora uses **OpenTelemetry** for distributed tracing. The SDK is initialized in `packages/backend/src/tracing.ts` before the application starts, providing auto-instrumentation for HTTP, Express, PostgreSQL, and other standard libraries.

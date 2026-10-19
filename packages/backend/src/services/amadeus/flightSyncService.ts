@@ -23,6 +23,7 @@ import { CircuitBreakerWithRetry } from '../../utils/retryHandler';
 import { DeadLetterQueue } from '../deadLetterQueue';
 import { ErrorRecoveryService, RecoveryContext } from '../errorRecoveryService';
 import { FlightSyncMonitor } from '../flightSyncMonitor';
+import { recordFlightOfferIngestionDelay } from '../metrics';
 import { getFlightSyncConfig } from '../../config/retryPolicies';
 
 /**
@@ -254,6 +255,8 @@ export class FlightSynchronizationService {
         `syncFlight:${request.flightNumber}`
       );
 
+      this.recordOfferFreshness(adapter, flightData);
+
       if (!flightData) {
         const error = new Error(`Failed to fetch flight data for ${request.flightNumber}`);
         
@@ -269,6 +272,7 @@ export class FlightSynchronizationService {
         
         if (recoveryResult.success && recoveryResult.data) {
           // Use recovered data
+          this.recordOfferFreshness(adapter, recoveryResult.data);
           const flight = await this.upsertFlight(recoveryResult.data, adapter.airlineCode);
           this.cacheManager.set(
             request.flightNumber,
@@ -336,6 +340,7 @@ export class FlightSynchronizationService {
       if (recoveryResult.success && recoveryResult.data) {
         const adapter = this.adapters.get(request.airline);
         if (adapter) {
+          this.recordOfferFreshness(adapter, recoveryResult.data);
           const flight = await this.upsertFlight(recoveryResult.data, adapter.airlineCode);
           this.monitor.recordSyncSuccess(duration, { request, recovery: true });
           
@@ -627,6 +632,19 @@ export class FlightSynchronizationService {
   }
 
   // ==================== Private Methods ====================
+
+  /**
+   * Publish provider offer freshness (#933). Providers that do not expose an
+   * update timestamp are skipped rather than reported as zero-delay; the label
+   * is bounded by `normalizeFlightProviderLabel`.
+   */
+  private recordOfferFreshness(
+    adapter: IAirlineAdapter,
+    data: AirlineFlightData | null,
+  ): void {
+    if (!data) return;
+    recordFlightOfferIngestionDelay(adapter.name, data.providerUpdatedAt);
+  }
 
   private async upsertFlight(data: AirlineFlightData, source: string): Promise<Flight> {
     const flightRepo = this.dataSource.getRepository(Flight);

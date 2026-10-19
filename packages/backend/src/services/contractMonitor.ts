@@ -3,24 +3,52 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { measureAsync, recordContractEvent, updateWalletBalance, recordSorobanTransaction } from './metrics';
 import { executeSorobanOperation } from './soroban';
+import {
+  ContractEventIndexer,
+  ContractEventIndexerOptions,
+  SorobanEventLike,
+  SorobanEventRpc,
+} from './contractEventIndexer';
+import { ContractCursorStore } from './contractEventCursorStore';
+import { TypeOrmContractCursorStore } from './contractEventCursorTypeOrmStore';
+import { ContractEventArchive, TypeOrmContractEventArchive } from './contractEventArchive';
 
 interface ContractEventListener {
   contractId: string;
   eventTypes: string[];
-  handler: (event: any) => void;
+  handler: (event: any) => void | Promise<void>;
 }
 
-class ContractMonitor {
-  private server: StellarSdk.SorobanRpc.Server | null = null;
+export interface ContractMonitorOptions {
+  /** Override for tests; defaults to a Soroban RPC server from config. */
+  server?: SorobanEventRpc | null;
+  cursorStore?: ContractCursorStore;
+  eventArchive?: ContractEventArchive;
+  indexerOptions?: Partial<ContractEventIndexerOptions>;
+}
+
+export class ContractMonitor {
+  private server: SorobanEventRpc | null = null;
   private listeners: ContractEventListener[] = [];
   private isMonitoring = false;
   private monitoringInterval: NodeJS.Timeout | null = null;
-  private lastCursor: string | null = null;
+  private isFetching = false;
+  private readonly indexer: ContractEventIndexer | null;
+  private readonly eventArchive: ContractEventArchive;
 
-  constructor() {
-    if (config.sorobanRpcUrl) {
-      this.server = new StellarSdk.SorobanRpc.Server(config.sorobanRpcUrl);
+  constructor(options: ContractMonitorOptions = {}) {
+    if (options.server !== undefined) {
+      this.server = options.server;
+    } else if (config.sorobanRpcUrl) {
+      this.server = new StellarSdk.SorobanRpc.Server(config.sorobanRpcUrl) as unknown as SorobanEventRpc;
     }
+
+    this.eventArchive = options.eventArchive ?? new TypeOrmContractEventArchive();
+
+    const cursorStore = options.cursorStore ?? new TypeOrmContractCursorStore();
+    this.indexer = this.server
+      ? new ContractEventIndexer(this.server, cursorStore, options.indexerOptions)
+      : null;
   }
 
   /**
@@ -49,11 +77,11 @@ class ContractMonitor {
     logger.info('Starting contract event monitoring', { intervalMs });
 
     // Initial fetch
-    await this.fetchAndProcessEvents();
+    await this.runOnce();
 
     // Set up periodic polling
     this.monitoringInterval = setInterval(async () => {
-      await this.fetchAndProcessEvents();
+      await this.runOnce();
     }, intervalMs);
   }
 
@@ -70,52 +98,60 @@ class ContractMonitor {
   }
 
   /**
-   * Fetch and process contract events
+   * Run one indexing pass over every registered contract.
+   *
+   * Exposed for operations (manual catch-up) and tests. A failure in one
+   * contract is logged and does not prevent the others from advancing — this is
+   * the per-contract isolation that #931 requires.
    */
-  private async fetchAndProcessEvents() {
-    if (!this.server) return;
+  async runOnce(): Promise<void> {
+    if (!this.server || !this.indexer) return;
+    if (this.isFetching) {
+      logger.debug('Skipping contract event pass; previous pass still running');
+      return;
+    }
+
+    this.isFetching = true;
 
     try {
-      await measureAsync('contract_monitor', 'fetch_and_process_events', async () => {
-        // Get latest ledger
-        const latestLedger = await executeSorobanOperation(
-          'soroban_get_latest_ledger',
-          () => this.server!.getLatestLedger(),
-          { component: 'contract_monitor' }
-        );
+      const contractIds = Array.from(
+        new Set(this.listeners.map((listener) => listener.contractId)),
+      );
 
-        // Fetch events for each registered contract
-        for (const listener of this.listeners) {
+      await measureAsync('contract_monitor', 'fetch_and_process_events', async () => {
+        for (const contractId of contractIds) {
+          const listeners = this.listeners.filter(
+            (listener) => listener.contractId === contractId,
+          );
+
           try {
-            const events = await executeSorobanOperation(
-              'soroban_get_events',
-              () =>
-                this.server!.getEvents({
-                  startLedger: this.lastCursor ? undefined : latestLedger.sequence - 100,
-                  filters: [
-                    {
-                      type: 'contract',
-                      contractIds: [listener.contractId],
-                    },
-                  ],
-                  limit: 100,
-                }),
-              { contractId: listener.contractId, component: 'contract_monitor' }
+            const result = await this.indexer!.indexContract(
+              contractId,
+              async (event) => {
+                const eventType = this.extractEventType(event);
+
+                // Archive before invoking state-changing listeners so a write
+                // failure retries the event instead of losing its on-chain
+                // record. Archive writes are deduplicated by paging token.
+                await this.eventArchive.append(contractId, event, eventType);
+
+                for (const listener of listeners) {
+                  await this.processEvent(listener, event, eventType);
+                }
+              },
             );
 
-            if (events.events && events.events.length > 0) {
-              for (const event of events.events) {
-                this.processEvent(listener, event);
-              }
-
-              // Update cursor
-              if (events.latestLedger) {
-                this.lastCursor = events.latestLedger.toString();
-              }
-            }
+            logger.debug('Contract event pass completed', {
+              contractId,
+              processedEvents: result.processedEvents,
+              committedLedger: result.committedLedger,
+              gapDetected: result.gapDetected,
+              backfillChunks: result.backfillChunks,
+              backfillComplete: result.backfillComplete,
+            });
           } catch (error: any) {
-            logger.error('Error fetching events for contract', {
-              contractId: listener.contractId,
+            logger.error('Error indexing contract events', {
+              contractId,
               error: error.message,
             });
           }
@@ -123,38 +159,34 @@ class ContractMonitor {
       });
     } catch (error: any) {
       logger.error('Error in contract event monitoring', { error: error.message });
+    } finally {
+      this.isFetching = false;
     }
   }
 
   /**
-   * Process a single contract event
+   * Process a single contract event. Errors deliberately propagate: the
+   * indexer uses them to keep the cursor on the last successful event so the
+   * event is retried (#931).
    */
-  private processEvent(listener: ContractEventListener, event: any) {
-    try {
-      // Extract event type from the event
-      const eventType = this.extractEventType(event);
-      
-      if (!eventType || !listener.eventTypes.includes(eventType)) {
-        return;
-      }
-
-      // Record metric
-      recordContractEvent(listener.contractId, eventType);
-
-      // Call the handler
-      listener.handler(event);
-
-      logger.debug('Contract event processed', {
-        contractId: listener.contractId,
-        eventType,
-        ledger: event.ledger,
-      });
-    } catch (error: any) {
-      logger.error('Error processing contract event', {
-        contractId: listener.contractId,
-        error: error.message,
-      });
+  private async processEvent(
+    listener: ContractEventListener,
+    event: SorobanEventLike,
+    eventType: string | null,
+  ): Promise<void> {
+    if (!eventType || !listener.eventTypes.includes(eventType)) {
+      return;
     }
+
+    recordContractEvent(listener.contractId, eventType);
+
+    await listener.handler(event);
+
+    logger.debug('Contract event processed', {
+      contractId: listener.contractId,
+      eventType,
+      ledger: event.ledger,
+    });
   }
 
   /**
@@ -241,7 +273,10 @@ class ContractMonitor {
     try {
       const response = await executeSorobanOperation(
         'soroban_get_transaction',
-        () => this.server!.getTransaction(txHash),
+        () =>
+          (this.server as unknown as StellarSdk.SorobanRpc.Server).getTransaction(
+            txHash,
+          ),
         { txHash, contract, method, component: 'contract_monitor' }
       );
       const duration = (Date.now() - startTime) / 1000;
