@@ -105,12 +105,26 @@ rm -f "$LATEST_LINK"
 ln -s "$DEPLOY_TAG" "$LATEST_LINK"
 
 echo ""
+echo "Generating per-network Soroban deployment manifest..."
+"$SCRIPT_DIR/generate-manifest.sh" "$NETWORK" "$DEPLOY_TAG"
+
+echo ""
 echo -e "$DEPLOY_SUMMARY"
 
 if [ "$VERIFY" = "true" ]; then
     echo ""
     echo "=== Verifying Deployments ==="
     "$SCRIPT_DIR/verify-contracts.sh" "$NETWORK"
+fi
+
+echo ""
+echo "=== Verifying deployed contract WASM hashes ==="
+"$SCRIPT_DIR/verify-contracts.sh" "$NETWORK" "$DEPLOY_TAG"
+
+if [ "$?" -ne 0 ]; then
+    echo ""
+    echo "=== Deployment ABORTED: WASM hash verification failed ==="
+    exit 1
 fi
 
 echo ""
