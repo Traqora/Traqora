@@ -1,81 +1,66 @@
-# syntax=docker/dockerfile:1.7
-#
-# packages/backend — hardened multi-stage Node image.
-
-ARG NODE_VERSION=20
-
-# ─── Development stage (used by docker-compose.yml hot-reload) ──────────────
-FROM node:${NODE_VERSION}-alpine AS development
+# Development stage
+FROM node:20-alpine AS development
 
 WORKDIR /usr/src/app
 
-# Build tools required for native modules (sqlite3, bcrypt-style libs).
+# Install build dependencies for native modules (like sqlite3)
 RUN apk add --no-cache python3 make g++
 
+# Install dependencies separately for better caching
 COPY package*.json ./
-RUN npm install --legacy-peer-deps --ignore-scripts
+RUN npm install --legacy-peer-deps
 
+# Copy source code (though it will be overridden by volume in docker-compose)
 COPY . .
 
+# Expose the API port
 EXPOSE 3001
-ENV NODE_ENV=development
 
+# Run the development server with hot-reload
 CMD ["npm", "run", "dev"]
 
-# ─── Build stage — install + compile TypeScript ─────────────────────────────
-FROM node:${NODE_VERSION}-alpine AS build
-
-ARG NODE_VERSION
-ARG BUILD_DATE
-ARG VCS_REF
-ARG VERSION
+# Build stage
+FROM node:20-alpine AS build
 
 WORKDIR /usr/src/app
 
+# Install build dependencies for native modules
 RUN apk add --no-cache python3 make g++
 
 COPY package*.json ./
-RUN npm ci --legacy-peer-deps --ignore-scripts
+RUN npm install --legacy-peer-deps
 
 COPY . .
 RUN npm run build
 
-# ─── Runner stage — minimal, non-root, healthchecked ────────────────────────
-FROM node:${NODE_VERSION}-alpine AS production
+# Production stage
+FROM node:20-alpine AS production
 
-ARG BUILD_DATE
-ARG VCS_REF
-ARG VERSION
-
-LABEL org.opencontainers.image.title="Traqora Backend"
-LABEL org.opencontainers.image.description="Traqora backend API server"
-LABEL org.opencontainers.image.vendor="Traqora"
-LABEL org.opencontainers.image.version=${VERSION}
-LABEL org.opencontainers.image.revision=${VCS_REF}
-LABEL org.opencontainers.image.created=${BUILD_DATE}
-LABEL org.opencontainers.image.source="https://github.com/anomalyco/traqora"
-LABEL org.opencontainers.image.ref.name=${VERSION}
-LABEL org.opencontainers.image.licenses="MIT"
-
-RUN addgroup -g 1001 -S traqora \
-    && adduser -S -G traqora -u 1001 traqora
+# Security: Add a non-root user
+RUN addgroup -S traqora && adduser -S traqora -G traqora
 
 WORKDIR /usr/src/app
 
 COPY package*.json ./
-RUN npm config set legacy-peer-deps true
-RUN npm ci --omit=dev --legacy-peer-deps --ignore-scripts \
+# Use npm ci for clean, reproducible production installs. The legacy peer
+# setting is required because the dependency graph contains older dev peers
+# that npm still validates while pruning development dependencies.
+RUN npm config set legacy-peer-deps true \
+    && npm ci --omit=dev --legacy-peer-deps --ignore-scripts \
     && npm cache clean --force
 
-COPY --from=build --chown=traqora:traqora /usr/src/app/dist ./dist
+# Copy only the compiled output and necessary assets
+COPY --from=build /usr/src/app/dist ./dist
 
-USER traqora
-
+# Set production environment
 ENV NODE_ENV=production
-ENV PORT=3001
+
+# Switch to non-root user for security
+USER traqora
 
 EXPOSE 3001
 
+# Healthcheck for Docker/K8s
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
