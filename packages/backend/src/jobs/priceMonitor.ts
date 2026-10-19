@@ -1,5 +1,6 @@
 import Queue from 'bull';
 import cron from 'node-cron';
+import { logger } from '../utils/logger';
 import { config } from '../config';
 import PriceAlert from '../models/PriceAlert';
 import PriceHistory from '../models/PriceHistory';
@@ -8,10 +9,9 @@ import { VolatilityService } from '../services/VolatilityService';
 import { NotificationService } from '../services/NotificationService';
 import { getWebSocketServer } from '../websockets/server';
 import { measureAsync } from '../services/metrics';
-import { createJobLogger } from './jobLogger';
 
-// Parse Redis config from URL if available
-const redisUrl = config.redisUrl;
+// Parse Redis config from URL if available, or use defaults
+const redisUrl = config.redisUrl || process.env.REDIS_URL || 'redis://localhost:6379';
 // Simple parsing for Bull (it prefers host/port object usually, but can take redis URL string too in some versions, but let's stick to object for safety if we can parse it, or just pass the URL string if Bull supports it. Bull constructor supports redis connection string as second arg if first is name? No, it supports `new Queue(name, url)`.)
 
 // Define the Queue
@@ -29,8 +29,6 @@ export const priceMonitorQueue = new Queue('price-monitor', redisUrl, {
 // Worker: Process the price check job
 priceMonitorQueue.process(async (job) => {
   const { flightId } = job.data;
-  const log = createJobLogger('price-monitor', job.id?.toString() ?? undefined);
-  log.start({ flightId });
 
   return measureAsync('price_monitor', 'process_flight_price_check', async () => {
     // 1. Fetch current price
@@ -43,7 +41,6 @@ priceMonitorQueue.process(async (job) => {
 
     const currentPriceData = prices[0];
     const currentPrice = currentPriceData.price;
-    log.step('fetch_current_price', { flightId, price: currentPrice });
 
     // 2. Save history
     await PriceHistory.create({
@@ -69,7 +66,6 @@ priceMonitorQueue.process(async (job) => {
       PriceAlert.find({ flightId, isActive: true }).exec()
     );
     
-    let notifiedCount = 0;
     for (const alert of alerts) {
       if (currentPrice <= alert.targetPrice || isVolatile) {
         // Send Notification
@@ -90,7 +86,6 @@ priceMonitorQueue.process(async (job) => {
             // Update lastNotifiedAt
             alert.lastNotifiedAt = new Date();
             await alert.save();
-            notifiedCount++;
         }
       }
     }
@@ -100,20 +95,13 @@ priceMonitorQueue.process(async (job) => {
         const ws = getWebSocketServer();
         ws.broadcastPriceUpdate(flightId, currentPrice);
     } catch (e) {
-        log.step('websocket_broadcast', {
-          outcome: 'failure',
-          error: e instanceof Error ? e.message : String(e),
-        });
+        logger.warn('WebSocket server not ready, skipping broadcast');
     }
 
-    log.complete({ flightId, price: currentPrice, notifiedCount });
+    logger.info(`Processed price check for flight ${flightId}: ${currentPrice}`);
 
   }).catch((error) => {
-    log.fail({
-      step: 'process_flight_price_check',
-      flightId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    logger.error(`Error processing price check for flight ${flightId}`, error);
     throw error;
   });
 });
@@ -122,8 +110,7 @@ priceMonitorQueue.process(async (job) => {
 export const initPriceMonitorCron = () => {
   // Run every 5 minutes
   cron.schedule('*/5 * * * *', async () => {
-    const log = createJobLogger('price-monitor-cron');
-    log.start();
+    logger.info('Running Price Monitor Cron Job');
     
     try {
       // Find all unique flights that have active alerts
@@ -132,18 +119,14 @@ export const initPriceMonitorCron = () => {
         PriceAlert.distinct('flightId', { isActive: true }).exec()
       );
       
-      log.step('load_active_flights', { flights: activeFlights.length });
+      logger.info(`Found ${activeFlights.length} flights to monitor.`);
 
       for (const flightId of activeFlights) {
         // Add job to queue
         await priceMonitorQueue.add({ flightId });
       }
-      log.complete({ enqueued: activeFlights.length });
     } catch (error) {
-      log.fail({
-        step: 'enqueue_price_checks',
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.error('Error in Price Monitor Cron', error);
     }
   });
 };

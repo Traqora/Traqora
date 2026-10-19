@@ -138,30 +138,7 @@ export const setupNotificationWorker = () => {
     }
 
     // Push
-    if (
-      targetChannels.includes("push") &&
-      userPref.pushEnabled &&
-      userPref.fcmToken
-    ) {
-      if (await isDuplicateDelivery(logRepo, userId, type, "push", idempotencyKey)) {
-        logger.info("notification-worker: skipping duplicate push delivery", { userId, type, idempotencyKey });
-        results.push({ channel: "push", status: "skipped_duplicate" });
-      } else {
-        try {
-          await pushNotificationService.sendPush(userId, type, { data });
-          const entry = logRepo.create({
-            userId,
-            channel: "push",
-            type,
-            payload: job.data,
-            status: "sent",
-            attempts: job.attemptsMade + 1,
-            idempotencyKey,
-          });
-          await logRepo.save(entry);
-          results.push({ channel: "push", status: "success" });
-        } catch (error: any) {
-          const entry = logRepo.create({
+
             userId,
             channel: "push",
             type,
@@ -169,9 +146,7 @@ export const setupNotificationWorker = () => {
             status: "failed",
             errorMessage: error.message,
             attempts: job.attemptsMade + 1,
-            idempotencyKey,
-          });
-          await logRepo.save(entry);
+
           results.push({
             channel: "push",
             status: "error",

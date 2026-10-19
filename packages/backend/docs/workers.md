@@ -4,7 +4,11 @@ This document outlines the operational contract, configuration guidelines, and d
 
 ## Overview
 
-Traqora workers process background tasks such as cache warming, price monitoring, flight status polling, and contract monitoring. To prevent data corruption, dropped jobs, and incomplete blockchain interactions during deployments or container scaling events, the worker infrastructure implements a robust **Graceful Shutdown** capability.
+Traqora workers process background tasks such as cache warming, price monitoring, flight status polling, seat-hold expiry cleanup, and contract monitoring. To prevent data corruption, dropped jobs, and incomplete blockchain interactions during deployments or container scaling events, the worker infrastructure implements a robust **Graceful Shutdown** capability.
+
+## Seat-hold expiry sweep
+
+`SeatHoldExpiryJob` runs once per minute by default and calls `SeatAvailabilityService.cleanupExpiredLocks()` to release expired individual seat locks and group holds. It starts with the backend server and can be configured with `SEAT_HOLD_EXPIRY_CRON` using a standard five-field cron expression. The sweep treats a hold as expired when `expiresAt` is equal to or earlier than the sweep time. `runNow()` is available for an immediate sweep and reports the number of seats released.
 
 ---
 

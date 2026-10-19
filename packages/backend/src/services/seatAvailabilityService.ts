@@ -261,7 +261,7 @@ export class SeatAvailabilityService {
     groupBookingId: string,
   ): GroupSeatHold | undefined {
     const hold = groupSeatHolds.get(flightId)?.get(groupBookingId);
-    if (hold && hold.expiresAt < new Date()) {
+    if (hold && hold.expiresAt <= new Date()) {
       this.releaseGroupSeatHold(flightId, groupBookingId);
       return undefined;
     }
@@ -464,13 +464,23 @@ export class SeatAvailabilityService {
   /**
    * Cleanup expired seat locks (should run periodically)
    */
-  async cleanupExpiredLocks(): Promise<number> {
-    const now = new Date();
+  async cleanupExpiredLocks(asOf: Date = new Date()): Promise<number> {
     let cleanedCount = 0;
+
+    // Release expired group holds first so their seat locks are removed with
+    // the hold and are not counted twice below.
+    for (const [flightId, holds] of groupSeatHolds) {
+      for (const hold of Array.from(holds.values())) {
+        if (hold.expiresAt <= asOf) {
+          await this.releaseGroupSeatHold(flightId, hold.groupBookingId);
+          cleanedCount += hold.seats.length;
+        }
+      }
+    }
 
     for (const [flightId, locks] of seatLocks) {
       for (const [seatNumber, lock] of locks) {
-        if (lock.expiresAt < now) {
+        if (lock.expiresAt <= asOf) {
           locks.delete(seatNumber);
           cleanedCount++;
         }
@@ -481,21 +491,8 @@ export class SeatAvailabilityService {
       }
     }
 
-    for (const [flightId, holds] of groupSeatHolds) {
-      for (const [groupId, hold] of holds) {
-        if (hold.expiresAt < now) {
-          holds.delete(groupId);
-          cleanedCount += hold.seats.length;
-        }
-      }
-
-      if (holds.size === 0) {
-        groupSeatHolds.delete(flightId);
-      }
-    }
-
     if (cleanedCount > 0) {
-      logger.info("Cleaned up expired seat locks and group holds", { count: cleanedCount });
+      logger.info("Cleaned up expired seat locks and group holds", { seatsReleased: cleanedCount });
     }
 
     return cleanedCount;
@@ -545,7 +542,7 @@ export class SeatAvailabilityService {
     const lock = seatLocks.get(flightId)?.get(seatNumber);
 
     // Check if lock expired
-    if (lock && lock.expiresAt < new Date()) {
+    if (lock && lock.expiresAt <= new Date()) {
       seatLocks.get(flightId)?.delete(seatNumber);
       return undefined;
     }

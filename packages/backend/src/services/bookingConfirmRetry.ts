@@ -175,7 +175,33 @@ export interface ConfirmBookingTxResult {
  * Read the Soroban transaction status for a booking and apply the idempotent
  * confirm transition, persisting only when something actually changed.
  */
+const confirmationQueues = new Map<string, Promise<void>>();
+
+/** Serialize concurrent confirmation polls per booking so only the first
+ * observed state transition persists and broadcasts as a change. */
 export async function confirmBookingTx(
+  bookingId: string,
+): Promise<ConfirmBookingTxResult> {
+  const previous = confirmationQueues.get(bookingId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  confirmationQueues.set(bookingId, queued);
+
+  await previous;
+  try {
+    return await performConfirmBookingTx(bookingId);
+  } finally {
+    release();
+    if (confirmationQueues.get(bookingId) === queued) {
+      confirmationQueues.delete(bookingId);
+    }
+  }
+}
+
+async function performConfirmBookingTx(
   bookingId: string,
 ): Promise<ConfirmBookingTxResult> {
   const bookingRepo = AppDataSource.getRepository(Booking);

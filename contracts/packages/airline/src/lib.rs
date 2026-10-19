@@ -122,6 +122,7 @@ pub struct PriceHistoryEntry {
 pub struct AirlineRegistry;
 
 const MAX_BATCH_SIZE: u32 = 50;
+const MAX_JOURNEY_LEGS: u32 = 50;
 
 impl AirlineRegistry {
     pub fn get_airline(env: &Env, address: &Address) -> Option<AirlineProfile> {
@@ -369,6 +370,60 @@ impl AirlineContract {
 
         flight.available_seats -= 1;
         AirlineRegistry::set_flight(&env, flight_id, &flight);
+    }
+
+    /// Atomically reserves one seat on each active, available leg of a connected journey.
+    pub fn reserve_journey(env: Env, passenger: Address, flight_ids: Vec<u64>) {
+        passenger.require_auth();
+        assert!(
+            flight_ids.len() >= 2 && flight_ids.len() <= MAX_JOURNEY_LEGS,
+            "Invalid journey size"
+        );
+
+        let mut flights: Vec<Flight> = Vec::new(&env);
+        let mut index = 0;
+        while index < flight_ids.len() {
+            let flight_id = flight_ids.get(index).unwrap();
+            let flight = AirlineRegistry::get_flight(&env, flight_id).expect("Flight not found");
+
+            assert!(
+                flight.status == symbol_short!("active"),
+                "Flight not active"
+            );
+            assert!(flight.available_seats > 0, "No seats available");
+
+            if index > 0 {
+                let previous = flights.get(index - 1).unwrap();
+                let mut prior_index = 0;
+                while prior_index < index {
+                    assert!(
+                        flight_ids.get(prior_index).unwrap() != flight_id,
+                        "Duplicate flight"
+                    );
+                    prior_index += 1;
+                }
+                assert!(
+                    previous.to_airport == flight.from_airport,
+                    "Disconnected journey"
+                );
+                assert!(
+                    previous.arrival_time <= flight.departure_time,
+                    "Invalid journey times"
+                );
+            }
+
+            flights.push_back(flight);
+            index += 1;
+        }
+
+        let mut index = 0;
+        while index < flight_ids.len() {
+            let flight_id = flight_ids.get(index).unwrap();
+            let mut flight = flights.get(index).unwrap();
+            flight.available_seats -= 1;
+            AirlineRegistry::set_flight(&env, flight_id, &flight);
+            index += 1;
+        }
     }
 
     // Cancel flight (airline emergency)

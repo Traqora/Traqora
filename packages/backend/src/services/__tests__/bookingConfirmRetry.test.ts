@@ -202,6 +202,32 @@ describe('confirmBookingTx (#784 orchestration)', () => {
     expect(mockSave).not.toHaveBeenCalled();
   });
 
+  it('serializes concurrent polls and persists the confirmation transition once', async () => {
+    const booking = {
+      id: 'booking-concurrent',
+      status: 'onchain_submitted',
+      sorobanTxHash: 'tx-concurrent',
+      sorobanBookingId: null,
+      lastError: null,
+    };
+    mockFindOne.mockImplementation(async () => booking);
+    mockGetTransactionStatus.mockResolvedValue(SUCCESS_TX);
+    mockSave.mockImplementation(async (saved: any) => {
+      Object.assign(booking, saved);
+      return booking;
+    });
+
+    const [first, second] = await Promise.all([
+      confirmBookingTx('booking-concurrent'),
+      confirmBookingTx('booking-concurrent'),
+    ]);
+
+    expect(first.changed).toBe(true);
+    expect(second.changed).toBe(false);
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    expect(mockGetTransactionStatus).toHaveBeenCalledTimes(2);
+  });
+
   it('FAILURE MODE: persists lastError exactly once for a failed transaction', async () => {
     const booking = {
       id: 'booking-1',

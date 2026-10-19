@@ -1,15 +1,5 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-import Link from "next/link"
-import { Plane, Calendar, BarChart3, Keyboard, Bookmark, History, Trash2, Share2, Download } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { NavWalletButton } from "@/components/nav-wallet-button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useToast } from "@/hooks/use-toast"
 
 import { SearchForm, SearchFormData } from "@/components/flight-search/search-form"
 import { FilterPanel, FilterOptions } from "@/components/flight-search/filter-panel"
@@ -209,6 +199,12 @@ export default function SearchPage() {
     }, FILTER_DEBOUNCE_MS)
   }
 
+  // Retry the most recent search in place instead of reloading the whole page (issue #672)
+  const handleRetrySearch = useCallback(() => {
+    if (!lastQuery) return
+    runSearch(lastQuery, filters)
+  }, [lastQuery, filters, runSearch])
+
   const handleClearFilters = useCallback(() => {
     persistFilters(DEFAULT_FILTERS)
     if (lastQuery) runSearch(lastQuery, DEFAULT_FILTERS)
@@ -346,295 +342,19 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation — landmark: banner */}
-      <header role="banner">
-        <nav aria-label="Main navigation" className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center space-x-2">
-                <Plane className="h-8 w-8 text-primary" aria-hidden="true" />
-                <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
-              </div>
-              <div className="hidden md:flex items-center space-x-8">
-                <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors">
-                  Home
-                </Link>
-                <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors">
-                  Dashboard
-                </Link>
-                <Link href="/governance" className="text-muted-foreground hover:text-foreground transition-colors">
-                  Governance
-                </Link>
-                <NavWalletButton />
-              </div>
-            </div>
-          </div>
-        </nav>
-      </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="font-serif font-bold text-3xl text-foreground flex items-center gap-2">
-            <Plane className="h-7 w-7 text-primary" aria-hidden="true" />
-            Search Flights
-          </h1>
-          <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground">
-            <Keyboard className="h-3 w-3" />
-            Press <Badge variant="outline" className="px-1.5 py-0">c</Badge> to clear filters,{" "}
-            <Badge variant="outline" className="px-1.5 py-0">v</Badge> to compare selected
-          </span>
-        </div>
-
-        <Tabs value={searchMode} onValueChange={(v) => setSearchMode(v as "exact" | "flexible")}>
-          <TabsList>
-            <TabsTrigger value="exact">
-              <Calendar className="h-4 w-4 mr-2" />
-              Exact Dates
-            </TabsTrigger>
-            <TabsTrigger value="flexible">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Flexible Dates
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="exact" className="mt-4">
-            <SearchForm onSearch={handleSearch} isLoading={isLoading} initialValues={lastQuery || undefined} />
-          </TabsContent>
-
-          <TabsContent value="flexible" className="mt-4">
-            <DateFlexSearch
-              defaultFrom={lastQuery?.from || "JFK"}
-              defaultTo={lastQuery?.to || "LAX"}
-              defaultDate={lastQuery?.departure}
-              onSearch={(payload) => {
-                const query: SearchFormData = {
-                  from: payload.from,
-                  to: payload.to,
-                  departure: payload.date,
-                  passengers: String(payload.passengers),
-                  class: payload.cabinClass,
-                }
-                setLastQuery(query)
-                handleSearch(query)
-              }}
-            />
-          </TabsContent>
-        </Tabs>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card>
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <History className="h-4 w-4 text-primary" />
-                Recent Searches
-              </CardTitle>
-              {searchHistory.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={handleClearAllHistory}
-                  aria-label="Clear all recent searches"
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Clear all
-                </Button>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {isMemoryLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-              {!isMemoryLoading && searchHistory.length === 0 && (
-                <p className="text-sm text-muted-foreground">No recent searches yet.</p>
-              )}
-              {searchHistory.map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-2 rounded border px-3 py-2">
-                  <button
-                    className="text-left text-sm hover:underline"
-                    onClick={() =>
-                      applySearchMemory({
-                        from: item.fromAirport,
-                        to: item.toAirport,
-                        departure: item.departureDate,
-                        passengers: String(item.passengers),
-                        class: item.cabinClass,
-                      })
-                    }
-                  >
-                    {item.fromAirport} → {item.toAirport} · {item.departureDate}
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={async () => {
-                      const response = await apiClient.deleteSearchHistory(item.id)
-                      if (response.success) setSearchHistory((prev) => prev.filter((entry) => entry.id !== item.id))
-                    }}
-                    aria-label={`Remove search history: ${item.fromAirport} to ${item.toAirport}`}
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Bookmark className="h-4 w-4 text-primary" />
-                Saved Searches
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={shareCurrentSearch} disabled={!lastQuery}>
-                  <Share2 className="h-4 w-4 mr-1" />
-                  Share
-                </Button>
-                <Button size="sm" variant="outline" onClick={saveCurrentSearch} disabled={!lastQuery}>
-                  Save Current
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {isMemoryLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
-              {!isMemoryLoading && savedSearches.length === 0 && (
-                <p className="text-sm text-muted-foreground">No saved searches yet.</p>
-              )}
-              {savedSearches.map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-2 rounded border px-3 py-2">
-                  <button
-                    className="text-left text-sm hover:underline"
-                    onClick={() =>
-                      applySearchMemory({
-                        from: item.fromAirport,
-                        to: item.toAirport,
-                        departure: item.departureDate,
-                        passengers: String(item.passengers),
-                        class: item.cabinClass,
-                      })
-                    }
-                  >
-                    <span className="font-medium">{item.name || `${item.fromAirport} → ${item.toAirport}`}</span>
-                    <span className="text-muted-foreground"> · {item.departureDate}</span>
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={async () => {
-                      const response = await apiClient.deleteSavedSearch(item.id)
-                      if (response.success) setSavedSearches((prev) => prev.filter((entry) => entry.id !== item.id))
-                    }}
-                    aria-label={`Remove saved search: ${item.name || `${item.fromAirport} to ${item.toAirport}`}`}
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </div>
-              ))}
-              {savedSearches.length > 0 && (
-                <div className="flex items-center justify-between pt-2 border-t">
-                  <span className="text-xs text-muted-foreground">
-                    {savedSearches.length} saved · manage privacy
-                  </span>
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleExportSearchData}
-                      aria-label="Export search history and saved searches as JSON"
-                    >
-                      <Download className="h-4 w-4 mr-1" />
-                      Export
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleClearAllSaved}
-                      aria-label="Clear all saved searches"
-                    >
-                      <Trash2 className="h-4 w-4 mr-1" />
-                      Clear all
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {lastQuery && <PriceTrendSparkline from={lastQuery.from} to={lastQuery.to} />}
-
-        {compareIds.length >= 2 && (
-          <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
-            <span className="text-sm font-medium">
-              {compareIds.length} flight{compareIds.length > 1 ? "s" : ""} selected for comparison
-            </span>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setCompareIds([])}>
-                Clear Selection
-              </Button>
-              <Button size="sm" onClick={() => setShowComparison(true)}>
-                <BarChart3 className="h-4 w-4 mr-1" />
-                Compare Selected
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {showComparison && selectedFlightsForComparison.length >= 2 && (
-          <FlightComparison
-            flights={selectedFlightsForComparison}
-            selectedFlights={compareIds}
-            onSelect={setCompareIds}
-            maxCompare={MAX_COMPARE}
-          />
-        )}
-
-        <div className="flex flex-col lg:flex-row gap-6 items-start">
-          <FilterPanel
-            filters={filters}
-            onFiltersChange={handleFiltersChange}
-            onClearFilters={handleClearFilters}
-            isOpen={isFilterOpen}
-            onToggle={() => setIsFilterOpen((v) => !v)}
-            availableAirlines={availableAirlines}
-          />
-
-          <div className="flex-1 min-w-0">
-            {isFromCache && (
-              <div
-                role="status"
-                className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800"
-              >
-                Showing cached results from your last search. Reconnect to see up-to-date prices and availability.
-              </div>
-            )}
             <ResultsList
               flights={flights}
               isLoading={isLoading}
               error={error}
+              hasSearched={lastQuery !== null}
+              onRetry={lastQuery ? handleRetrySearch : undefined}
               hasMore={false}
-              onLoadMore={() => {}}
-              isLoadingMore={false}
-              totalResults={flights.length}
-              sortBy={filters.sortBy}
-              sortOrder={filters.sortOrder}
-              onSortChange={(sortBy, sortOrder) =>
-                handleFiltersChange({
-                  ...filters,
-                  sortBy: sortBy as FilterOptions["sortBy"],
-                  sortOrder: sortOrder as FilterOptions["sortOrder"],
-                })
-              }
-              compareSelectable
-              compareSelectedIds={compareIds}
-              onToggleCompare={handleToggleCompare}
+
             />
           </div>
         </div>
       </div>
 
-      {/* Footer — landmark: contentinfo */}
-      <footer role="contentinfo" className="sr-only">
-        <p>© {new Date().getFullYear()} Traqora. Decentralized flight booking powered by Stellar.</p>
-      </footer>
-    </div>
   )
 }

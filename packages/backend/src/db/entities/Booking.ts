@@ -23,10 +23,6 @@ export class Booking {
   @Column({ type: 'varchar', length: 128, nullable: true })
   idempotencyKey?: string | null;
 
-  @Index()
-  @Column({ type: 'varchar', length: 128, nullable: true })
-  walletAddress?: string | null;
-
   @ManyToOne(() => Flight, { eager: true })
   flight!: Flight;
 
