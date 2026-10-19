@@ -112,24 +112,32 @@ router.post(
     }
 
     const idempotencyKeyHeader = req.header("Idempotency-Key");
-    if (!idempotencyKeyHeader) {
-      throw new BadRequestError("Missing Idempotency-Key header");
+    if (!idempotencyKeyHeader || idempotencyKeyHeader.length > 128) {
+      throw new BadRequestError("Idempotency-Key header is required and must be at most 128 characters");
     }
 
-    const requestHash = hashObject(parsed.data);
+    const requestHash = hashObject({
+      flightId: parsed.data.flightId,
+      passenger: parsed.data.passenger,
+      walletAddress: req.user?.walletAddress,
+    });
 
     const bookingRepo = AppDataSource.getRepository(Booking);
     const idempotencyRepo = AppDataSource.getRepository(IdempotencyKey);
 
     const idem = await getOrCreateIdempotencyKey({
       key: idempotencyKeyHeader,
-      method: req.method,
-      path: req.baseUrl + req.path,
+      method: "POST",
+      path: "/api/v1/bookings",
       requestHash,
     });
 
-    if (idem.requestHash !== requestHash) {
-      throw new ConflictError("Idempotency key reuse with different payload");
+    if (
+      idem.method !== "POST" ||
+      idem.path !== "/api/v1/bookings" ||
+      idem.requestHash !== requestHash
+    ) {
+      throw new ConflictError("Idempotency key reuse with different request");
     }
 
     if (idem.resourceId) {

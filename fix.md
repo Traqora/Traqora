@@ -1,9 +1,9 @@
-641 Seat-hold expiry sweeper job
+640 Idempotent booking create/confirm API
 Repo Avatar
 Traqora/Traqora
 Problem / opportunity
-Scoped task: Seat-hold expiry sweeper job.
-Relevant area: packages/backend jobs seat TTL.
+Scoped task: Idempotent booking create/confirm API.
+Relevant area: packages/backend booking orchestration.
 
 Why it matters
 Correctness, security, UX, or velocity for Traqora travel booking on Stellar.

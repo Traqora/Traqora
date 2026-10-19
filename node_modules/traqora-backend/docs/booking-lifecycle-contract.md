@@ -5,6 +5,32 @@ cancellation (#785) and on-chain confirmation retry (#784). Both are implemented
 so that repeating a call after success is safe — the underlying transition runs
 at most once and every response carries a machine-readable decision.
 
+## 0. Idempotent booking create and confirmation (#640)
+
+`POST /api/v1/bookings` requires authentication and an `Idempotency-Key` header
+of 1-128 characters. The key is stored with the canonical hash of the validated
+flight, passenger, and authenticated wallet. The first successful request
+returns `201`; repeating the same request returns `200` with the original
+booking and `idempotent: true`, without reserving another seat or submitting a
+second on-chain booking. Reusing the key with a different method, path, or
+payload returns `409 Conflict`.
+
+The database's unique key index arbitrates concurrent inserts, while requests
+in the same backend process share the in-flight operation. The key row stores
+the booking resource ID so a later API retry can load the original booking.
+Failed operations do not return a cached success and can be retried with the
+same key and payload.
+
+Confirmation polling uses `GET /api/v1/bookings/:id/transaction-status` (and
+`GET /api/v1/transactions/:bookingId`). Concurrent polls for a booking are
+serialized in-process; only the first poll that changes the booking persists a
+transition and triggers a status broadcast. Replays return the settled booking
+without another write or broadcast. Pending transactions remain unchanged.
+
+Regression coverage: `packages/backend/tests/idempotency.concurrency.test.ts`,
+`packages/backend/tests/bookings.integration.test.ts`, and
+`packages/backend/src/services/__tests__/bookingConfirmRetry.test.ts`.
+
 ---
 
 ## 1. Booking cancel policy engine (#785)
