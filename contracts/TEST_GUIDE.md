@@ -377,21 +377,24 @@ cargo llvm-cov --summary-only --fail-under-lines 90
 | `contract_errors_test.rs` | Contract error paths and rejection handling. |
 | `booking_receipt_test.rs` | Booking receipt generation. |
 | `flight_booking_test.rs`, `flight_registry_test.rs`, `airline_test.rs` | Flight booking, registry data, airline registration/verification. |
+| `architecture_regression_test.rs` | Cross-contract architecture happy paths and failure modes. |
 | `token_test.rs`, `fuzz_property_test.rs` | Token behavior and invariant testing. |
 | `refund_test.rs`, `refund_automation_integration_test.rs` | Refund flows and automation. |
 | `dispute_test.rs`, `dispute_resolution_test.rs`, `dispute_resolution_advanced_test.rs` | Disputes, arbiters, escrow security, jury rotation. |
 | `loyalty_test.rs`, `loyalty_expiry_test.rs` | Loyalty points, tiers, and points expiry. |
 | `governance_test.rs`, `access_test.rs` | Governance proposals, roles, ownership, access control. |
+| `contract_snapshot_review_test.rs` | Snapshot review policy and durable-ledger regression checks. |
 | `oracle_test.rs` | Price/data oracle integration. |
 | `proxy_test.rs`, `proxy_access_test.rs`, `proxy_delegate_upgrade_test.rs` | Proxy contract behavior, access patterns, and delegate/upgrade flows. |
 | `upgrade_mechanism_test.rs`, `storage_version_test.rs` | Contract upgrades and storage versioning. |
 | `admin_multisig_test.rs` | Admin multisig operations. |
 | `event_assertions_test.rs` | Event schema validation across contracts. |
 | `advanced_property_tests.rs` | Critical invariant checks (supply, refund bounds, id sequencing, points scaling). |
+| `time_helpers_test.rs`, `upgrade_quickref_test.rs` | Ledger-time helper regressions and upgrade quick-reference coverage. |
 
 `packages/integration-tests/test_snapshots/` and `contracts/test_snapshots/` hold stored ledger snapshots (`Env`-serialized JSON). They are written by `soroban-sdk` relative to the current working directory, so **run the suite from `contracts/`** (`cargo test --locked`) to keep them in one place. They are diagnostic artifacts, not golden assertions — nothing reads them back.
 
-The suite's assertions are functional (in-process state checks). For upgrade work, the enforced check is the snapshot *review policy* in `packages/integration-tests/src/snapshot_review.rs`, which asserts that a change removes no durable ledger entry and does not rewrite the authorization log. See [docs/operations/CONTRACT_SNAPSHOT_REVIEW.md](../docs/operations/CONTRACT_SNAPSHOT_REVIEW.md).
+The suite's assertions are functional (in-process state checks). For upgrade work, the enforced check is the snapshot *review policy* in the `packages/integration-tests/src/snapshot_review` module, which asserts that a change removes no durable ledger entry and does not rewrite the authorization log. See [docs/operations/CONTRACT_SNAPSHOT_REVIEW.md](../docs/operations/CONTRACT_SNAPSHOT_REVIEW.md).
 
 ---
 
