@@ -252,6 +252,25 @@ describe('Group Booking & Individual Holds Unified Seat Pool Consistency', () =>
       expect(activeHolds[0].groupBookingId).toBe('group-active');
       expect(availability.seatMap[4].A.available).toBe(true);
     });
+
+    it('sweeps expired individual locks and group holds at the expiry boundary', async () => {
+      const start = new Date('2026-01-01T00:00:00.000Z');
+      jest.useFakeTimers().setSystemTime(start);
+
+      try {
+        await seatService.lockSeat(testFlightId, '1A', 'individual-expired');
+        await seatService.holdSeatsForGroup(testFlightId, 'group-expired-sweep', 1, ['2A']);
+
+        jest.setSystemTime(new Date(start.getTime() + 15 * 60 * 1000));
+        await expect(seatService.cleanupExpiredLocks()).resolves.toBe(2);
+
+        const availability = await seatService.getSeatAvailability(testFlightId);
+        expect(availability.availableSeats).toBe(120);
+        expect(seatService.getGroupSeatHold(testFlightId, 'group-expired-sweep')).toBeUndefined();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   describe('Mixed Group and Individual Loads Scenario', () => {

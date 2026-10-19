@@ -1,18 +1,17 @@
-#685 Configurable quorum
+641 Seat-hold expiry sweeper job
 Repo Avatar
 Traqora/Traqora
-Description
-Configurable quorum: implement this scoped Traqora capability with a narrow, reviewable change. Start from current behavior in contracts governance, define the contract, implement the minimal fix, and cover it with regression tests plus docs.
+Problem / opportunity
+Scoped task: Seat-hold expiry sweeper job.
+Relevant area: packages/backend jobs seat TTL.
 
-Relevant area/files: contracts governance.
+Why it matters
+Correctness, security, UX, or velocity for Traqora travel booking on Stellar.
 
-Scope
-In scope: one capability, contract definition, implementation, tests, docs
-Out of scope: unrelated refactors or cross-cutting redesigns
 Acceptance criteria
- Behavior specified with inputs, outputs, and error cases
- Minimal implementation merged behind existing conventions
- Regression tests cover happy path + key failure mode
- Docs or examples updated for operators/contributors
+ Reproduce/measure current behavior
+ Minimal scoped fix
+ Regression test added/updated
+ Docs updated where applicable
 Testing
-Unit/integration tests per area (npm run test, soroban test, workspace lint). Include at least one failure-mode test.
+Relevant suite green (npm run test, soroban test, or workspace lint/test).
