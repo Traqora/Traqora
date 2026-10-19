@@ -1,17 +1,44 @@
 import Queue from "bull";
 import { config } from "../config";
+import { logger } from "../utils/logger";
+
+export type NotificationType =
+  | "booking"
+  | "reminder"
+  | "refund"
+  | "promotional"
+  | "flight_delayed"
+  | "flight_delayed_significant"
+  | "flight_cancelled"
+  | "gate_changed"
+  | "boarding_reminder"
+  | "flight_status"
+  | "flight_status_shared"
+  | "refund_initiated";
 
 export interface NotificationPayload {
   userId: string;
-  type: "booking" | "reminder" | "refund" | "promotional";
+  type: NotificationType;
   data: Record<string, any>; // specific data for the template
   channels?: ("email" | "sms" | "push")[]; // Optional override of which channels to use
+  /**
+   * Optional caller-supplied key for cross-channel de-duplication.
+   * When provided, the worker skips any channel that already has a
+   * "sent" NotificationLog entry with this key.  If omitted the
+   * worker derives the key from the Bull job ID.
+   */
+  idempotencyKey?: string;
 }
 
+/**
+ * Notification jobs (issue #758) follow the transactional outbox pattern: producers
+ * persist the outbox row inside the same transaction as the business write, and a
+ * relay drains it into this queue at-least-once, so handlers must stay idempotent.
+ */
 export const notificationQueue = new Queue<NotificationPayload>(
   "notifications",
   {
-    redis: config.redisUrl || "redis://localhost:6379",
+    redis: config.redisUrl,
     defaultJobOptions: {
       attempts: 3,
       backoff: {
@@ -36,5 +63,14 @@ export const scheduleNotification = async (
     options.delay = delayInMs;
   }
 
-  return await notificationQueue.add(payload, options);
+  const job = await notificationQueue.add(payload, options);
+  logger.debug("notification-queue: job enqueued", {
+    job: "notification-queue",
+    jobId: job.id,
+    step: "enqueue",
+    type: payload.type,
+    userId: payload.userId,
+    channels: payload.channels,
+  });
+  return job;
 };
