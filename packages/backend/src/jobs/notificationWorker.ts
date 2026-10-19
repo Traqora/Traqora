@@ -8,6 +8,7 @@ import { pushNotificationService } from "../services/PushNotificationService";
 import { logger } from "../utils/logger";
 import { createJobLogger } from "./jobLogger";
 import { deadLetterQueue } from "./deadLetterQueue";
+import { purgePushToken } from "../services/pushTokenLifecycle";
 
 /**
  * Check whether a "sent" log entry already exists for this idempotency key +
@@ -138,7 +139,47 @@ export const setupNotificationWorker = () => {
     }
 
     // Push
+    if (
+      targetChannels.includes("push") &&
+      userPref.pushEnabled &&
+      userPref.fcmToken
+    ) {
+      if (await isDuplicateDelivery(logRepo, userId, type, "push", idempotencyKey)) {
+        logger.info("notification-worker: skipping duplicate push delivery", { userId, type, idempotencyKey });
+        results.push({ channel: "push", status: "skipped_duplicate" });
+      } else {
+        try {
+          const delivery = await pushNotificationService.sendPush(userId, type, {
+            data: data as Record<string, string> | undefined,
+          });
 
+          if (delivery.transientlyFailed > 0) {
+            throw new Error(`Push provider transiently rejected ${delivery.transientlyFailed} delivery(ies)`);
+          }
+
+          if (delivery.permanentlyFailed > 0) {
+            purgePushToken(userPref, userPref.fcmToken);
+            await userPrefRepo.save(userPref);
+          }
+
+          const entry = logRepo.create({
+            userId,
+            channel: "push",
+            type,
+            payload: job.data,
+            status: "sent",
+            attempts: job.attemptsMade + 1,
+            idempotencyKey,
+          });
+          await logRepo.save(entry);
+          results.push({
+            channel: "push",
+            status: delivery.permanentlyFailed > 0 && delivery.successful === 0
+              ? "skipped_invalid_token"
+              : "success",
+          });
+        } catch (error: any) {
+          const entry = logRepo.create({
             userId,
             channel: "push",
             type,
@@ -146,12 +187,15 @@ export const setupNotificationWorker = () => {
             status: "failed",
             errorMessage: error.message,
             attempts: job.attemptsMade + 1,
-
+            idempotencyKey,
+          });
+          await logRepo.save(entry);
           results.push({
             channel: "push",
             status: "error",
             error: error.message,
           });
+          throw error;
         }
       }
     }

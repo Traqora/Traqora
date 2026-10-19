@@ -442,7 +442,7 @@ export class NotificationService {
             data: payload.data as Record<string, string> | undefined,
           },
         );
-        if (result.successful === 0 && result.failed > 0) {
+        if (result.transientlyFailed > 0 || (result.successful === 0 && result.failed > 0 && result.permanentlyFailed === 0)) {
           throw new Error("All push deliveries failed");
         }
         break;
