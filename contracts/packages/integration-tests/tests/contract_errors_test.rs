@@ -181,16 +181,16 @@ fn test_access_roles_grant_revoke() {
 
     client.set_role(&owner, &admin, &1, &true);
     assert!(client.has_role(&admin, &1));
-    assert!(client.has_role(&admin, &2)); // Admin ⊃ Operator
+    assert!(!client.has_role(&admin, &2)); // Admin does not inherit Operator rights
 
     client.set_role(&owner, &operator, &2, &true);
     assert!(client.has_role(&operator, &2));
-    assert!(!client.has_role(&operator, &1)); // Operator ⊄ Admin
+    assert!(!client.has_role(&operator, &1)); // Operator does not inherit Admin rights
 
     // Revoke
     client.set_role(&owner, &admin, &1, &false);
     assert!(!client.has_role(&admin, &1));
-    assert!(!client.has_role(&admin, &2)); // No longer admin, no longer operator
+    assert!(!client.has_role(&admin, &2)); // No longer admin or operator
 }
 
 // ─── 3. guards helpers ───────────────────────────────────────────────────────
