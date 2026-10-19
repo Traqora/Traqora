@@ -42,12 +42,8 @@ RUN addgroup -S traqora && adduser -S traqora -G traqora
 WORKDIR /usr/src/app
 
 COPY package*.json ./
-# Use npm ci for clean, reproducible production installs. The legacy peer
-# setting is required because the dependency graph contains older dev peers
-# that npm still validates while pruning development dependencies.
-RUN npm config set legacy-peer-deps true \
-    && npm ci --omit=dev --legacy-peer-deps --ignore-scripts \
-    && npm cache clean --force
+# Use npm ci for clean, reproducible production installs
+RUN npm ci --only=production && npm cache clean --force
 
 # Copy only the compiled output and necessary assets
 COPY --from=build /usr/src/app/dist ./dist
@@ -65,3 +61,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1
 
 CMD ["node", "dist/index.js"]
+
