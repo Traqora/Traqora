@@ -46,8 +46,29 @@ export class ContractMonitor {
     this.eventArchive = options.eventArchive ?? new TypeOrmContractEventArchive();
 
     const cursorStore = options.cursorStore ?? new TypeOrmContractCursorStore();
-    this.indexer = this.server
-      ? new ContractEventIndexer(this.server, cursorStore, options.indexerOptions)
+    const server = this.server;
+
+    // Keep the existing Soroban resilience boundary: circuit breaker, retries,
+    // and operation metrics still wrap every RPC call made by the indexer.
+    const resilientRpc: SorobanEventRpc | null = server
+      ? {
+          getLatestLedger: () =>
+            executeSorobanOperation(
+              'soroban_get_latest_ledger',
+              () => server.getLatestLedger(),
+              { component: 'contract_monitor' },
+            ),
+          getEvents: (params) =>
+            executeSorobanOperation(
+              'soroban_get_events',
+              () => server.getEvents(params),
+              { component: 'contract_monitor' },
+            ),
+        }
+      : null;
+
+    this.indexer = resilientRpc
+      ? new ContractEventIndexer(resilientRpc, cursorStore, options.indexerOptions)
       : null;
   }
 
