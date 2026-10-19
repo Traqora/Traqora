@@ -63,6 +63,7 @@ RUN addgroup -g 1001 -S traqora \
 WORKDIR /usr/src/app
 
 COPY package*.json ./
+RUN npm config set legacy-peer-deps true
 RUN npm ci --omit=dev --legacy-peer-deps --ignore-scripts \
     && npm cache clean --force
 

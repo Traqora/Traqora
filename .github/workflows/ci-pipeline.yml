@@ -643,7 +643,7 @@ jobs:
       - name: Install Trivy (retry)
         run: |
           for i in 1 2 3; do
-            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.65.0 && break
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.65.0 && break
             echo "trivy install attempt $i failed, retrying..."
             sleep 10
           done
