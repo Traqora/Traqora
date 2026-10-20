@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { Armchair, Info } from "lucide-react"
 import { handleKeyboardNavigation } from "@/lib/accessibility"
 import { formatCurrency, type CurrencyCode } from "@/lib/currency"
+import { API_BASE_URL } from "@/lib/api"
 
 interface Seat {
   id: string
@@ -20,17 +21,36 @@ interface Seat {
 
 interface SeatSelectorProps {
   onSeatSelect: (seat: Seat) => void
+  flightId?: string
   selectedSeatId?: string
   cabinClass: string
   displayCurrency?: CurrencyCode
   rates?: Record<string, number>
 }
 
-export function SeatSelector({ onSeatSelect, selectedSeatId, cabinClass, displayCurrency = "USD", rates }: SeatSelectorProps) {
+export function SeatSelector({ onSeatSelect, selectedSeatId, cabinClass, flightId, displayCurrency = "USD", rates }: SeatSelectorProps) {
   const rows = 20
   const cols = ["A", "B", "C", "", "D", "E", "F"]
   
   const [selectedId, setSelectedId] = useState<string | undefined>(selectedSeatId)
+  const [availability, setAvailability] = useState<Record<number, Record<string, { available: boolean; price: number; type: string }>>>({})
+
+  useEffect(() => {
+    if (!flightId) return
+    const controller = new AbortController()
+    void fetch(`${API_BASE_URL}/api/services/seats/${flightId}?cabinClass=${encodeURIComponent(cabinClass)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unable to load seat availability")
+        const data = await response.json() as { seatMap?: Record<number, Record<string, { available: boolean; price: number; type: string }>> }
+        setAvailability(data.seatMap ?? {})
+      })
+      .catch((error: unknown) => {
+        if ((error as Error).name !== "AbortError") setAvailability({})
+      })
+    return () => controller.abort()
+  }, [cabinClass, flightId])
 
   const getSeatType = (row: number): Seat["type"] => {
     if (row <= 2) return "first"
@@ -126,7 +146,8 @@ export function SeatSelector({ onSeatSelect, selectedSeatId, cabinClass, display
                       }
 
                       const seatId = `${rowNum}${col}`
-                      const isOccupied = Math.random() < 0.3
+                      const liveSeat = availability[rowNum]?.[col]
+                      const isOccupied = liveSeat ? !liveSeat.available : false
                       const isSelected = selectedId === seatId
                       const isCompatible = type === cabinClass.toLowerCase() || (cabinClass === "economy" && type === "economy")
                       const seatStatus = isOccupied ? "occupied" : isSelected ? "selected" : "available"
@@ -145,7 +166,7 @@ export function SeatSelector({ onSeatSelect, selectedSeatId, cabinClass, display
                             label: seatId,
                             type: type,
                             status: seatStatus,
-                            price: getSeatPrice(type)
+                            price: liveSeat?.price ?? getSeatPrice(type)
                           })}
                           onKeyDown={(e) => handleSeatKeyDown(e, {
                             id: seatId,

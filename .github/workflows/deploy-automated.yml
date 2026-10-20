@@ -95,6 +95,8 @@ jobs:
               env:
                   STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
                   NETWORK: ${{ needs.determine-network.outputs.network }}
+                  # Explicit opt-in for the mainnet guard (scripts/lib/network-guard.sh).
+                  CONFIRM_MAINNET: ${{ needs.determine-network.outputs.network }}
               run: |
                   chmod +x scripts/deploy-contracts.sh
                   ./scripts/deploy-contracts.sh "$NETWORK" "${{ github.sha }}" "true"

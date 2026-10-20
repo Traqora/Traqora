@@ -55,6 +55,19 @@ query and sets `isFromCache: true` on the hook's return value so the UI can
 warn the user the results may be stale. Cached search results expire after 1
 hour (much shorter than bookings, since prices/availability change quickly).
 
+### Offline Check-In & Boarding Pass
+
+`useCheckInOffline()` (`hooks/use-check-in-offline.ts`) lets travelers view
+their boarding pass without a connection. A confirmed check-in is written to
+local storage via `cacheCheckIn()` (key prefix `traqora_checkin_cache_`) the
+moment it is issued. When the check-in page loads offline, or the check-in
+request fails, the hook serves `getCachedCheckIn(bookingId)` and reports
+`isFromCache: true`. `BoardingPassView` surfaces this with a banner and
+disables the PDF/wallet actions while offline, since those downloads require
+the network. Pending check-ins are unaffected: submitting a new check-in still
+requires connectivity, and a failed request leaves no cached record behind.
+Cached check-ins are removed by `clearAllOfflineData()`.
+
 ### Offline Status Monitoring
 
 The `useOfflineStatus()` hook provides:

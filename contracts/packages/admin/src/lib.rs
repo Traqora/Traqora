@@ -2,6 +2,7 @@
 // Booking-style contract entrypoints legitimately need many arguments;
 // soroban macro-generated clients re-declare these signatures.
 #![allow(clippy::too_many_arguments)]
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contractmeta, contracttype, symbol_short, Address, Env, Symbol, Vec,
 };
@@ -146,8 +147,7 @@ impl AdminMultisig {
 
         AdminStorage::set_multisig_config(&env, &config);
 
-        env.events()
-            .publish((symbol_short!("admin"), symbol_short!("init")), threshold);
+        contract_events::emit(&env, Domain::Admin, Action::Init, threshold);
     }
 
     /// Propose an admin action
@@ -223,8 +223,10 @@ impl AdminMultisig {
         AdminStorage::set_proposal(&env, proposal_count, &proposal);
         AdminStorage::record_approval(&env, proposal_count, &proposer);
 
-        env.events().publish(
-            (symbol_short!("proposal"), symbol_short!("created")),
+        contract_events::emit(
+            &env,
+            Domain::Proposal,
+            Action::Created,
             (proposal_count, action_type),
         );
 
@@ -263,8 +265,10 @@ impl AdminMultisig {
         AdminStorage::set_proposal(&env, proposal_id, &proposal);
         AdminStorage::record_approval(&env, proposal_id, &signer);
 
-        env.events().publish(
-            (symbol_short!("proposal"), symbol_short!("approved")),
+        contract_events::emit(
+            &env,
+            Domain::Proposal,
+            Action::Approved,
             (proposal_id, signer),
         );
     }
@@ -301,63 +305,64 @@ impl AdminMultisig {
         match proposal.action_type {
             AdminActionType::EmergencyStop => {
                 AdminStorage::set_emergency_stopped(&env, true);
-                env.events().publish(
-                    (symbol_short!("emergency"), symbol_short!("stopped")),
-                    proposal_id,
-                );
+                contract_events::emit(&env, Domain::Emergency, Action::Stopped, proposal_id);
             }
             AdminActionType::EmergencyResume => {
                 AdminStorage::set_emergency_stopped(&env, false);
-                env.events().publish(
-                    (symbol_short!("emergency"), symbol_short!("resumed")),
-                    proposal_id,
-                );
+                contract_events::emit(&env, Domain::Emergency, Action::Resumed, proposal_id);
             }
             AdminActionType::AddSigner => {
                 let new_signer = proposal.target_address.clone().expect("No target address");
                 Self::add_signer_internal(env.clone(), new_signer.clone());
-                env.events().publish(
-                    (symbol_short!("signer"), symbol_short!("added")),
+                contract_events::emit(
+                    &env,
+                    Domain::Signer,
+                    Action::Added,
                     (proposal_id, new_signer),
                 );
             }
             AdminActionType::RemoveSigner => {
                 let remove_signer = proposal.target_address.clone().expect("No target address");
                 Self::remove_signer_internal(env.clone(), remove_signer.clone());
-                env.events().publish(
-                    (symbol_short!("signer"), symbol_short!("removed")),
+                contract_events::emit(
+                    &env,
+                    Domain::Signer,
+                    Action::Removed,
                     (proposal_id, remove_signer),
                 );
             }
             AdminActionType::UpdateThreshold => {
                 let new_threshold = proposal.new_threshold.expect("No new threshold");
                 Self::update_threshold_internal(env.clone(), new_threshold);
-                env.events().publish(
-                    (symbol_short!("threshold"), symbol_short!("updated")),
+                contract_events::emit(
+                    &env,
+                    Domain::Threshold,
+                    Action::Updated,
                     (proposal_id, new_threshold),
                 );
             }
             AdminActionType::ParameterChange => {
                 let key = proposal.parameter_key.clone().expect("No parameter key");
                 let value = proposal.parameter_value.expect("No parameter value");
-                env.events().publish(
-                    (symbol_short!("param"), symbol_short!("changed")),
+                contract_events::emit(
+                    &env,
+                    Domain::Param,
+                    Action::Changed,
                     (proposal_id, key, value),
                 );
             }
             AdminActionType::ContractUpgrade => {
-                env.events().publish(
-                    (symbol_short!("upgrade"), symbol_short!("executed")),
-                    proposal_id,
-                );
+                contract_events::emit(&env, Domain::Upgrade, Action::Executed, proposal_id);
             }
         }
 
         proposal.executed = true;
         AdminStorage::set_proposal(&env, proposal_id, &proposal);
 
-        env.events().publish(
-            (symbol_short!("action"), symbol_short!("executed")),
+        contract_events::emit(
+            &env,
+            Domain::Action,
+            Action::Executed,
             (proposal_id, proposal.action_type),
         );
     }
@@ -376,10 +381,7 @@ impl AdminMultisig {
         proposal.cancelled = true;
         AdminStorage::set_proposal(&env, proposal_id, &proposal);
 
-        env.events().publish(
-            (symbol_short!("proposal"), symbol_short!("cancelled")),
-            proposal_id,
-        );
+        contract_events::emit(&env, Domain::Proposal, Action::Cancelled, proposal_id);
     }
 
     /// Add a new signer (internal, called after multi-sig approval)

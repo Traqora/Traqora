@@ -6,6 +6,7 @@ import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { SecurityAuditLog } from '../../db/entities/SecurityAuditLog';
 import { getLogger } from '../../services/logger';
+import { createPaginationMeta } from '../../types/pagination';
 
 const router = Router();
 const logger = getLogger({ component: 'audit-routes' });
@@ -19,8 +20,8 @@ const auditQuerySchema = z.object({
   resourceId: z.string().optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
-  limit: z.coerce.number().int().positive().max(500).optional(),
-  offset: z.coerce.number().int().min(0).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(500).default(50),
 });
 
 function buildFiltersFromQuery(
@@ -35,8 +36,8 @@ function buildFiltersFromQuery(
   resourceId?: string;
   from?: string;
   to?: string;
+  page?: number;
   limit?: number;
-  offset?: number;
 } {
   const parsed = auditQuerySchema.parse(raw);
   return {
@@ -48,8 +49,8 @@ function buildFiltersFromQuery(
     resourceId: parsed.resourceId,
     from: parsed.from,
     to: parsed.to,
+    page: parsed.page,
     limit: parsed.limit,
-    offset: parsed.offset,
     ...overrides,
   };
 }
@@ -67,13 +68,10 @@ router.get(
       resultCount: result.logs.length,
     });
 
+    const pagination = createPaginationMeta(filters.page ?? 1, filters.limit ?? 50, result.total);
     res.json({
       data: result.logs.map(serializeAuditLog),
-      pagination: {
-        total: result.total,
-        limit: filters.limit ?? 50,
-        offset: filters.offset ?? 0,
-      },
+      pagination,
     });
   }),
 );
@@ -109,13 +107,10 @@ router.get(
     const filters = buildFiltersFromQuery(req.query, overrides);
     const result = await queryAuditLogs(filters);
 
+    const pagination = createPaginationMeta(filters.page ?? 1, filters.limit ?? 50, result.total);
     res.json({
       data: result.logs.map(serializeAuditLog),
-      pagination: {
-        total: result.total,
-        limit: filters.limit ?? 50,
-        offset: filters.offset ?? 0,
-      },
+      pagination,
     });
   }),
 );

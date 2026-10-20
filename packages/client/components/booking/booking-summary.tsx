@@ -13,7 +13,6 @@ import {
   Plane,
   Clock,
   Calendar,
-  Users,
   Luggage,
   Shield,
   Leaf,
@@ -22,6 +21,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency, type CurrencyCode } from "@/lib/currency";
+import { computeFareBreakdown } from "@/lib/pricing/fare-breakdown";
+import { FareBreakdown, type FareBreakdownItem } from "@/components/booking/fare-breakdown";
 
 interface Flight {
   id: string;
@@ -97,42 +98,64 @@ export function BookingSummary({
   displayCurrency = "USD",
   rates,
 }: BookingSummaryProps) {
-  const convertPrice = (priceInUsd: number): number => {
-    if (displayCurrency === "USD" || !rates) return priceInUsd;
-    return priceInUsd * (rates[displayCurrency] || 1);
-  };
+  const items: FareBreakdownItem[] = [];
+  if (selectedSeat) {
+    items.push({
+      key: "seat",
+      label: `Seat Selection (${selectedSeat.id})`,
+      amountCents: Math.round(selectedSeat.price * 100),
+      icon: <Armchair className="h-4 w-4" />,
+    });
+  }
+  if (insurance) {
+    items.push({
+      key: "insurance",
+      label: `Travel Insurance (${insurance.coverageType})`,
+      amountCents: insurance.premiumCents,
+      icon: <Shield className="h-4 w-4" />,
+    });
+  }
+  if (carbonOffset) {
+    items.push({
+      key: "carbonOffset",
+      label: "Carbon Offset",
+      amountCents: carbonOffset.costCents,
+      icon: <Leaf className="h-4 w-4" />,
+    });
+  }
+  if (meals) items.push({ key: "meals", label: `Meals (${meals.count})`, amountCents: meals.totalCents });
+  if (wifi) items.push({ key: "wifi", label: `WiFi (${wifi.count})`, amountCents: wifi.totalCents });
+  if (baggage) {
+    items.push({
+      key: "baggage",
+      label: `Baggage (${baggage.count})`,
+      amountCents: baggage.totalCents,
+      icon: <Luggage className="h-4 w-4" />,
+    });
+  }
+  if (entertainment) {
+    items.push({
+      key: "entertainment",
+      label: `Entertainment (${entertainment.count})`,
+      amountCents: entertainment.totalCents,
+    });
+  }
+  if (ancillaries) {
+    items.push({
+      key: "ancillaries",
+      label: `Trip Extras (${ancillaries.count})`,
+      amountCents: ancillaries.totalCents,
+      icon: <Sparkles className="h-4 w-4" />,
+    });
+  }
 
-  const basePrice = convertPrice(parseFloat(flight.price));
-  const baseFare = basePrice * passengerCount;
-  const seatPrice = convertPrice(selectedSeat?.price || 0);
-  const seatFare = selectedSeat ? seatPrice : 0;
-  const insuranceFare = insurance
-    ? convertPrice(insurance.premiumCents / 100)
-    : 0;
-  const offsetFare = carbonOffset
-    ? convertPrice(carbonOffset.costCents / 100)
-    : 0;
-  const mealsFare = meals ? convertPrice(meals.totalCents / 100) : 0;
-  const wifiFare = wifi ? convertPrice(wifi.totalCents / 100) : 0;
-  const baggageFare = baggage ? convertPrice(baggage.totalCents / 100) : 0;
-  const entertainmentFare = entertainment
-    ? convertPrice(entertainment.totalCents / 100)
-    : 0;
-  const ancillaryFare = ancillaries
-    ? convertPrice(ancillaries.totalCents / 100)
-    : 0;
-  const subtotal =
-    baseFare +
-    seatFare +
-    insuranceFare +
-    offsetFare +
-    mealsFare +
-    wifiFare +
-    baggageFare +
-    entertainmentFare +
-    ancillaryFare;
-  const taxes = subtotal * 0.08;
-  const total = subtotal + taxes;
+  const breakdown = computeFareBreakdown({
+    baseFarePerPassenger: flight.price,
+    passengerCount,
+    items,
+    displayCurrency,
+    rates,
+  });
 
   return (
     <Card
@@ -219,129 +242,21 @@ export function BookingSummary({
 
         <Separator />
 
-        <div className="space-y-3">
-          <h2 className="font-bold text-sm uppercase tracking-widest text-muted-foreground">
-            Price Breakdown
-          </h2>
-          <div className="space-y-2">
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground flex items-center gap-2">
-                <Users className="h-4 w-4" />
-                Base Fare ({passengerCount} ×{" "}
-                {formatCurrency(basePrice, displayCurrency)})
-              </span>
-              <span className="font-medium">
-                {formatCurrency(baseFare, displayCurrency)}
-              </span>
-            </div>
-            {selectedSeat && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground flex items-center gap-2">
-                  <Armchair className="h-4 w-4" />
-                  Seat Selection ({selectedSeat.id})
-                </span>
-                <span className="font-medium">
-                  {formatCurrency(seatFare, displayCurrency)}
-                </span>
-              </div>
-            )}
-            {insurance && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground flex items-center gap-2">
-                  <Shield className="h-4 w-4" />
-                  Travel Insurance ({insurance.coverageType})
-                </span>
-                <span className="font-medium">
-                  {formatCurrency(insuranceFare, displayCurrency)}
-                </span>
-              </div>
-            )}
-            {carbonOffset && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground flex items-center gap-2">
-                  <Leaf className="h-4 w-4" />
-                  Carbon Offset
-                </span>
-                <span className="font-medium">
-                  {formatCurrency(offsetFare, displayCurrency)}
-                </span>
-              </div>
-            )}
-            {meals && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground flex items-center gap-2">
-                  Meals ({meals.count})
-                </span>
-                <span className="font-medium">
-                  {formatCurrency(mealsFare, displayCurrency)}
-                </span>
-              </div>
-            )}
-            {wifi && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground flex items-center gap-2">
-                  WiFi ({wifi.count})
-                </span>
-                <span className="font-medium">
-                  {formatCurrency(wifiFare, displayCurrency)}
-                </span>
-              </div>
-            )}
-            {baggage && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground flex items-center gap-2">
-                  <Luggage className="h-4 w-4" />
-                  Baggage ({baggage.count})
-                </span>
-                <span className="font-medium">
-                  {formatCurrency(baggageFare, displayCurrency)}
-                </span>
-              </div>
-            )}
-            {entertainment && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground flex items-center gap-2">
-                  Entertainment ({entertainment.count})
-                </span>
-                <span className="font-medium">
-                  {formatCurrency(entertainmentFare, displayCurrency)}
-                </span>
-              </div>
-            )}
-            {ancillaries && (
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground flex items-center gap-2">
-                  <Sparkles className="h-4 w-4" />
-                  Trip Extras ({ancillaries.count})
-                </span>
-                <span className="font-medium">
-                  {formatCurrency(ancillaryFare, displayCurrency)}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground flex items-center gap-2">
-                <Shield className="h-4 w-4" />
-                Taxes & Mandatory Fees
-              </span>
-              <span className="font-medium">
-                {formatCurrency(taxes, displayCurrency)}
-              </span>
-            </div>
-          </div>
-        </div>
+        <FareBreakdown breakdown={breakdown} />
       </CardContent>
 
       <CardFooter className="bg-muted/30 p-6 flex-col items-stretch gap-4">
         <div className="flex justify-between items-center">
           <span className="text-lg font-medium">Total Amount</span>
           <div className="text-right">
-            <span className="text-2xl font-bold text-primary">
-              {formatCurrency(total, displayCurrency)}
+            <span className="text-2xl font-bold text-primary" data-testid="fare-total">
+              {breakdown.ok ? formatCurrency(breakdown.total.value, breakdown.currency) : "—"}
             </span>
-            <p className="text-xs text-muted-foreground">
-              ≈ {(total * 10).toFixed(2)} XLM
-            </p>
+            {breakdown.ok && (
+              <p className="text-xs text-muted-foreground">
+                ≈ {(breakdown.total.value * 10).toFixed(2)} XLM
+              </p>
+            )}
           </div>
         </div>
 

@@ -5,6 +5,8 @@
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { logger } from '../../utils/logger';
+import { withRetry, isTransientError, RetryOptions } from '../../services/ErrorHandlingService';
+import { CircuitBreaker } from './flightSyncService';
 import {
   AmadeusFlightData,
   AmadeusFlightStatus,
@@ -17,6 +19,12 @@ interface AmadeusConfig {
   clientSecret: string;
   baseUrl?: string;
   timeout?: number;
+  /** Circuit breaker threshold (number of failures before opening) */
+  circuitBreakerThreshold?: number;
+  /** Circuit breaker reset timeout in milliseconds */
+  circuitBreakerResetTimeout?: number;
+  /** Retry options for API calls */
+  retryOptions?: RetryOptions;
 }
 
 interface AmadeusTokenResponse {
@@ -40,6 +48,8 @@ export class AmadeusAnalyticsClient {
   private baseUrl: string;
   private requestCount: number = 0;
   private rateLimitRemaining: number = -1;
+  private circuitBreaker: CircuitBreaker;
+  private retryOptions: RetryOptions;
 
   constructor(config: AmadeusConfig) {
     this.clientId = config.clientId;
@@ -50,6 +60,22 @@ export class AmadeusAnalyticsClient {
       baseURL: this.baseUrl,
       timeout: config.timeout || 30000,
     });
+
+    // Initialize circuit breaker
+    this.circuitBreaker = new CircuitBreaker(
+      config.circuitBreakerThreshold || 5,
+      config.circuitBreakerResetTimeout || 60000,
+    );
+
+    // Initialize retry options with defaults
+    this.retryOptions = {
+      retries: config.retryOptions?.retries ?? 3,
+      baseDelayMs: config.retryOptions?.baseDelayMs ?? 250,
+      maxDelayMs: config.retryOptions?.maxDelayMs ?? 10000,
+      jitter: config.retryOptions?.jitter ?? true,
+      shouldRetry: config.retryOptions?.shouldRetry ?? isTransientError,
+      operationName: 'Amadeus API',
+    };
 
     // Add response interceptor to track rate limiting
     this.axiosInstance.interceptors.response.use(
@@ -65,6 +91,18 @@ export class AmadeusAnalyticsClient {
   }
 
   /**
+   * Execute an API call with retry and circuit breaker
+   */
+  private async executeWithResilience<T>(
+    operationName: string,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    return this.circuitBreaker.execute(async () => {
+      return withRetry(fn, this.retryOptions);
+    });
+  }
+
+  /**
    * Authenticate and get access token
    */
   async authenticate(): Promise<string> {
@@ -74,20 +112,23 @@ export class AmadeusAnalyticsClient {
         return this.accessToken;
       }
 
-      const response = await axios.post<AmadeusTokenResponse>(
-        `${this.baseUrl}/v1/security/oauth2/token`,
-        new URLSearchParams({
-          grant_type: 'client_credentials',
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
-        }).toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          timeout: 10000,
-        }
-      );
+      const response = await this.executeWithResilience('authenticate', async () => {
+        const response = await axios.post<AmadeusTokenResponse>(
+          `${this.baseUrl}/v1/security/oauth2/token`,
+          new URLSearchParams({
+            grant_type: 'client_credentials',
+            client_id: this.clientId,
+            client_secret: this.clientSecret,
+          }).toString(),
+          {
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            timeout: 10000,
+          }
+        );
+        return response;
+      });
 
       this.accessToken = response.data.access_token;
       // Set expiry 5 minutes before actual expiry
@@ -119,20 +160,22 @@ export class AmadeusAnalyticsClient {
     try {
       const token = await this.authenticate();
 
-      const response = await this.axiosInstance.get<{
-        data: AmadeusFlightData[];
-        dictionaries?: Record<string, any>;
-      }>('/v2/shopping/flight-offers', {
-        params: {
-          originLocationCode: params.originLocationCode,
-          destinationLocationCode: params.destinationLocationCode,
-          departureDate: params.departureDate,
-          adults: params.adults,
-          max: params.max || 50,
-        },
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      const response = await this.executeWithResilience('searchFlights', async () => {
+        return this.axiosInstance.get<{
+          data: AmadeusFlightData[];
+          dictionaries?: Record<string, any>;
+        }>('/v2/shopping/flight-offers', {
+          params: {
+            originLocationCode: params.originLocationCode,
+            destinationLocationCode: params.destinationLocationCode,
+            departureDate: params.departureDate,
+            adults: params.adults,
+            max: params.max || 50,
+          },
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
       });
 
       this.requestCount++;
@@ -163,17 +206,19 @@ export class AmadeusAnalyticsClient {
     try {
       const token = await this.authenticate();
 
-      const response = await this.axiosInstance.get<{
-        data: AmadeusFlightStatus[];
-      }>('/v2/schedule/flights', {
-        params: {
-          carrierCode: params.carrierCode,
-          flightNumber: params.flightNumber,
-          scheduledDepartureDate: params.scheduledDepartureDate,
-        },
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      const response = await this.executeWithResilience('getFlightStatus', async () => {
+        return this.axiosInstance.get<{
+          data: AmadeusFlightStatus[];
+        }>('/v2/schedule/flights', {
+          params: {
+            carrierCode: params.carrierCode,
+            flightNumber: params.flightNumber,
+            scheduledDepartureDate: params.scheduledDepartureDate,
+          },
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
       });
 
       this.requestCount++;
@@ -203,14 +248,16 @@ export class AmadeusAnalyticsClient {
     try {
       const token = await this.authenticate();
 
-      const response = await this.axiosInstance.get('/v1/reference-data/locations', {
-        params: {
-          subType: 'AIRPORT',
-          keyword: airportCode,
-        },
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+      const response = await this.executeWithResilience('getAirportDetails', async () => {
+        return this.axiosInstance.get('/v1/reference-data/locations', {
+          params: {
+            subType: 'AIRPORT',
+            keyword: airportCode,
+          },
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
       });
 
       this.requestCount++;
@@ -289,5 +336,12 @@ export class AmadeusAnalyticsClient {
       rateLimitRemaining: this.rateLimitRemaining,
       hasValidToken: this.accessToken !== null && Date.now() < this.tokenExpiresAt,
     };
+  }
+
+  /**
+   * Get circuit breaker status
+   */
+  getCircuitBreakerStatus() {
+    return this.circuitBreaker.getStatus();
   }
 }

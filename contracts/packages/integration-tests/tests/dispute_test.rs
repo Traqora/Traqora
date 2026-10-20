@@ -2,7 +2,7 @@
 
 use dispute::{DisputeContract, DisputeContractClient};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger, LedgerInfo},
+    testutils::Address as _,
     Address, Bytes, BytesN, Env, Symbol,
 };
 
@@ -21,16 +21,7 @@ fn create_dispute_contract(env: &Env) -> Address {
 }
 
 fn advance_ledger(env: &Env, seconds: u64) {
-    env.ledger().set(LedgerInfo {
-        timestamp: env.ledger().timestamp() + seconds,
-        protocol_version: env.ledger().protocol_version(),
-        sequence_number: env.ledger().sequence() + 1,
-        network_id: Default::default(),
-        base_reserve: 10,
-        min_temp_entry_ttl: 16,
-        min_persistent_entry_ttl: 16,
-        max_entry_ttl: 6312000,
-    });
+    integration_tests::time::advance_time(env, seconds);
 }
 
 #[test]

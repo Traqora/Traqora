@@ -266,6 +266,39 @@ describe('transactions routes', () => {
       expect(res.body.success).toBe(false);
     });
 
+    it('persists the outer/inner relationship for a fee-bump retry (#923)', async () => {
+      const flight = await seedFlight();
+      const booking = await seedBooking({
+        walletAddress: WALLET_OWNER,
+        flight,
+        status: 'failed',
+        sorobanTxHash: 'old-hash',
+        contractSubmitAttempts: 1,
+      });
+      soroban.submitSignedSorobanXdr.mockResolvedValue({
+        txHash: 'outer-fee-bump-hash',
+        innerTxHash: 'inner-hash',
+        feeBumpTxHash: 'outer-fee-bump-hash',
+        isFeeBump: true,
+      });
+
+      const res = await request(app)
+        .post(`/api/v1/transactions/${booking.id}/retry`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({ signedXdr: 'signed-fee-bump-xdr' })
+        .expect(202);
+
+      expect(res.body.data.isFeeBump).toBe(true);
+      expect(res.body.data.innerTxHash).toBe('inner-hash');
+      expect(res.body.data.feeBumpTxHash).toBe('outer-fee-bump-hash');
+
+      const updated = await AppDataSource.getRepository(Booking).findOne({ where: { id: booking.id } });
+      expect(updated?.sorobanTxHash).toBe('outer-fee-bump-hash');
+      expect(updated?.sorobanInnerTxHash).toBe('inner-hash');
+      expect(updated?.sorobanFeeBumpTxHash).toBe('outer-fee-bump-hash');
+      expect(updated?.sorobanIsFeeBump).toBe(true);
+    });
+
     it('resubmits a failed transaction and records the new hash', async () => {
       const flight = await seedFlight();
       const booking = await seedBooking({

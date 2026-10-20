@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
 import { RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
+import { AppDataSource } from '../../db/dataSource';
+import { Booking } from '../../db/entities/Booking';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { requireAdmin } from '../../middleware/adminAuth';
@@ -25,6 +27,17 @@ const createRefundSchema = z.object({
   ]),
   reasonDetails: z.string().optional(),
   requestedBy: z.string().optional(),
+  requestedRefundPercentage: z.number().min(0).max(100).optional(),
+  requestedRefundAmountCents: z.number().min(0).optional(),
+}).superRefine((data, ctx) => {
+  // Ensure only one of percentage or amount is provided
+  if (data.requestedRefundPercentage !== undefined && data.requestedRefundAmountCents !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['requestedRefundPercentage'],
+      message: 'Cannot specify both requestedRefundPercentage and requestedRefundAmountCents',
+    });
+  }
 });
 
 // Manual review schema
@@ -462,6 +475,39 @@ router.post('/auto-eligible', asyncHandler(async (req: Request, res: Response) =
   } catch (error: any) {
     logger.error('Failed to check automated eligibility', error);
     throw new BadRequestError(error.message || 'Failed to check eligibility');
+  }
+}));
+
+/**
+ * POST /api/v1/refunds/partial-calculation
+ * Calculate detailed partial refund breakdown for a booking
+ */
+router.post('/partial-calculation', asyncHandler(async (req: Request, res: Response) => {
+  const parsed = autoEligibleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw new BadRequestError('Validation error', parsed.error.flatten());
+  }
+
+  try {
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({
+      where: { id: parsed.data.bookingId },
+      relations: ['flight'],
+    });
+
+    if (!booking) {
+      throw new NotFoundError('Booking not found');
+    }
+
+    const partialRefundBreakdown = refundService.calculatePartialRefund(booking);
+
+    return res.json({
+      success: true,
+      data: partialRefundBreakdown,
+    });
+  } catch (error: any) {
+    logger.error('Failed to calculate partial refund', error);
+    throw new BadRequestError(error.message || 'Failed to calculate partial refund');
   }
 }));
 

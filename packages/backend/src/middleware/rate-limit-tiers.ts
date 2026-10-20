@@ -99,3 +99,31 @@ function createRateLimitMiddleware(config: EndpointRateLimitConfig) {
 export const searchRateLimit  = createRateLimitMiddleware(SEARCH_LIMITS);
 export const bookingRateLimit = createRateLimitMiddleware(BOOKING_LIMITS);
 export { SEARCH_LIMITS, BOOKING_LIMITS };
+
+/**
+ * Wraps `middleware` so it never runs for any path in `excludedPaths`
+ * (matched against `req.path`, i.e. relative to the router's own mount
+ * point — see Express's `router.use` semantics). Used to apply a rate
+ * limiter router-wide while carving out a webhook endpoint that's called
+ * by external infrastructure (Stripe, a payment provider, ...) rather than
+ * a tiered end user, which would otherwise be misclassified into the
+ * tightest ("anonymous") tier and risk dropped deliveries under load.
+ *
+ * Returns (and awaits) `middleware`'s promise rather than firing it
+ * synchronously, so the caller can compose this with `asyncHandler` — the
+ * project's existing pattern (`utils/errorHandler.ts`) for routing a
+ * rejected promise to `next(err)` instead of letting it become an
+ * unhandled rejection.
+ */
+export function excludingPaths(
+  middleware: (req: Request, res: Response, next: NextFunction) => void | Promise<void>,
+  excludedPaths: readonly string[],
+) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (excludedPaths.includes(req.path)) {
+      next();
+      return;
+    }
+    await middleware(req, res, next);
+  };
+}

@@ -9,5 +9,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
+contract-events = { workspace = true }
 access = { workspace = true }
 storage-version = { workspace = true }
