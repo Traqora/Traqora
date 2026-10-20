@@ -490,11 +490,9 @@ mod test {
             &180,
             &180,
         );
-        // Events from add_flight_with_details: added + details (capture before view calls)
         let events = env.events().all();
         assert!(events.len() >= 2, "should emit at least added and details");
 
-        // Read path via get_flight_details
         let flight = client.get_flight_details(&flight_id).unwrap();
         assert_eq!(flight.flight_id, flight_id);
         assert_eq!(flight.status, status);
@@ -503,7 +501,6 @@ mod test {
         assert_eq!(flight.total_seats, 180);
         assert_eq!(flight.available_seats, 180);
 
-        // Read via dedicated getters
         assert_eq!(client.get_flight_status(&flight_id).unwrap(), status);
         assert_eq!(client.get_flight_schedule(&flight_id).unwrap(), (dep, arr));
         assert_eq!(client.get_flight_seats(&flight_id).unwrap(), (180, 180));
@@ -525,19 +522,15 @@ mod test {
             &Symbol::new(&env, "StatAir"),
         );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
-        // Initial status is active
         assert_eq!(
             client.get_flight_status(&flight_id).unwrap(),
             Symbol::new(&env, "active")
         );
-        // Update to cancelled
         let cancelled = Symbol::new(&env, "cancelled");
         client.update_flight_status(&airline_admin, &flight_id, &cancelled);
-        // Event on update: update_flight_status emits status + updated (capture before view)
         let events = env.events().all();
         assert!(events.len() >= 2, "update should emit status and updated");
         assert_eq!(client.get_flight_status(&flight_id).unwrap(), cancelled);
-        // Deterministic: same sequence yields same state
         let flight = client.get_flight(&flight_id).unwrap();
         assert_eq!(flight.status, cancelled);
     }
@@ -558,15 +551,12 @@ mod test {
             &Symbol::new(&env, "SchedAir"),
         );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
-        // Update schedule
         let dep = 1_800_000_000;
         let arr = 1_800_003_600;
         client.update_flight_schedule(&airline_admin, &flight_id, &dep, &arr);
         assert_eq!(client.get_flight_schedule(&flight_id).unwrap(), (dep, arr));
-        // Update seats
         client.update_flight_seats(&airline_admin, &flight_id, &200, &150);
         assert_eq!(client.get_flight_seats(&flight_id).unwrap(), (200, 150));
-        // Full read path
         let flight = client.get_flight_details(&flight_id).unwrap();
         assert_eq!(flight.departure_time, dep);
         assert_eq!(flight.total_seats, 200);
@@ -649,21 +639,20 @@ mod test {
         );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
         let before = client.get_flight(&flight_id).unwrap();
-        // Update via add_flight (same flight_id, should preserve status/schedule/seats)
         let mut new_meta = Map::new(&env);
         new_meta.set(
             Symbol::new(&env, "route"),
             Symbol::new(&env, "LOS_JFK").to_val(),
         );
         client.add_flight(&airline_admin, &flight_id, &new_meta);
-        // Event on update: second add_flight should emit updated + added (capture before view)
         let events = env.events().all();
         assert!(events.len() >= 1, "update should emit at least one event");
         let after = client.get_flight(&flight_id).unwrap();
         let route_val = after.metadata.get(Symbol::new(&env, "route")).unwrap();
         let route_sym = Symbol::try_from_val(&env, &route_val).unwrap();
         assert_eq!(route_sym, Symbol::new(&env, "LOS_JFK"));
-        // Status preserved
         assert_eq!(after.status, before.status);
     }
 }
+
+pub mod sync_cursor;
