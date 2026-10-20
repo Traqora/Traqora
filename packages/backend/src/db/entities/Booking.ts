@@ -49,6 +49,29 @@ export class Booking {
   @Column({ type: 'varchar', length: 128, nullable: true })
   sorobanTxHash?: string | null;
 
+  /**
+   * For fee-bump submissions, `sorobanTxHash` is the outer envelope hash and
+   * this is the inner transaction hash (#923). Equal to `sorobanTxHash` for
+   * ordinary transactions.
+   */
+  @Index()
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  sorobanInnerTxHash?: string | null;
+
+  @Index()
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  sorobanFeeBumpTxHash?: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  sorobanIsFeeBump!: boolean;
+
+  /**
+   * Stable, privacy-safe reference published in the transaction memo (#924).
+   */
+  @Index({ unique: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  bookingReference?: string | null;
+
   @Column({ type: 'bigint', nullable: true })
   sorobanBookingId?: string | null;
 

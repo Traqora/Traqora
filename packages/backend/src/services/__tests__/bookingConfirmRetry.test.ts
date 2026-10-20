@@ -257,6 +257,42 @@ describe('confirmBookingTx (#784 orchestration)', () => {
     expect(mockSave).not.toHaveBeenCalled();
   });
 
+  it('passes stored fee-bump hashes to the status lookup and persists the metadata', async () => {
+    const booking = {
+      id: 'booking-fee-bump',
+      status: 'onchain_submitted',
+      sorobanTxHash: 'outer-hash',
+      sorobanInnerTxHash: 'inner-hash',
+      sorobanFeeBumpTxHash: 'outer-hash',
+      sorobanIsFeeBump: true,
+      sorobanBookingId: null,
+      lastError: null,
+    };
+    mockFindOne.mockResolvedValue(booking);
+    mockGetTransactionStatus.mockResolvedValue({
+      status: 'success',
+      txHash: 'outer-hash',
+      result: '42',
+      isFeeBump: true,
+      innerTxHash: 'inner-hash',
+      feeBumpTxHash: 'outer-hash',
+    });
+
+    const result = await confirmBookingTx('booking-fee-bump');
+
+    expect(mockGetTransactionStatus).toHaveBeenCalledWith('outer-hash', {
+      innerTxHash: 'inner-hash',
+      feeBumpTxHash: 'outer-hash',
+    });
+    expect(result.outcome).toBe('confirmed');
+    expect(result.changed).toBe(true);
+    expect(booking.status).toBe('confirmed');
+    expect(booking.sorobanInnerTxHash).toBe('inner-hash');
+    expect(booking.sorobanFeeBumpTxHash).toBe('outer-hash');
+    expect(booking.sorobanIsFeeBump).toBe(true);
+    expect(mockSave).toHaveBeenCalledTimes(1);
+  });
+
   it('returns BadRequestError for an unknown booking', async () => {
     mockFindOne.mockResolvedValue(null);
 

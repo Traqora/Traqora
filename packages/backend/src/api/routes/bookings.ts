@@ -224,6 +224,9 @@ router.post(
     );
 
     booking.sorobanTxHash = result.txHash;
+    booking.sorobanInnerTxHash = result.innerTxHash;
+    booking.sorobanFeeBumpTxHash = result.feeBumpTxHash ?? null;
+    booking.sorobanIsFeeBump = result.isFeeBump;
     booking.status = "onchain_submitted";
     booking.contractSubmitAttempts = (booking.contractSubmitAttempts || 0) + 1;
     await bookingRepo.save(booking);

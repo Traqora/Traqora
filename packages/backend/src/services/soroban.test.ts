@@ -24,6 +24,7 @@ import { config } from '../config';
 import {
   buildBatchBookingActionUnsignedXdr,
   buildCreateBookingUnsignedXdr,
+  getTransactionStatus,
   submitSignedSorobanXdr,
 } from './soroban';
 
@@ -75,6 +76,33 @@ describe('soroban.ts — #547 error propagation (no swallowing real failures int
       mockSimulationError('HostError: ... "Booking not found" ...');
       await expect(buildCreateBookingUnsignedXdr(BOOKING_PARAMS)).rejects.toThrow(/Booking not found/);
     });
+
+    it('attaches a stable booking reference as a MEMO_TEXT (#924)', async () => {
+      const addMemo = jest.spyOn(StellarSdk.TransactionBuilder.prototype, 'addMemo');
+      mockSimulationError('HostError: simulation stopped');
+
+      await expect(
+        buildCreateBookingUnsignedXdr({
+          ...BOOKING_PARAMS,
+          bookingReference: 'TRQ-ABCDEFGHJKMNPQRS',
+        }),
+      ).rejects.toThrow(/Simulation failed/);
+
+      expect(addMemo).toHaveBeenCalledTimes(1);
+      const memo = addMemo.mock.calls[0][0] as StellarSdk.Memo;
+      expect(memo.type).toBe('text');
+      expect(memo.value).toBe('TRQ-ABCDEFGHJKMNPQRS');
+    });
+
+    it('rejects an oversize booking reference before submitting', async () => {
+      await expect(
+        buildCreateBookingUnsignedXdr({
+          ...BOOKING_PARAMS,
+          bookingReference: 'TRQ-' + 'A'.repeat(30),
+        }),
+      ).rejects.toThrow(/at most 28/);
+    });
+
   });
 
   describe('buildBatchBookingActionUnsignedXdr', () => {
@@ -107,6 +135,76 @@ describe('soroban.ts — #547 error propagation (no swallowing real failures int
           action: 'batch_release_payments',
         }),
       ).rejects.toThrow(/Batch too large/);
+    });
+  });
+
+  describe('fee-bump outcomes (#923)', () => {
+    function buildFeeBumpXdr(): { feeBump: StellarSdk.FeeBumpTransaction; inner: StellarSdk.Transaction } {
+      const account = new StellarSdk.Account(BOOKING_PARAMS.passenger, '0');
+      const contract = new StellarSdk.Contract(TEST_CONTRACT_ID);
+      const inner = new StellarSdk.TransactionBuilder(account, {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: StellarSdk.Networks.TESTNET,
+      })
+        .addOperation(contract.call('get_booking', StellarSdk.nativeToScVal(1, { type: 'u64' })))
+        .setTimeout(30)
+        .build();
+      const feeBump = StellarSdk.TransactionBuilder.buildFeeBumpTransaction(
+        BOOKING_PARAMS.airline,
+        '200',
+        inner,
+        StellarSdk.Networks.TESTNET,
+      );
+      return { feeBump, inner };
+    }
+
+    it('returns both the outer and inner hashes when a fee-bump envelope is submitted', async () => {
+      const { feeBump, inner } = buildFeeBumpXdr();
+      jest
+        .spyOn(StellarSdk.SorobanRpc.Server.prototype, 'sendTransaction')
+        .mockResolvedValue({
+          status: 'PENDING',
+          hash: feeBump.hash().toString('hex'),
+        } as unknown as Awaited<ReturnType<StellarSdk.SorobanRpc.Server['sendTransaction']>>);
+
+      const result = await submitSignedSorobanXdr(feeBump.toXDR());
+
+      expect(result.isFeeBump).toBe(true);
+      expect(result.txHash).toBe(feeBump.hash().toString('hex'));
+      expect(result.feeBumpTxHash).toBe(feeBump.hash().toString('hex'));
+      expect(result.innerTxHash).toBe(inner.hash().toString('hex'));
+    });
+
+    it('falls back to the inner transaction status when the outer hash is not found', async () => {
+      const { feeBump, inner } = buildFeeBumpXdr();
+      const innerHash = inner.hash().toString('hex');
+      const outerHash = feeBump.hash().toString('hex');
+
+      jest.spyOn(StellarSdk.SorobanRpc.Server.prototype, 'getTransaction').mockImplementation(
+        (async (hash: string) => {
+          if (hash === outerHash) {
+            return { status: StellarSdk.SorobanRpc.Api.GetTransactionStatus.NOT_FOUND };
+          }
+          if (hash === innerHash) {
+            return {
+              status: StellarSdk.SorobanRpc.Api.GetTransactionStatus.SUCCESS,
+              returnValue: '42',
+            };
+          }
+          return { status: StellarSdk.SorobanRpc.Api.GetTransactionStatus.NOT_FOUND };
+        }) as unknown as StellarSdk.SorobanRpc.Server['getTransaction'],
+      );
+
+      const status = await getTransactionStatus(outerHash, {
+        innerTxHash: innerHash,
+        feeBumpTxHash: outerHash,
+      });
+
+      expect(status.status).toBe('success');
+      expect(status.observedOn).toBe('inner');
+      expect(status.txHash).toBe(outerHash);
+      expect(status.innerTxHash).toBe(innerHash);
+      expect(status.isFeeBump).toBe(true);
     });
   });
 
