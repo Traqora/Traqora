@@ -89,6 +89,7 @@ policy action.
 | `(juror, selected)`         | `(dispute_id, juror)`                                                    | Juror selected for dispute               |
 | `(vote, committed)`         | `(dispute_id, juror)`                                                    | Vote committed (hash)                    |
 | `(vote, revealed)`          | `(dispute_id, juror, vote_for_passenger)`                                | Vote revealed                            |
+| `(phase, voting)`           | `dispute_id`                                                             | Advanced to voting after evidence timeout|
 | `(dispute, finalized)`      | `(dispute_id, verdict)`                                                  | Dispute finalized with verdict           |
 | `(dispute, appealed)`       | `(dispute_id, appellant)`                                                | Dispute appealed                         |
 | `(verdict, executed)`       | `(dispute_id, verdict)`                                                  | Verdict executed and funds distributed   |

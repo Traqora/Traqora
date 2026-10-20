@@ -480,6 +480,30 @@ impl DisputeContract {
         );
     }
 
+    pub fn advance_to_voting(env: Env, dispute_id: u64) {
+        let mut dispute =
+            DisputeStorageKey::get_dispute(&env, dispute_id).expect("Dispute not found");
+
+        assert!(
+            dispute.phase == DisputePhase::Evidence,
+            "Not in evidence phase"
+        );
+
+        let current_time = env.ledger().timestamp();
+        assert!(
+            current_time > dispute.evidence_deadline,
+            "Evidence period not ended"
+        );
+
+        dispute.phase = DisputePhase::JurySelection;
+        DisputeStorageKey::set_dispute(&env, dispute_id, &dispute);
+
+        env.events().publish(
+            (symbol_short!("phase"), symbol_short!("voting")),
+            dispute_id,
+        );
+    }
+
     pub fn advance_to_reveal(env: Env, dispute_id: u64) {
         let mut dispute =
             DisputeStorageKey::get_dispute(&env, dispute_id).expect("Dispute not found");
