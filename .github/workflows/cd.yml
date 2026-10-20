@@ -215,6 +215,80 @@ jobs:
           path: .deployments/
           retention-days: 30
 
+  # ─── Gas Snapshot per Release (issue #602) ─────────────────────────
+  # Captures the compiled byte-size footprint of every contract for this
+  # release tag and diffs it against the most recent committed snapshot,
+  # failing the release if any contract regressed beyond the threshold.
+  gas-snapshot:
+    name: Gas Snapshot
+    needs: [environment]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+
+      - name: Build release WASM
+        working-directory: contracts
+        run: cargo build --locked --target wasm32-unknown-unknown --release
+
+      - name: Capture gas snapshot
+        run: |
+          chmod +x scripts/gas-snapshot.sh
+          RELEASE="${GITHUB_REF_NAME}"
+          ./scripts/gas-snapshot.sh capture \
+            contracts/target/wasm32-unknown-unknown/release \
+            "contracts/gas-snapshots/${RELEASE}.json" \
+            --release "$RELEASE" \
+            --timestamp "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+      - name: Compare against previous snapshot
+        run: |
+          shopt -s nullglob
+          # Most recent committed snapshot that is not this release.
+          BASELINE=$(ls -1 contracts/gas-snapshots/*.json 2>/dev/null | sort -V | grep -v "${GITHUB_REF_NAME}.json" | tail -1 || true)
+          if [ -z "$BASELINE" ]; then
+            echo "### Gas Snapshot: $GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
+            echo "No prior snapshot to compare against; recorded a new baseline." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "### Gas Snapshot: $GITHUB_REF_NAME vs $(basename "$BASELINE")" >> "$GITHUB_STEP_SUMMARY"
+          if ! ./scripts/gas-snapshot.sh compare \
+            "contracts/gas-snapshots/${GITHUB_REF_NAME}.json" \
+            "$BASELINE" --threshold 5; then
+            echo "❌ Contract gas regression detected" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "✅ No contract gas regression beyond 5%" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gas snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-snapshot-${{ github.ref_name }}
+          path: contracts/gas-snapshots/${{ github.ref_name }}.json
+          retention-days: 90
+
   # ─── Database Migrations ───────────────────────────────────────────
   run-migrations:
     name: Run Migrations
@@ -480,6 +554,7 @@ jobs:
       - environment
       - docker-build
       - deploy-contracts
+      - gas-snapshot
       - run-migrations
       - deploy-app
       - smoke-tests
@@ -526,6 +601,7 @@ jobs:
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| Docker Build | ${{ needs.docker-build.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Contract Deploy | ${{ needs.deploy-contracts.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Gas Snapshot | ${{ needs.gas-snapshot.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| DB Migrations | ${{ needs.run-migrations.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| App Deploy | ${{ needs.deploy-app.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Smoke Tests | ${{ needs.smoke-tests.result }} |" >> $GITHUB_STEP_SUMMARY

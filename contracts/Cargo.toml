@@ -20,6 +20,7 @@ members = [
     "packages/token",
     "packages/upgrade",
     "packages/integration-tests",
+    "packages/gas_snapshot",
 ]
 
 [workspace.package]
@@ -47,6 +48,7 @@ refund-automation = { path = "packages/refund_automation" }
 token = { path = "packages/token" }
 upgrade = { path = "packages/upgrade" }
 admin = { path = "packages/admin" }
+gas-snapshot = { path = "packages/gas_snapshot" }
 
 [profile.release]
 opt-level = "z"

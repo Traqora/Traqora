@@ -131,6 +131,37 @@ cd contracts
 cargo llvm-cov --html --output-dir target/coverage
 ```
 
+## Gas Snapshots
+
+Per-release gas/byte-size snapshots guard against per-contract cost regressions.
+Soroban charges CPU budget in proportion to the executed WASM, so the compiled
+contract byte size is used as a stable, environment-independent gas proxy.
+
+### Capture a snapshot
+```bash
+./scripts/gas-snapshot.sh capture \
+  contracts/target/wasm32-unknown-unknown/release \
+  contracts/gas-snapshots/v0.1.0.json --release v0.1.0
+```
+
+### Compare against the previous release
+```bash
+./scripts/gas-snapshot.sh compare \
+  contracts/gas-snapshots/v0.2.0.json \
+  contracts/gas-snapshots/v0.1.0.json --threshold 5
+```
+
+`compare` exits non-zero when a contract grows beyond the threshold percentage
+(default 5) or is missing relative to the baseline. New contracts and size
+reductions are accepted. The `gas-snapshot` job in `.github/workflows/cd.yml`
+runs this automatically on `v*` tags. See `gas-snapshots/README.md` for details.
+
+### Test the gas-snapshot tool
+```bash
+cd contracts
+cargo test -p gas-snapshot
+```
+
 ## Key Testing Patterns
 
 ### 1. Setup Pattern
