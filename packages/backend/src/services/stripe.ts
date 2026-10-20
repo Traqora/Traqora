@@ -4,20 +4,14 @@ import {
   executeWithResilience,
   isTransientError,
 } from './ErrorHandlingService';
-import { config } from '../config';
 
-let stripeInstance: Stripe | null = null;
+const apiKey = process.env.STRIPE_SECRET_KEY || '';
 
-export const getStripe = (): Stripe => {
-  if (!stripeInstance) {
-    stripeInstance = new Stripe(config.stripeSecretKey || '', {
-      apiVersion: '2024-06-20',
-    });
-  }
-  return stripeInstance;
-};
+export const stripe = new Stripe(apiKey, {
+  apiVersion: '2024-06-20',
+});
 
-export const stripeWebhookSecret = config.stripeWebhookSecret || '';
+export const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
 
 const stripeCircuitBreaker = new CircuitBreaker('stripe-api', {
   failureThreshold: 5,

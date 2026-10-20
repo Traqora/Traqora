@@ -32,6 +32,14 @@ export class NotificationLog {
   @Column({ default: 0 })
   attempts: number;
 
+  /**
+   * Optional key used for cross-channel de-duplication.
+   * Two log entries sharing the same key, userId, and channel are
+   * considered duplicates; only the first successful send is kept.
+   */
+  @Column({ nullable: true })
+  idempotencyKey: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

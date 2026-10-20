@@ -5,6 +5,9 @@ import {
   CabinClass,
 } from "../types/flight";
 import { measureAsync } from "./metrics";
+import { getLogger } from "./logger";
+
+const logger = getLogger({ component: "flexible-search" });
 
 export interface DatePriceData {
   date: string;
@@ -223,7 +226,7 @@ export class FlexibleDateSearchService {
         priceLevel: "moderate", // Will be set later
       };
     } catch (error) {
-      console.error(`Failed to search flights for date ${date}:`, error);
+      logger.error("Failed to search flights for date", { date, error });
       throw error;
     }
   }
@@ -302,10 +305,10 @@ export class FlexibleDateSearchService {
             flights: compareResult.data,
           });
         } catch (error) {
-          console.warn(
-            `Failed to fetch flights for comparison date ${compareDateStr}:`,
+          logger.warn("Failed to fetch flights for comparison date", {
+            compareDate: compareDateStr,
             error,
-          );
+          });
         }
       }
 

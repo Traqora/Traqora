@@ -664,6 +664,16 @@ describe('Smoke – Booking', () => {
       expect(r2.body.data.id).toBe(bookingId);
       expect(r2.body.idempotent).toBe(true);
 
+      const r3 = await request(app)
+        .post('/api/v1/bookings')
+        .set('Authorization', `Bearer ${preSignedToken}`)
+        .set('Idempotency-Key', key)
+        .send({
+          ...body,
+          passenger: { ...body.passenger, firstName: `${body.passenger.firstName}-changed` },
+        });
+      expect(r3.status).toBe(409);
+
       passed = true;
     } finally {
       record('book – idempotency', passed, t);

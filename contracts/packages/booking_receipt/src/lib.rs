@@ -2,6 +2,7 @@
 // Booking-style contract entrypoints legitimately need many arguments;
 // soroban macro-generated clients re-declare these signatures.
 #![allow(clippy::too_many_arguments)]
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Vec,
 };
@@ -76,6 +77,21 @@ impl ReceiptStorage {
         env.storage()
             .persistent()
             .get(&(symbol_short!("owner"), receipt_id))
+    }
+
+    // Renew the TTL (Time To Live) for a receipt entry to prevent pruning
+    // of long-lived persistent storage. This must be called before the entry's
+    // TTL expires to keep the receipt record readable for the booking and
+    // dispute lifecycle.
+    //
+    // # Arguments
+    // * `receipt_id` - The receipt ID whose TTL should be renewed
+    pub fn renew_receipt_ttl(env: Env, receipt_id: u64) {
+        let owner = env.storage().persistent().get(&(symbol_short!("owner"), receipt_id)).expect("Receipt not found");
+        owner.require_auth();
+        env.storage()
+            .persistent()
+            .extend_ttl(&(symbol_short!("owner"), receipt_id), /* delta = */ 0);
     }
 
     pub fn set_owner(env: &Env, receipt_id: u64, owner: &Address) {
@@ -171,8 +187,10 @@ impl BookingReceiptContract {
         passenger_receipts.push_back(receipt_id);
         ReceiptStorage::set_passenger_receipts(&env, &to, &passenger_receipts);
 
-        env.events().publish(
-            (symbol_short!("mint"), symbol_short!("success")),
+        contract_events::emit(
+            &env,
+            Domain::Mint,
+            Action::Success,
             (to, receipt_id, booking_id),
         );
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_TRACING_SAMPLER, TRACING_SAMPLERS } from './tracing-samplers';
 
 export const configSchema = z.object({
   port: z.number().default(3001),
@@ -7,12 +8,28 @@ export const configSchema = z.object({
   trustProxy: z.boolean().default(false),
 
   stellarNetwork: z.enum(['production', 'mainnet', 'testnet', 'standalone']).default('testnet'),
+  /**
+   * Optional explicit network passphrase. When set it must match the
+   * passphrase derived from `stellarNetwork` (#925).
+   */
+  stellarNetworkPassphrase: z.string().optional(),
   stellarSecretKey: z.string().optional().refine(
     (v) => !v || /^S[A-Z0-9]{55}$/.test(v),
     'Invalid Stellar secret key format'
   ),
   horizonUrl: z.string().url(),
   sorobanRpcUrl: z.string().url(),
+  /**
+   * The network the configured contract IDs were deployed to (#926). Contract
+   * IDs are network-agnostic StrKeys, so this binding is what prevents a
+   * testnet address being used against mainnet (and vice versa).
+   */
+  contractsNetwork: z.enum(['production', 'mainnet', 'testnet', 'standalone']).optional(),
+  /**
+   * Secret used to derive deterministic, privacy-safe booking reference
+   * memos (#924). Falls back to JWT_SECRET when unset.
+   */
+  bookingMemoSecret: z.string().min(16).optional(),
 
   contracts: z.object({
     booking: z.string().min(1, "Booking contract ID is required").refine(v => v !== 'DEFAULT_ID', 'Booking contract ID must not be the placeholder DEFAULT_ID'),
@@ -50,6 +67,8 @@ export const configSchema = z.object({
   otlpTraceUrl: z.string().url().default('http://localhost:4318/v1/traces'),
   otlpTraceHeaders: z.string().optional(),
   tracingSampleRate: z.number().min(0).max(1).default(1),
+  // Sampler strategy, keyed to the standard OTEL_TRACES_SAMPLER values.
+  tracingSampler: z.enum(TRACING_SAMPLERS).default(DEFAULT_TRACING_SAMPLER),
 
   sentryDsn: z.string().optional(),
   sentryTracesSampleRate: z.number().min(0).max(1).default(0.1),
@@ -80,6 +99,7 @@ export const configSchema = z.object({
   flightSearchCacheTtlSeconds: z.number().int().positive().default(300),
   flightRegistryCacheTtlSeconds: z.number().int().nonnegative().default(60),
   apiResponseCacheTtlSeconds: z.number().int().positive().default(60),
+  oracleRateCacheTtlSeconds: z.number().int().positive().default(60),
 
   sendgridApiKey: z.string().optional(),
   firebaseServiceAccount: z.string().optional(),

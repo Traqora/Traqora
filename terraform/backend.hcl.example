@@ -1,0 +1,8 @@
+# Copy to backend.hcl (gitignored) for local `terraform init -backend-config=backend.hcl`.
+# In CI these same values are supplied via -backend-config flags sourced from
+# repo secrets — see terraform/README.md.
+
+bucket         = "traqora-terraform-state"
+key            = "traqora/dev/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "traqora-terraform-locks"

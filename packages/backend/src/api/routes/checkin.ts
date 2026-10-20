@@ -9,8 +9,10 @@ import { logger } from '../../utils/logger';
 const router = Router();
 const checkInService = new CheckInService();
 
+// Updated to include optional timezone string validation
 const checkInSchema = z.object({
   seatNumber: z.string().min(1).max(8).optional(),
+  timezone: z.string().optional(), // Added for 24-hour boundary timezone check
 });
 
 const seatSchema = z.object({
@@ -33,9 +35,11 @@ router.post(
       throw new BadRequestError('Validation error', parsed.error.flatten());
     }
 
+    // Pass the bookingId, seatNumber, and timezone into the hardened service
     const checkIn = await checkInService.checkIn({
       bookingId: req.params.bookingId,
       seatNumber: parsed.data.seatNumber,
+      timezone: parsed.data.timezone || 'UTC', // Fallback safely to UTC if missing
     });
 
     try {

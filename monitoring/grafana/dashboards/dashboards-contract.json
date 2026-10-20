@@ -1,0 +1,11 @@
+{
+  "contractVersion": "1.0.0",
+  "requiredPanels": [
+    "CPU Utilization",
+    "Memory Usage",
+    "HTTP Request Latency",
+    "Error Rate 5xx"
+  ],
+  "allowedUidRegex": "^traqora-[a-z0-9-]+$",
+  "maxRefreshIntervalSeconds": 60
+}

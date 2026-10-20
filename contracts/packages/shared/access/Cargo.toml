@@ -5,3 +5,4 @@ edition.workspace = true
 
 [dependencies]
 soroban-sdk.workspace = true
+errors.workspace = true

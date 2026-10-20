@@ -1,5 +1,6 @@
 #![no_std]
 use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol,
 };
@@ -90,10 +91,7 @@ impl TRQTokenContract {
         };
         TokenStorage::set_metadata(&env, &metadata);
 
-        env.events().publish(
-            (symbol_short!("token"), symbol_short!("init")),
-            (admin, symbol.clone()),
-        );
+        contract_events::emit(&env, Domain::Token, Action::Init, (admin, symbol.clone()));
     }
 
     pub fn mint(env: Env, admin: Address, to: Address, amount: i128) {
@@ -107,10 +105,7 @@ impl TRQTokenContract {
         metadata.total_supply += amount;
         TokenStorage::set_metadata(&env, &metadata);
 
-        env.events().publish(
-            (symbol_short!("mint"), symbol_short!("success")),
-            (to, amount),
-        );
+        contract_events::emit(&env, Domain::Mint, Action::Success, (to, amount));
     }
 
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
@@ -126,10 +121,7 @@ impl TRQTokenContract {
         let to_balance = TokenStorage::get_balance(&env, &to);
         TokenStorage::set_balance(&env, &to, to_balance + amount);
 
-        env.events().publish(
-            (symbol_short!("transfer"), symbol_short!("success")),
-            (from, to, amount),
-        );
+        contract_events::emit(&env, Domain::Transfer, Action::Success, (from, to, amount));
     }
 
     pub fn approve(
@@ -148,8 +140,10 @@ impl TRQTokenContract {
 
         TokenStorage::set_allowance(&env, &owner, &spender, &allowance);
 
-        env.events().publish(
-            (symbol_short!("approve"), symbol_short!("success")),
+        contract_events::emit(
+            &env,
+            Domain::Approve,
+            Action::Success,
             (owner, spender, amount),
         );
     }
@@ -182,10 +176,7 @@ impl TRQTokenContract {
         let to_balance = TokenStorage::get_balance(&env, &to);
         TokenStorage::set_balance(&env, &to, to_balance + amount);
 
-        env.events().publish(
-            (symbol_short!("tr_from"), symbol_short!("success")),
-            (from, to, amount),
-        );
+        contract_events::emit(&env, Domain::TrFrom, Action::Success, (from, to, amount));
     }
 
     pub fn balance_of(env: Env, account: Address) -> i128 {

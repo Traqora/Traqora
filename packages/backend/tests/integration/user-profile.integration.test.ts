@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { createApp } from '../../src/app';
 import { AppDataSource, initDataSource } from '../../src/db/dataSource';
 import { config } from '../../src/config';
+import { TravelDocument } from '../../src/db/entities/TravelDocument';
 
 const WALLET = 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZA';
 const OTHER_WALLET = 'GZYXWVUTSRQPONMLKJIHGFEDCBAZYXWVUTSRQPONMLKJIHGFEDCBA';
@@ -45,6 +46,10 @@ describe('user profile customization (issue #374)', () => {
       bio: null,
       avatarUrl: null,
       travelPreferences: null,
+      kycChecklist: {
+        status: 'not_started',
+        items: { identityDocument: false, identityVerified: false },
+      },
     });
   });
 
@@ -99,6 +104,56 @@ describe('user profile customization (issue #374)', () => {
       .get('/api/v1/users/profile')
       .set('Authorization', `Bearer ${token}`);
     expect(getRes.body.data.displayName).toBe('Ada Explorer');
+  });
+
+  it('reports verified KYC after the traveler has a verified document', async () => {
+    const documentRepo = AppDataSource.getRepository(TravelDocument);
+    await documentRepo.save(documentRepo.create({
+      walletAddress: WALLET,
+      documentType: 'passport',
+      documentNumber: 'P1234567',
+      fullName: 'Ada Explorer',
+      issuingCountry: 'GB',
+      expiryDate: '2030-01-01',
+      verificationStatus: 'verified',
+      isPrimary: true,
+      isDeleted: false,
+    }));
+
+    const res = await request(app)
+      .get('/api/v1/users/profile')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.kycChecklist).toEqual({
+      status: 'verified',
+      items: { identityDocument: true, identityVerified: true },
+    });
+  });
+
+  it('does not treat a rejected document as verified KYC', async () => {
+    const documentRepo = AppDataSource.getRepository(TravelDocument);
+    await documentRepo.save(documentRepo.create({
+      walletAddress: OTHER_WALLET,
+      documentType: 'national_id',
+      documentNumber: 'ID123456',
+      fullName: 'Partial User',
+      issuingCountry: 'US',
+      expiryDate: '2030-01-01',
+      verificationStatus: 'rejected',
+      isPrimary: true,
+      isDeleted: false,
+    }));
+
+    const res = await request(app)
+      .get('/api/v1/users/profile')
+      .set('Authorization', `Bearer ${otherToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.kycChecklist).toEqual({
+      status: 'rejected',
+      items: { identityDocument: true, identityVerified: false },
+    });
   });
 
   it('performs a partial update without clobbering other fields', async () => {

@@ -5,7 +5,9 @@ Built a comprehensive flight search interface for the Traqora Next.js applicatio
 
 ## ✅ Completed Features
 
-### 1. Search Form (`/components/flight-search/search-form.tsx`)
+### 1. Search Form & Flexible Date Search (`/components/flight-search/search-form.tsx`, `/components/flight-search/date-flex-search.tsx`)
+- **Date-Flex Search**: Allows operators and travelers to search flights within a flexibility window (+/- 1, 3, or 7 days) around a target departure date.
+- **Input Validation**: Automatically trims and uppercases airport codes, blocks identical origin/destination queries, and validates date formats.
 - **Origin/Destination Input**: 3-letter airport code validation with autocomplete suggestions
 - **Date Selection**: Departure and optional return date pickers with validation
 - **Passenger Count**: Dropdown selector (1-9 passengers)
@@ -82,7 +84,7 @@ Built a comprehensive flight search interface for the Traqora Next.js applicatio
 
 ### State Management
 - **React Hooks**: useState, useEffect, useCallback for local state
-- **URL Synchronization**: Search parameters persist in browser URL
+- **URL Synchronization**: Search parameters persist in browser URL via `useSearchUrlState` hook for deep-linkable and shareable search filters
 - **Filter Coordination**: Centralized filter state management
 
 ### Data Flow
@@ -101,10 +103,10 @@ Built a comprehensive flight search interface for the Traqora Next.js applicatio
 
 ## 🚀 Usage
 
-### Basic Search
+### Basic Search & Deep-linkable Filters
 ```typescript
-// Navigate to search page with parameters
-/search?from=JFK&to=LAX&departure=2024-12-15&passengers=1&class=economy
+// Navigate to search page with parameters and filters deep-linked
+/search?from=JFK&to=LAX&departure=2024-12-15&passengers=1&class=economy&price_min=100&price_max=500&airlines=AA,DL&sort=price&sort_order=asc
 ```
 
 ### API Integration
@@ -169,3 +171,52 @@ const response = await searchFlights({
 8. **Performance**: Optimized rendering and efficient state management
 
 The flight search UI is now fully functional and ready for production use with the Traqora blockchain flight booking platform.
+
+### Search UI state contract (issue #672)
+
+The search page renders exactly one UI state at a time. The single source of
+truth is `getSearchUiState()` in
+`packages/client/components/flight-search/search-state.ts`; `ResultsList`
+derives its branches from it, and `app/search/page.tsx` feeds the raw signals.
+
+**States:** `idle` (no search submitted this session), `loading` (first results
+still in flight), `success` (results on screen), `empty` (search completed, no
+matches), `error` (the most recent attempt failed).
+
+**Inputs / outputs:**
+
+| Input | Meaning |
+| --- | --- |
+| `hasSearched` | A search has been submitted this session (URL prefill counts) |
+| `isLoading` | The request is in flight |
+| `error` | Error message of the most recent attempt, or `null` |
+| `resultCount` | Results currently held (may include cached results) |
+
+| Precedence | Condition | State |
+| --- | --- | --- |
+| 1 | `error` is not `null` | `error` |
+| 2 | `isLoading` and `resultCount === 0` | `loading` |
+| 3 | `resultCount === 0`, `hasSearched` true | `empty` |
+| 3′ | `resultCount === 0`, `hasSearched` false | `idle` |
+| 4 | `resultCount > 0` | `success` |
+
+**Error cases and behaviors operators/contributors should expect:**
+
+- *First load without search params* shows the `idle` card ("Start a flight
+search") instead of a misleading "No flights found" empty state.
+- *Retry*: the error card's "Try Again" action re-runs the last search in place
+  (`onRetry` on `ResultsList`); the fallback remains a full page reload when no
+  handler is supplied.
+- *Stale responses*: `useFlightSearch` issues a monotonic request token and
+  discards any response (success or failure) from a superseded search, so the
+  newest request always wins and no stale `isLoading` flag leaks.
+- Regression tests live in `packages/client/tests/flight-search-states.test.tsx`
+  (contract + list states) and
+  `packages/client/tests/use-flight-search-race.test.ts` (request ordering).
+
+### Cancellation policy explainer
+
+Expanded fare rules state whether refunds are permitted, list the cancellation
+fee per passenger, and explain the no-show penalty and grace period from the
+airline-provided rule data. These details describe the fare rules; the booking's
+cancellation quote remains authoritative for the current estimated refund.

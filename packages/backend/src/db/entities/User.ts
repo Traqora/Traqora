@@ -1,3 +1,4 @@
+// @ts-ignore
 import { Entity, PrimaryColumn, Column, CreateDateColumn } from 'typeorm';
 
 @Entity('users')
@@ -16,4 +17,6 @@ export class User {
 
   @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamp', nullable: true })
   lastLoginAt: Date;
+
+
 }

@@ -2,6 +2,7 @@
 // Booking-style contract entrypoints legitimately need many arguments;
 // soroban macro-generated clients re-declare these signatures.
 #![allow(clippy::too_many_arguments)]
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, symbol_short, token, Address, Env,
     String, Symbol, Vec,
@@ -113,8 +114,10 @@ impl BookingContract {
     pub fn initialize_oracle(env: Env, admin: Address, oracle: Address) {
         admin.require_auth();
         BookingStorage::set_trusted_oracle(&env, &oracle);
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("oracle")),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Oracle,
             (admin, env.ledger().timestamp(), oracle),
         );
     }
@@ -158,9 +161,11 @@ impl BookingContract {
 
         BookingStorage::set(&env, booking_id, &booking);
 
-        // Standard event schema: (contract, action) -> (actor, timestamp, payload)
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("created")),
+        // Canonical schema: (actor, timestamp, primary_id, ...payload)
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Created,
             (
                 booking.passenger.clone(),
                 env.ledger().timestamp(),
@@ -212,8 +217,10 @@ impl BookingContract {
             );
         }
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("paid")),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Paid,
             (
                 booking.passenger.clone(),
                 env.ledger().timestamp(),
@@ -249,8 +256,10 @@ impl BookingContract {
 
         BookingStorage::set(&env, booking_id, &booking);
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("released")),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Released,
             (
                 booking.airline.clone(),
                 env.ledger().timestamp(),
@@ -295,8 +304,10 @@ impl BookingContract {
 
         BookingStorage::set(&env, booking_id, &booking);
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("refunded")),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Refunded,
             (
                 booking.passenger.clone(),
                 env.ledger().timestamp(),
@@ -304,6 +315,21 @@ impl BookingContract {
                 refunded_amount,
             ),
         );
+    }
+
+    // Renew the TTL (Time To Live) for a booking entry to prevent pruning
+    // of long-lived persistent storage. This must be called before the entry's
+    // TTL expires to keep the booking record readable for the booking and
+    // dispute lifecycle.
+    //
+    // # Arguments
+    // * `booking_id` - The booking ID whose TTL should be renewed
+    pub fn renew_booking_ttl(env: Env, booking_id: u64) {
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        booking.passenger.require_auth();
+        env.storage()
+            .persistent()
+            .extend_ttl(&booking_id, /* delta = */ 0);
     }
 
     // Helper to get booking details
@@ -384,9 +410,17 @@ impl BookingContract {
         booking.status = symbol_short!("cancelled");
         BookingStorage::set(&env, booking_id, &booking);
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("cancelled")),
-            (booking_id, passenger_refund, airline_amount),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Cancelled,
+            (
+                caller,
+                env.ledger().timestamp(),
+                booking_id,
+                passenger_refund,
+                airline_amount,
+            ),
         );
 
         (passenger_refund, airline_amount)
@@ -467,8 +501,10 @@ impl BookingContract {
             BookingStorage::set(&env, booking_id, &booking);
             completed_booking_ids.push_back(booking_id);
 
-            env.events().publish(
-                (symbol_short!("booking"), symbol_short!("released")),
+            contract_events::emit(
+                &env,
+                Domain::Booking,
+                Action::Released,
                 (
                     booking.airline.clone(),
                     env.ledger().timestamp(),
@@ -513,8 +549,10 @@ impl BookingContract {
         booking.status = symbol_short!("completed");
         BookingStorage::set(&env, booking_id, &booking);
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("released")),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Released,
             (
                 oracle,
                 env.ledger().timestamp(),
@@ -552,8 +590,10 @@ impl BookingContract {
         booking.status = symbol_short!("refunded");
         BookingStorage::set(&env, booking_id, &booking);
 
-        env.events().publish(
-            (symbol_short!("booking"), symbol_short!("refunded")),
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Refunded,
             (
                 oracle,
                 env.ledger().timestamp(),
