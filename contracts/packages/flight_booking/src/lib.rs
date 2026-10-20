@@ -1,4 +1,5 @@
 #![no_std]
+use contract_events::{Action, Domain};
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 #[contracttype]
@@ -72,9 +73,18 @@ impl FlightBookingContract {
             .instance()
             .set(&DataKey::NextId, &(booking_id + 1));
 
-        env.events().publish(
-            (Symbol::new(&env, "BookingCreated"),),
-            (booking_id, created_at, flight_id, seat),
+        contract_events::emit(
+            &env,
+            Domain::Seat,
+            Action::Reserved,
+            (
+                passenger.clone(),
+                created_at,
+                booking_id,
+                flight_id,
+                seat,
+                amount,
+            ),
         );
 
         booking_id

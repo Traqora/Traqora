@@ -8,6 +8,7 @@ export type NotificationCategory =
   | "payment"
   | "itinerary"
   | "collaboration"
+  | "loyalty"
   | "marketing"
   | "system";
 export type NotificationFrequency = "instant" | "daily" | "weekly" | "never";

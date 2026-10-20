@@ -2,9 +2,9 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
-import { ParentBasedSampler, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { Config } from './config/schema';
+import { createSampler } from './tracing-sampler';
 import { logger } from './utils/logger';
 
 let sdk: NodeSDK | null = null;
@@ -51,9 +51,7 @@ export const initializeTracing = (runtimeConfig: Config): NodeSDK | null => {
       environment: runtimeConfig.environment,
     }),
     traceExporter,
-    sampler: new ParentBasedSampler({
-      root: new TraceIdRatioBasedSampler(runtimeConfig.tracingSampleRate),
-    }),
+    sampler: createSampler(runtimeConfig.tracingSampler, runtimeConfig.tracingSampleRate),
     instrumentations: [getNodeAutoInstrumentations()],
   });
 
@@ -61,6 +59,7 @@ export const initializeTracing = (runtimeConfig: Config): NodeSDK | null => {
 
   logger.info('OpenTelemetry tracing initialized', {
     otlpTraceUrl: runtimeConfig.otlpTraceUrl,
+    sampler: runtimeConfig.tracingSampler,
     sampleRate: runtimeConfig.tracingSampleRate,
   });
 

@@ -1,8 +1,20 @@
 name: Infra Deploy
 
+# Issue #587: PRs that touch terraform/ get fmt-check + validate + a real
+# init+plan (against the "dev" workspace) so config errors surface before
+# merge, without ever applying. `push`/`workflow_dispatch` keep the existing
+# deploy-to-staging/prod behaviour. See terraform/README.md.
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/infra-deploy.yml"
   push:
     branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/infra-deploy.yml"
   workflow_dispatch:
     inputs:
       environment:
@@ -14,6 +26,10 @@ on:
           - dev
           - staging
           - prod
+
+concurrency:
+  group: infra-deploy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   TERRAFORM_VERSION: "1.5.9"
@@ -27,6 +43,10 @@ jobs:
   validate-app:
     name: Validate Application Code
     runs-on: ubuntu-latest
+    # Skipped on PRs: ci.yml already covers app quality on every PR. This
+    # gate only needs to run before an actual `terraform apply` (push to
+    # main / workflow_dispatch).
+    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -59,7 +79,8 @@ jobs:
   validate-terraform:
     name: Validate Terraform Configuration
     runs-on: ubuntu-latest
-    needs: validate-app
+    # Intentionally not gated on validate-app: this must run for every PR
+    # touching terraform/, including ones that don't touch app code.
     outputs:
       tf-workspace: ${{ steps.env.outputs.tf-workspace }}
     steps:
@@ -74,9 +95,11 @@ jobs:
         working-directory: terraform
         run: terraform fmt -check
 
-      - name: Terraform Init
+      - name: Terraform Init (local, no backend)
+        # Format/validate never need the real backend or cloud credentials,
+        # so every contributor (including forks) gets this signal for free.
         working-directory: terraform
-        run: terraform init -input=false
+        run: terraform init -backend=false -input=false
 
       - name: Terraform Validate
         working-directory: terraform
@@ -104,6 +127,10 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "tf-workspace=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            # PRs only ever plan against the ephemeral/dev workspace, never
+            # staging or prod (issue #587).
+            echo "tf-workspace=dev" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "tf-workspace=prod" >> $GITHUB_OUTPUT
           else
@@ -119,6 +146,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: validate-terraform
     environment: ${{ needs.validate-terraform.outputs.tf-workspace }}
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write # required to assume AWS_ROLE_TO_ASSUME via OIDC
     steps:
       - uses: actions/checkout@v4
 
@@ -127,21 +158,54 @@ jobs:
         with:
           terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-      - name: Terraform Init
+      - name: Check remote backend is configured
+        id: backend
+        run: |
+          if [ -n "${{ secrets.TF_STATE_BUCKET }}" ] && [ -n "${{ secrets.AWS_ROLE_TO_ASSUME }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::TF_STATE_BUCKET/AWS_ROLE_TO_ASSUME secrets are not set (expected on fork PRs). Skipping the real init+plan; fmt+validate above still ran."
+          fi
+
+      - name: Configure AWS Credentials
+        if: steps.backend.outputs.configured == 'true'
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+
+      # Real backend (issue #587): state lives in S3, keyed per workspace, so
+      # a `dev` PR plan can never see or clobber staging/prod state.
+      - name: Terraform Init (real backend)
+        if: steps.backend.outputs.configured == 'true'
         working-directory: terraform
-        run: terraform init -input=false
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=traqora/${{ needs.validate-terraform.outputs.tf-workspace }}/terraform.tfstate" \
+            -backend-config="region=${{ secrets.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE }}"
 
       - name: Select Workspace
+        if: steps.backend.outputs.configured == 'true'
         working-directory: terraform
         run: |
           terraform workspace select ${{ needs.validate-terraform.outputs.tf-workspace }} || \
           terraform workspace new ${{ needs.validate-terraform.outputs.tf-workspace }}
 
       - name: Terraform Plan
+        if: steps.backend.outputs.configured == 'true'
         working-directory: terraform
         run: terraform plan -input=false -var-file=./environments/${{ needs.validate-terraform.outputs.tf-workspace }}.tfvars -out=tfplan
 
+      - name: Terraform Plan (human-readable)
+        if: steps.backend.outputs.configured == 'true'
+        working-directory: terraform
+        run: terraform show -no-color tfplan > tfplan.txt
+
       - name: Save Plan
+        if: steps.backend.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ needs.validate-terraform.outputs.tf-workspace }}
@@ -149,17 +213,17 @@ jobs:
           retention-days: 7
 
       - name: Comment Plan on PR
-        if: github.event_name == 'pull_request'
+        if: steps.backend.outputs.configured == 'true' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const plan = fs.readFileSync('terraform/tfplan', 'utf8');
+            const plan = fs.readFileSync('terraform/tfplan.txt', 'utf8').slice(0, 60000);
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## Terraform Plan\n\`\`\`\n${plan}\n\`\`\``
+              body: `## Terraform Plan (\`${{ needs.validate-terraform.outputs.tf-workspace }}\`)\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`
             });
 
   # ============================================================================
@@ -174,6 +238,7 @@ jobs:
     environment: ${{ needs.validate-terraform.outputs.tf-workspace }}
     permissions:
       contents: read
+      id-token: write # required to assume AWS_ROLE_TO_ASSUME via OIDC
     steps:
       - uses: actions/checkout@v4
 
@@ -194,9 +259,14 @@ jobs:
           name: tfplan-${{ needs.validate-terraform.outputs.tf-workspace }}
           path: terraform/
 
-      - name: Terraform Init
+      - name: Terraform Init (real backend)
         working-directory: terraform
-        run: terraform init -input=false
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=traqora/${{ needs.validate-terraform.outputs.tf-workspace }}/terraform.tfstate" \
+            -backend-config="region=${{ secrets.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE }}"
 
       - name: Select Workspace
         working-directory: terraform
@@ -230,8 +300,10 @@ jobs:
   verify-deployment:
     name: Verify Infrastructure Deployment
     runs-on: ubuntu-latest
-    needs: apply-terraform
-    if: always()
+    needs: [validate-terraform, apply-terraform]
+    # apply-terraform is skipped entirely on pull_request (plan-only), so
+    # only run this when something was actually applied.
+    if: needs.apply-terraform.result == 'success'
     environment: ${{ needs.validate-terraform.outputs.tf-workspace }}
     steps:
       - uses: actions/checkout@v4
@@ -239,7 +311,7 @@ jobs:
       - name: Download Outputs
         uses: actions/download-artifact@v4
         with:
-          name: terraform-outputs-${{ needs.apply-terraform.outputs.tf-workspace }}
+          name: terraform-outputs-${{ needs.validate-terraform.outputs.tf-workspace }}
           path: terraform/
 
       - name: Run Infrastructure Tests
@@ -258,8 +330,11 @@ jobs:
 
   notify:
     name: Notification
-    needs: [validate-terraform, apply-terraform, verify-deployment]
-    if: always()
+    needs: [validate-terraform, plan-terraform, apply-terraform, verify-deployment]
+    # apply-terraform/verify-deployment are intentionally skipped on
+    # pull_request (plan-only) — this job only judges deploy success/failure
+    # when a deploy was actually attempted (push to main / workflow_dispatch).
+    if: always() && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Check Deployment Status
@@ -271,6 +346,7 @@ jobs:
           else
             echo "❌ Infrastructure deployment failed."
             echo "Validation: ${{ needs.validate-terraform.result }}"
+            echo "Plan: ${{ needs.plan-terraform.result }}"
             echo "Apply: ${{ needs.apply-terraform.result }}"
             echo "Verification: ${{ needs.verify-deployment.result }}"
             # Add failure notification here

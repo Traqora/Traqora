@@ -1,5 +1,6 @@
 #![no_std]
 use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 /// On-chain governance proposal: one vote per address per proposal (1 token-holder = 1 vote).
@@ -19,6 +20,8 @@ pub struct Proposal {
 pub struct GovernanceConfig {
     /// Length of the voting window for new proposals (seconds).
     pub voting_period_secs: u64,
+    /// Minimum yes votes required for a proposal to pass (quorum).
+    pub quorum: u64,
 }
 
 pub struct GovernanceStorageKey;
@@ -87,7 +90,32 @@ impl GovernanceContract {
 
         AccessControl::init_owner(&env, &owner);
 
-        GovernanceStorageKey::set_config(&env, &GovernanceConfig { voting_period_secs });
+        GovernanceStorageKey::set_config(&env, &GovernanceConfig { voting_period_secs, quorum: 0 });
+    }
+
+    /// Initialize governance with voting duration and a quorum.
+    pub fn init_governance_with_quorum(env: Env, owner: Address, voting_period_secs: u64, quorum: u64) {
+        assert!(voting_period_secs > 0, "Invalid voting period");
+        assert!(
+            GovernanceStorageKey::get_config(&env).is_none(),
+            "Already initialized"
+        );
+
+        AccessControl::init_owner(&env, &owner);
+
+        GovernanceStorageKey::set_config(&env, &GovernanceConfig { voting_period_secs, quorum });
+    }
+
+    /// Update governance configuration (quorum, voting period) by admin/governor.
+    pub fn set_config(env: Env, caller: Address, voting_period_secs: u64, quorum: u64) {
+        AccessControl::require_admin(&env, &caller);
+        assert!(voting_period_secs > 0, "Invalid voting period");
+        assert!(
+            GovernanceStorageKey::get_config(&env).is_some(),
+            "Not initialized"
+        );
+
+        GovernanceStorageKey::set_config(&env, &GovernanceConfig { voting_period_secs, quorum });
     }
 
     /// Create a proposal; voting runs until `vote_deadline` (now + configured period).
@@ -115,8 +143,7 @@ impl GovernanceContract {
 
         GovernanceStorageKey::set_proposal(&env, id, &proposal);
 
-        env.events()
-            .publish((symbol_short!("proposal"), symbol_short!("created")), id);
+        contract_events::emit(&env, Domain::Proposal, Action::Created, id);
 
         id
     }
@@ -150,8 +177,10 @@ impl GovernanceContract {
         GovernanceStorageKey::set_proposal(&env, proposal_id, &proposal);
         GovernanceStorageKey::record_vote(&env, &voter, proposal_id);
 
-        env.events().publish(
-            (symbol_short!("vote"), symbol_short!("cast")),
+        contract_events::emit(
+            &env,
+            Domain::Vote,
+            Action::Cast,
             (proposal_id, voter, support),
         );
     }
@@ -172,7 +201,10 @@ impl GovernanceContract {
         let now = env.ledger().timestamp();
         assert!(now > proposal.vote_deadline, "Voting still active");
 
-        proposal.status = if proposal.yes_votes > proposal.no_votes {
+        let config = GovernanceStorageKey::get_config(&env).expect("Not initialized");
+        let meets_quorum = proposal.yes_votes >= config.quorum;
+
+        proposal.status = if meets_quorum && proposal.yes_votes > proposal.no_votes {
             Symbol::new(&env, "passed")
         } else {
             Symbol::new(&env, "rejected")
@@ -180,8 +212,10 @@ impl GovernanceContract {
 
         GovernanceStorageKey::set_proposal(&env, proposal_id, &proposal);
 
-        env.events().publish(
-            (symbol_short!("proposal"), symbol_short!("executed")),
+        contract_events::emit(
+            &env,
+            Domain::Proposal,
+            Action::Executed,
             (proposal_id, proposal.status.clone()),
         );
     }
@@ -227,3 +261,6 @@ impl GovernanceContract {
         GovernanceStorageKey::get_proposal_count(&env)
     }
 }
+
+#[cfg(test)]
+mod test;

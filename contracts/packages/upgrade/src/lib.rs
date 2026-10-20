@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 use access::AccessControl;
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env};
+use contract_events::{Action, Domain};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env};
 
 // Upgrade module for safe contract updates with 48-hour timelock
 
@@ -104,8 +105,10 @@ impl UpgradeContract {
         UpgradeStorage::set_scheduled_upgrade(&env, &upgrade);
 
         // Emit event
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("scheduled")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Scheduled,
             (new_wasm_hash, current_time, admin),
         );
     }
@@ -145,8 +148,10 @@ impl UpgradeContract {
         UpgradeStorage::set_scheduled_upgrade(&env, &executed_upgrade);
 
         // Emit event
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("executed")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Executed,
             (executed_upgrade.new_wasm_hash, current_time, admin),
         );
     }
@@ -174,10 +179,7 @@ impl UpgradeContract {
         AccessControl::require_owner(&env, &owner);
         UpgradeStorage::set_timelock_duration(&env, duration);
 
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("timelock")),
-            (duration, owner),
-        );
+        contract_events::emit(&env, Domain::Upgrade, Action::Timelock, (duration, owner));
     }
 
     /// Cancel a pending upgrade
@@ -191,8 +193,10 @@ impl UpgradeContract {
 
         UpgradeStorage::clear_scheduled_upgrade(&env);
 
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("cancelled")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Cancelled,
             (upgrade.new_wasm_hash, owner),
         );
     }

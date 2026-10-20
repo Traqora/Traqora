@@ -1,5 +1,31 @@
 # Traqora Issue Implementation Plans
 
+## Index
+
+This index is the machine-readable companion to the plans below.  The
+TypeScript utility at
+`packages/backend/src/utils/implementationPlansIndex.ts` exposes typed
+`lookupPlan`, `listPlans`, and `getPlansByPriority` functions that are
+sourced from this table.  Update both when adding a new plan.
+
+| Issue | Title | Type | Priority | Complexity | Files (est.) | Weeks (est.) | Order | Depends on |
+|-------|-------|------|----------|------------|:------------:|:------------:|:-----:|:----------:|
+| [#221](#issue-221-add-input-sanitization-and-validation-high-priority---security) | Add Input Sanitization and Validation | security | **high** | medium | 8–12 | 2–3 | 1 | — |
+| [#223](#issue-223-add-database-query-optimization-medium-priority---performance) | Add Database Query Optimization | performance | medium | medium | 5–8 | 2–3 | 2 | — |
+| [#208](#issue-208-implement-multi-city-flight-booking-high-priority---feature) | Implement Multi-City Flight Booking | feature | **high** | high | 12–18 | 4–5 | 3 | #221, #223 |
+| [#209](#issue-209-add-real-time-flight-status-updates-high-priority---feature) | Add Real-Time Flight Status Updates | feature | **high** | high | 10–15 | 3–4 | 4 | #221 |
+
+**Recommended implementation order:** #221 → #223 → #208 → #209
+
+> **Operators:** jump directly to a plan by clicking its issue link above.
+> **Contributors:** to add a new plan, append a row to this table *and*
+> add a matching `PlanEntry` object to the `PLANS` array in
+> `packages/backend/src/utils/implementationPlansIndex.ts`.  Run
+> `npm run test --workspace packages/backend` afterwards to confirm the
+> structural invariants still pass.
+
+---
+
 ## Project Context
 - **Type**: Decentralized travel booking platform on Stellar blockchain
 - **Stack**: Express.js (TypeORM, PostgreSQL), Next.js, Socket.io, Soroban smart contracts
