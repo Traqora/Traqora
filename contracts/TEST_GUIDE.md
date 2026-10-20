@@ -36,6 +36,8 @@ The Traqora smart contract test suite provides comprehensive coverage of all con
 - **`admin_multisig_test.rs`**: Admin multisig contract (149 tests, from PR #81)
 - **`booking_test.rs`**: Booking contract operations
 - **`refund_automation_integration_test.rs`**: Automated refund flow
+  - Refund tier boundaries (full/partial/no-refund) and settlement balances
+  - Policy automation idempotency: repeated `cancel_booking` / `automate_refund` panics with `Booking already cancelled` (no double settlement)
 - **`dispute_resolution_test.rs`**: Basic dispute resolution
 - **`dispute_resolution_advanced_test.rs`**: Enhanced dispute handling
   - Multiple arbiter scenarios

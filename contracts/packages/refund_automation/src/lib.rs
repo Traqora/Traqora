@@ -210,6 +210,15 @@ impl RefundAutomationContract {
     ) -> CancellationResult {
         caller.require_auth();
 
+        let is_cancelled = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Cancelled(booking_id.clone()))
+            .unwrap_or(false);
+        if is_cancelled {
+            panic!("Booking already cancelled");
+        }
+
         let booking_numeric_id: u64 = env
             .storage()
             .persistent()
