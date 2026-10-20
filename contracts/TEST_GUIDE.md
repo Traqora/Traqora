@@ -162,6 +162,28 @@ cd contracts
 cargo test -p gas-snapshot
 ```
 
+## Event Documentation Drift Check
+
+`contracts/EVENTS.md` is the operator-facing reference for every event the
+contracts emit. It is hand-maintained and silently drifts whenever an event is
+added, renamed, or removed. The `events-docs-check` tool extracts every event
+topic pair from the contract sources and diffs it against the tables in
+`EVENTS.md`, reporting both **undocumented** events (emitted but missing from the
+doc) and **stale** docs (documented but no longer emitted).
+
+### Run the check
+```bash
+./scripts/check-events-docs.sh
+```
+
+It exits non-zero when `EVENTS.md` drifts from the sources, so it can gate CI.
+
+### Test the events-docs-check tool
+```bash
+cd contracts
+cargo test -p events-docs-check
+```
+
 ## Key Testing Patterns
 
 ### 1. Setup Pattern

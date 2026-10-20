@@ -1,7 +1,7 @@
 Description
-Evidence timeouts voting: implement this scoped Traqora capability with a narrow, reviewable change. Start from current behavior in contracts disputes, define the contract, implement the minimal fix, and cover it with regression tests plus docs.
+Event docs drift check: implement this scoped Traqora capability with a narrow, reviewable change. Start from current behavior in contracts EVENTS.md code, define the contract, implement the minimal fix, and cover it with regression tests plus docs.
 
-Relevant area/files: contracts disputes.
+Relevant area/files: contracts EVENTS.md code.
 
 Scope
 In scope: one capability, contract definition, implementation, tests, docs
@@ -23,33 +23,41 @@ Unit/integration tests per area (npm run test, soroban test, workspace lint). In
 
 
 
+
+
 When you're done with the above and it good to go
 fill this pr message:
 # Pull Request
 
 ## Summary
 <!-- Provide a clear, concise summary of the changes proposed in this PR. -->
-Adds a permissionless `advance_to_voting(dispute_id)` entrypoint to the `dispute`
-contract so a dispute that has reached its evidence deadline can be advanced out
-of the `Evidence` phase into `JurySelection`, unblocking jury seating and
-commit-reveal voting. Previously this transition only happened lazily inside
-`select_as_juror`, which could leave a dispute stuck in `Evidence` if the
-evidence period elapsed before the jury was seated. The new entrypoint mirrors
-the existing `advance_to_reveal` pattern.
+`contracts/EVENTS.md` is the operator-facing reference for every event the
+contracts emit, but it is hand-maintained and had silently drifted from the
+code. This PR adds a CI-enforceable drift check and brings the doc back in sync.
 
-Contract definition:
-- Inputs: `advance_to_voting(env, dispute_id: u64)` — no auth required.
-- Outputs: none; mutates the dispute phase from `Evidence` to `JurySelection`
-  and emits `(phase, voting)` with `dispute_id`.
-- Errors: `"Dispute not found"` if the id does not exist;
-  `"Not in evidence phase"` if the dispute is not currently in `Evidence`;
-  `"Evidence period not ended"` if called on or before `evidence_deadline`.
+New capability — `events-docs-check` (dep-free crate at
+`contracts/packages/events_docs_check`, plus `scripts/check-events-docs.sh`):
+- Inputs: a contract packages directory and an `EVENTS.md` path (the wrapper
+  supplies `contracts/packages` and `contracts/EVENTS.md`).
+- Outputs: a report of **undocumented** events (emitted in code, missing from
+  the doc) and **stale** docs (listed in the doc, no longer emitted); exits
+  non-zero when drift exists so CI can gate on it.
+- Error cases: `DirNotFound` when the packages directory is missing;
+  `Io` when a source or the doc cannot be read.
+
+Drift found and fixed in `EVENTS.md`: added a `(booking, cancelled)` row; added
+the `refund_automation` events; added `(phase, reveal)` and corrected dispute
+data fields (`juror_selected`, `appeal_stake`, `verdict` payload); corrected the
+admin data fields and removed the stale `(upgrade, rolled_back)` row; and added
+sections for the previously undocumented Airline, Oracle, Token, BookingReceipt,
+FlightRegistry, DisputeResolution (arbiter), Proxy, Upgrade, Governance, and
+StorageVersion contracts.
 
 ## Type of Change
 - [ ] Bug fix (non-breaking change which fixes an issue)
 - [x] New feature (non-breaking change which adds capability)
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update (changes to docs or inline comments)
+- [x] Documentation update (changes to docs or inline comments)
 - [ ] Code refactoring or performance improvement
 
 ## Related Issues
@@ -66,24 +74,18 @@ Before submitting this PR, please review and confirm the following guidelines:
 
 ## Testing Details
 <!-- Describe the tests you ran to verify your changes. Include commands used and key test outputs. -->
-Added three regression tests to
-`contracts/packages/integration-tests/tests/dispute_test.rs`:
-- `test_advance_to_voting_after_evidence_timeout` — happy path: after the
-  evidence deadline elapses the dispute moves to `JurySelection`, then seating
-  the full jury transitions it to `CommitVote`.
-- `test_advance_to_voting_before_timeout_panics` — failure mode: calling before
-  the deadline panics with `"Evidence period not ended"`.
-- `test_advance_to_voting_wrong_phase_panics` — failure mode: calling after the
-  dispute has already advanced panics with `"Not in evidence phase"`.
-
-Documentation updated in `contracts/packages/dispute/src/README.md` (phase flow,
-function reference, usage example, event list) and `contracts/EVENTS.md`
-(`(phase, voting)` event).
+Regression tests in `contracts/packages/events_docs_check/tests/events_docs_check_test.rs`
+cover the happy path (clean docs) and both drift failure modes (undocumented
+emitted event, stale documented event), plus the extractors, duplicate-emitter
+collapsing, the missing-directory error, and an end-to-end `run_check` against a
+temp fixture.
 
 ```bash
-cargo test -p integration-tests --test dispute_test   # 18 passed, 0 failed
-cargo fmt --check                                      # clean
-cargo clippy -p dispute -p integration-tests -- -D warnings  # clean
+cargo test -p events-docs-check        # 9 passed, 0 failed
+cargo clippy --workspace -- -D warnings # clean
+cargo fmt --check                      # clean
+cargo build --workspace                # OK
+./scripts/check-events-docs.sh         # OK: EVENTS.md is in sync (exit 0)
 ```
 
 
