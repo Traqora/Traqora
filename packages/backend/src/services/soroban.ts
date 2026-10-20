@@ -10,6 +10,13 @@ import {
   isTransientError,
 } from './ErrorHandlingService';
 import { measureAsync } from './metrics';
+import { buildBookingMemo } from './bookingReference';
+import {
+  describeTransactionEnvelope,
+  referenceFromStoredHashes,
+  resolveFeeBumpOutcome,
+  type TransactionStatusLike,
+} from './feeBumpTransaction';
 
 /** Blockchain explorer URL for a Stellar/Soroban transaction hash, network-aware. */
 export const explorerUrlForTx = (txHash: string): string => {
@@ -23,6 +30,7 @@ export const explorerUrlForTx = (txHash: string): string => {
 export type UnsignedSorobanTx = {
   xdr: string;
   networkPassphrase: string;
+  bookingReference?: string;
 };
 
 export const buildBatchBookingActionUnsignedXdr = async (params: {
@@ -107,6 +115,24 @@ export type TransactionStatus = {
   txHash?: string;
   result?: any;
   error?: string;
+  /** True when the submitted envelope was a fee-bump transaction (#923). */
+  isFeeBump?: boolean;
+  /** Hash of the inner transaction; equals txHash for normal transactions. */
+  innerTxHash?: string;
+  /** Outer fee-bump envelope hash, when applicable. */
+  feeBumpTxHash?: string;
+  /** Which hash produced the reported status. */
+  observedOn?: 'outer' | 'inner';
+};
+
+export type SubmittedSorobanTransaction = {
+  txHash: string;
+  innerTxHash: string;
+  feeBumpTxHash?: string;
+  isFeeBump: boolean;
+  bookingId?: string;
+  /** Stable booking reference attached as a memo, when one was supplied. */
+  bookingReference?: string;
 };
 
 let server: StellarSdk.SorobanRpc.Server | null = null;
@@ -140,9 +166,15 @@ export const executeSorobanOperation = async <T>(
   );
 
 const getNetworkPassphrase = (): string => {
-  return config.stellarNetwork === 'mainnet'
-    ? StellarSdk.Networks.PUBLIC
-    : StellarSdk.Networks.TESTNET;
+  switch (config.stellarNetwork) {
+    case 'mainnet':
+    case 'production':
+      return StellarSdk.Networks.PUBLIC;
+    case 'standalone':
+      return StellarSdk.Networks.STANDALONE;
+    default:
+      return StellarSdk.Networks.TESTNET;
+  }
 };
 
 export const buildCreateBookingUnsignedXdr = async (params: {
@@ -154,7 +186,15 @@ export const buildCreateBookingUnsignedXdr = async (params: {
   departureTime: number;
   price: bigint;
   token: string;
+  /** Stable, privacy-safe booking reference to attach as MEMO_TEXT (#924). */
+  bookingReference?: string;
 }): Promise<UnsignedSorobanTx> => {
+  // Validate the memo before any RPC call so oversized or non-ASCII
+  // references fail fast and never reach the network (#924).
+  const bookingMemo = params.bookingReference
+    ? buildBookingMemo(params.bookingReference)
+    : undefined;
+
   // Same fix and reasoning as buildBatchBookingActionUnsignedXdr above
   // (#547): mock-XDR fallback only for "contract not configured", not for
   // every failure indiscriminately.
@@ -166,7 +206,11 @@ export const buildCreateBookingUnsignedXdr = async (params: {
     // JSON.stringify's default (which has no bigint handling at all).
     const payload = JSON.stringify({ contract: 'mock', ...params, price: params.price.toString() });
     const xdr = Buffer.from(payload, 'utf8').toString('base64');
-    return { xdr, networkPassphrase: getNetworkPassphrase() };
+    return {
+      xdr,
+      networkPassphrase: getNetworkPassphrase(),
+      bookingReference: params.bookingReference,
+    };
   }
 
   const server = getSorobanServer();
@@ -195,15 +239,20 @@ export const buildCreateBookingUnsignedXdr = async (params: {
   ];
 
   // Build the transaction
-  const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+  const builder = new StellarSdk.TransactionBuilder(sourceAccount, {
     fee: StellarSdk.BASE_FEE,
     networkPassphrase,
   })
     .addOperation(
       contract.call('create_booking', ...contractParams)
     )
-    .setTimeout(300) // 5 minutes
-    .build();
+    .setTimeout(300); // 5 minutes
+
+  if (bookingMemo) {
+    builder.addMemo(bookingMemo);
+  }
+
+  const transaction = builder.build();
 
   // Simulate to get accurate fee
   const simulated = await executeSorobanOperation(
@@ -222,6 +271,7 @@ export const buildCreateBookingUnsignedXdr = async (params: {
     return {
       xdr: prepared.toXDR(),
       networkPassphrase,
+      bookingReference: params.bookingReference,
     };
   }
 
@@ -238,12 +288,24 @@ export const signAndSubmitCreateBooking = async (params: {
   departureTime: number;
   price: bigint;
   token: string;
-}): Promise<{ txHash: string; bookingId?: string }> => {
+  /** Stable, privacy-safe booking reference to attach as MEMO_TEXT (#924). */
+  bookingReference?: string;
+}): Promise<SubmittedSorobanTransaction> => {
+  const bookingMemo = params.bookingReference
+    ? buildBookingMemo(params.bookingReference)
+    : undefined;
+
   try {
     if (!config.contracts.booking) {
       logger.warn('Booking contract ID not configured, returning mock hash');
       const txHash = '0x' + crypto.randomBytes(32).toString('hex');
-      return { txHash, bookingId: 'mock-' + Date.now() };
+      return {
+        txHash,
+        innerTxHash: txHash,
+        isFeeBump: false,
+        bookingId: 'mock-' + Date.now(),
+        bookingReference: params.bookingReference,
+      };
     }
 
     const server = getSorobanServer();
@@ -274,15 +336,20 @@ export const signAndSubmitCreateBooking = async (params: {
     ];
 
     // Build the transaction
-    const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+    const builder = new StellarSdk.TransactionBuilder(sourceAccount, {
       fee: StellarSdk.BASE_FEE,
       networkPassphrase,
     })
       .addOperation(
         contract.call('create_booking', ...contractParams)
       )
-      .setTimeout(300)
-      .build();
+      .setTimeout(300);
+
+    if (bookingMemo) {
+      builder.addMemo(bookingMemo);
+    }
+
+    const transaction = builder.build();
 
     // Simulate and prepare
     const simulated = await executeSorobanOperation(
@@ -309,8 +376,13 @@ export const signAndSubmitCreateBooking = async (params: {
 
     // Note: We don't wait for completion here, we return the hash.
     // The orchestration service will poll for status.
+    const reference = describeTransactionEnvelope(prepared);
     return {
-      txHash: response.hash,
+      txHash: response.hash || reference.submittedTxHash,
+      innerTxHash: reference.innerTxHash,
+      feeBumpTxHash: reference.feeBumpTxHash,
+      isFeeBump: reference.isFeeBump,
+      bookingReference: params.bookingReference,
     };
   } catch (error: any) {
     logger.error('Error in signAndSubmitCreateBooking', { error: error.message });
@@ -318,7 +390,7 @@ export const signAndSubmitCreateBooking = async (params: {
   }
 };
 
-export const submitSignedSorobanXdr = async (signedXdr: string): Promise<{ txHash: string; bookingId?: string }> => {
+export const submitSignedSorobanXdr = async (signedXdr: string): Promise<SubmittedSorobanTransaction> => {
   // Same fix and reasoning as the build*UnsignedXdr functions above
   // (#547) — and the highest-stakes instance of it: this function submits
   // a user's already-signed payment transaction
@@ -330,14 +402,15 @@ export const submitSignedSorobanXdr = async (signedXdr: string): Promise<{ txHas
   if (!config.contracts.booking) {
     logger.warn('Booking contract ID not configured, returning mock hash');
     const txHash = '0x' + Buffer.from(signedXdr, 'utf8').toString('hex').slice(0, 64);
-    return { txHash };
+    return { txHash, innerTxHash: txHash, isFeeBump: false };
   }
 
   const server = getSorobanServer();
   const transaction = StellarSdk.TransactionBuilder.fromXDR(
     signedXdr,
     getNetworkPassphrase()
-  ) as StellarSdk.Transaction;
+  );
+  const reference = describeTransactionEnvelope(transaction);
 
   // Submit transaction
   const response = await executeSorobanOperation(
@@ -349,9 +422,15 @@ export const submitSignedSorobanXdr = async (signedXdr: string): Promise<{ txHas
   // response.status type may not include SUCCESS/PENDING in typings
   const status: any = response.status;
   if (status === 'PENDING' || status === 'SUCCESS') {
-    logger.info('Transaction submitted successfully', { hash: response.hash });
+    logger.info('Transaction submitted successfully', {
+      hash: response.hash,
+      isFeeBump: reference.isFeeBump,
+    });
     return {
-      txHash: response.hash,
+      txHash: response.hash || reference.submittedTxHash,
+      innerTxHash: reference.innerTxHash,
+      feeBumpTxHash: reference.feeBumpTxHash,
+      isFeeBump: reference.isFeeBump,
     };
   }
 
@@ -359,63 +438,129 @@ export const submitSignedSorobanXdr = async (signedXdr: string): Promise<{ txHas
   throw new Error(`Transaction failed: ${response.status}`);
 };
 
-export const getTransactionStatus = async (txHash: string): Promise<TransactionStatus> => {
+const queryTransactionStatus = async (txHash: string): Promise<TransactionStatusLike> => {
+  const server = getSorobanServer();
+  const response = await executeSorobanOperation(
+    'soroban_get_transaction',
+    () => server.getTransaction(txHash),
+    { txHash }
+  );
+
+  if (response.status === StellarSdk.SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+    return {
+      status: 'success',
+      txHash,
+      result: response.returnValue,
+    };
+  }
+  if (response.status === StellarSdk.SorobanRpc.Api.GetTransactionStatus.FAILED) {
+    return {
+      status: 'failed',
+      txHash,
+      error: 'Transaction failed',
+    };
+  }
+  if (response.status === StellarSdk.SorobanRpc.Api.GetTransactionStatus.NOT_FOUND) {
+    return { status: 'not_found', txHash };
+  }
+  return { status: 'pending', txHash };
+};
+
+/**
+ * Resolve a transaction's final status. For fee-bump envelopes both the outer
+ * and inner hashes are consulted so a retry that submitted either hash still
+ * converges on the ledger's actual outcome (#923).
+ */
+export const getTransactionStatus = async (
+  txHash: string,
+  options: { innerTxHash?: string | null; feeBumpTxHash?: string | null } = {},
+): Promise<TransactionStatus> => {
+  if (!config.contracts.booking || txHash.startsWith('0x')) {
+    // Mock transaction for development
+    return {
+      status: 'success',
+      txHash,
+      result: { bookingId: '1' },
+      isFeeBump: false,
+      innerTxHash: options.innerTxHash ?? txHash,
+      feeBumpTxHash: options.feeBumpTxHash ?? undefined,
+      observedOn: 'outer',
+    };
+  }
+
+  const reference = referenceFromStoredHashes({
+    submittedTxHash: txHash,
+    innerTxHash: options.innerTxHash,
+    feeBumpTxHash: options.feeBumpTxHash,
+  });
+
+  let outer: TransactionStatusLike | undefined;
+  let outerError: any;
   try {
-    if (!config.contracts.booking || txHash.startsWith('0x')) {
-      // Mock transaction for development
-      return {
-        status: 'success',
-        txHash,
-        result: { bookingId: '1' },
-      };
-    }
-
-    const server = getSorobanServer();
-    const response = await executeSorobanOperation(
-      'soroban_get_transaction',
-      () => server.getTransaction(txHash),
-      { txHash }
-    );
-
-    if (response.status === StellarSdk.SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
-      return {
-        status: 'success',
-        txHash,
-        result: response.returnValue,
-      };
-    } else if (response.status === StellarSdk.SorobanRpc.Api.GetTransactionStatus.FAILED) {
-      return {
-        status: 'failed',
-        txHash,
-        error: 'Transaction failed',
-      };
-    } else if (response.status === StellarSdk.SorobanRpc.Api.GetTransactionStatus.NOT_FOUND) {
-      return {
-        status: 'not_found',
-        txHash,
-      };
-    } else {
-      return {
-        status: 'pending',
-        txHash,
-      };
-    }
+    outer = await queryTransactionStatus(txHash);
   } catch (error: any) {
-    logger.error('Error getting transaction status', { error: error.message, txHash });
+    outerError = error;
+  }
+
+  const outerSettled = outer?.status === 'success' || outer?.status === 'failed';
+  const distinctInner =
+    reference.innerTxHash && reference.innerTxHash !== txHash
+      ? reference.innerTxHash
+      : undefined;
+
+  let inner: TransactionStatusLike | undefined;
+  let innerError: any;
+  if (!outerSettled && distinctInner) {
+    try {
+      inner = await queryTransactionStatus(distinctInner);
+    } catch (error: any) {
+      innerError = error;
+    }
+  }
+
+  if (!outer && !inner) {
+    const error = outerError || innerError;
+    const errorMessage = error?.message || 'Unknown error';
+    logger.error('Error getting transaction status', { error: errorMessage, txHash });
     if (error instanceof AppError && error.code === 'CIRCUIT_OPEN') {
       return {
         status: 'pending',
         txHash,
         error: 'Soroban RPC temporarily unavailable',
+        isFeeBump: reference.isFeeBump,
+        innerTxHash: reference.innerTxHash,
+        feeBumpTxHash: reference.feeBumpTxHash,
       };
     }
 
     return {
       status: 'not_found',
       txHash,
-      error: error.message,
+      error: errorMessage,
+      isFeeBump: reference.isFeeBump,
+      innerTxHash: reference.innerTxHash,
+      feeBumpTxHash: reference.feeBumpTxHash,
     };
   }
+
+  if (outerError && outer?.status !== 'success' && outer?.status !== 'failed') {
+    logger.error('Error getting outer transaction status', {
+      error: outerError.message,
+      txHash,
+    });
+  }
+  if (innerError && inner?.status !== 'success' && inner?.status !== 'failed') {
+    logger.error('Error getting inner transaction status', {
+      error: innerError.message,
+      txHash: distinctInner,
+    });
+  }
+
+  const resolved = resolveFeeBumpOutcome({ reference, outer, inner });
+  return {
+    ...resolved,
+    txHash: resolved.txHash,
+  };
 };
 
 export interface TransactionReceiptData {
