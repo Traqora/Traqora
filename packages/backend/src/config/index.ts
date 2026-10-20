@@ -1,4 +1,5 @@
 import { configSchema, Config } from './schema';
+import { DEFAULT_TRACING_SAMPLER } from './tracing-samplers';
 import { SecretManager } from '../services/secret-manager.service';
 import { logger } from '../utils/logger';
 
@@ -74,6 +75,7 @@ const readConfigFromEnv = (): Config => {
     otlpTraceUrl: process.env.OTLP_TRACE_URL || otlpEndpoint || 'http://localhost:4318/v1/traces',
     otlpTraceHeaders: process.env.OTEL_EXPORTER_OTLP_TRACES_HEADERS || process.env.OTEL_EXPORTER_OTLP_HEADERS,
     tracingSampleRate: parseNumber(process.env.OTEL_TRACES_SAMPLER_ARG || process.env.TRACING_SAMPLE_RATE, 1),
+    tracingSampler: process.env.OTEL_TRACES_SAMPLER || DEFAULT_TRACING_SAMPLER,
 
     sentryDsn: process.env.SENTRY_DSN,
     sentryTracesSampleRate: parseNumber(process.env.SENTRY_TRACES_SAMPLE_RATE, 0.1),
@@ -104,6 +106,7 @@ const readConfigFromEnv = (): Config => {
     flightSearchCacheTtlSeconds: parseInteger(process.env.FLIGHT_SEARCH_CACHE_TTL_SECONDS, 300),
     flightRegistryCacheTtlSeconds: parseInteger(process.env.FLIGHT_REGISTRY_CACHE_TTL_SECONDS, 60),
     apiResponseCacheTtlSeconds: parseInteger(process.env.API_RESPONSE_CACHE_TTL_SECONDS, 60),
+    oracleRateCacheTtlSeconds: parseInteger(process.env.ORACLE_RATE_CACHE_TTL_SECONDS, 60),
 
     sendgridApiKey: process.env.SENDGRID_API_KEY,
     firebaseServiceAccount: process.env.FIREBASE_SERVICE_ACCOUNT,
@@ -240,6 +243,7 @@ export const loadConfig = async (): Promise<Config> => {
     otlpTraceUrl: await secretManager.getSecret('OTLP_TRACE_URL', 'http://localhost:4318/v1/traces'),
     otlpTraceHeaders: await secretManager.getSecret('OTEL_EXPORTER_OTLP_TRACES_HEADERS', ''),
     tracingSampleRate: parseNumber(await secretManager.getSecret('TRACING_SAMPLE_RATE', '1'), 1),
+    tracingSampler: await secretManager.getSecret('OTEL_TRACES_SAMPLER', DEFAULT_TRACING_SAMPLER),
 
     sentryDsn: await secretManager.getSecret('SENTRY_DSN', ''),
     sentryTracesSampleRate: parseNumber(await secretManager.getSecret('SENTRY_TRACES_SAMPLE_RATE', '0.1'), 0.1),
@@ -270,6 +274,7 @@ export const loadConfig = async (): Promise<Config> => {
     flightSearchCacheTtlSeconds: parseInteger(await secretManager.getSecret('FLIGHT_SEARCH_CACHE_TTL_SECONDS', '300'), 300),
     flightRegistryCacheTtlSeconds: parseInteger(await secretManager.getSecret('FLIGHT_REGISTRY_CACHE_TTL_SECONDS', '60'), 60),
     apiResponseCacheTtlSeconds: parseInteger(await secretManager.getSecret('API_RESPONSE_CACHE_TTL_SECONDS', '60'), 60),
+    oracleRateCacheTtlSeconds: parseInteger(await secretManager.getSecret('ORACLE_RATE_CACHE_TTL_SECONDS', '60'), 60),
 
     sendgridApiKey: await secretManager.getSecret('SENDGRID_API_KEY', ''),
     firebaseServiceAccount: await secretManager.getSecret('FIREBASE_SERVICE_ACCOUNT', ''),

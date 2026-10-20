@@ -52,6 +52,17 @@ export function useFlightStatusAlerts() {
 
   const subscribe = useCallback(
     async (data: { flightId: string; bookingId?: string }) => {
+      const tempId = `temp-${Date.now()}`;
+      const optimisticAlert: FlightStatusAlert = {
+        id: tempId,
+        userId: 'temp',
+        flightId: data.flightId,
+        bookingId: data.bookingId,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+      };
+      setAlerts((prev) => [optimisticAlert, ...prev]);
+
       try {
         const response = await fetch('/api/v1/flight-status/alerts', {
           method: 'POST',
@@ -70,9 +81,10 @@ export function useFlightStatusAlerts() {
         }
 
         const result = await response.json();
-        setAlerts((prev) => [result.data, ...prev]);
+        setAlerts((prev) => prev.map((a) => a.id === tempId ? result.data : a));
         return result.data;
       } catch (err: any) {
+        setAlerts((prev) => prev.filter((a) => a.id !== tempId));
         toast({
           title: 'Error',
           description: err.message || 'Failed to subscribe to flight status updates',
@@ -86,6 +98,12 @@ export function useFlightStatusAlerts() {
 
   const unsubscribe = useCallback(
     async (id: string) => {
+      let alertToRemove: FlightStatusAlert | undefined;
+      setAlerts((prev) => {
+        alertToRemove = prev.find((a) => a.id === id);
+        return prev.filter((a) => a.id !== id);
+      });
+
       try {
         const response = await fetch(`/api/v1/flight-status/alerts/${id}`, {
           method: 'DELETE',
@@ -97,9 +115,13 @@ export function useFlightStatusAlerts() {
         if (!response.ok) {
           throw new Error('Failed to unsubscribe from flight status updates');
         }
-
-        setAlerts((prev) => prev.filter((a) => a.id !== id));
       } catch (err: any) {
+        setAlerts((prev) => {
+          if (alertToRemove) {
+            return [alertToRemove, ...prev];
+          }
+          return prev;
+        });
         toast({
           title: 'Error',
           description: err.message || 'Failed to unsubscribe from flight status updates',

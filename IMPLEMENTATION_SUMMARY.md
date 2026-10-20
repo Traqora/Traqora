@@ -1,5 +1,8 @@
 # Traqora Issue Implementation - Executive Summary
 
+## Biometric Authentication Capability
+- **Documentation**: See `docs/security/biometric-auth.md` for complete contract details, inputs, outputs, and error handling.
+
 ## Overview
 
 This document provides comprehensive implementation plans for four critical Traqora issues spanning performance, features, and security. Each issue is fully detailed with file-by-file implementation guidance, code examples, and testing strategies.

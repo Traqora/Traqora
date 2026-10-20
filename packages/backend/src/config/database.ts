@@ -3,7 +3,7 @@ import { logger } from '../utils/logger';
 import { config } from '../config';
 
 export const connectDatabase = async () => {
-  const mongoURI = config.mongoUrl || '';
+  const mongoURI = config.mongoUrl || process.env.MONGO_URI || '';
 
   if (!mongoURI) {
     logger.warn('No MongoDB URI provided, skipping connection');

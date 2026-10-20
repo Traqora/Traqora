@@ -1,9 +1,15 @@
 import winston from 'winston';
-import { AsyncLocalStorage } from 'async_hooks';
 import { Config } from '../config/schema';
-import { SENSITIVE_KEYS } from '../middleware/requestLogger';
+import { deriveEventName, redactLogRecord, redactValue, resolveLogFormat, safeStringify } from '../utils/structuredLogger';
+import { asyncLocalStorage } from '../utils/logger';
 
-export const asyncLocalStorage = new AsyncLocalStorage<Map<string, string>>();
+/**
+ * Re-exported so that request correlation set by the request middleware is
+ * visible to `LoggerService` too. Both loggers previously owned a private
+ * `AsyncLocalStorage`, which meant `correlationId` silently disappeared from
+ * half the codebase's logs (issue #738).
+ */
+export { asyncLocalStorage };
 
 export interface LogContext {
   requestId?: string;
@@ -17,21 +23,12 @@ export interface LogContext {
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
-function redactSensitive(info: Record<string, unknown>): Record<string, unknown> {
-  const redacted: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(info)) {
-    const lowerKey = key.toLowerCase();
-    if (SENSITIVE_KEYS.some((sk) => lowerKey.includes(sk))) {
-      redacted[key] = '[REDACTED]';
-    } else if (typeof value === 'object' && value !== null) {
-      redacted[key] = redactSensitive(value as Record<string, unknown>);
-    } else {
-      redacted[key] = value;
-    }
-  }
-  return redacted;
-}
-
+/**
+ * Redact secrets across the whole record. Kept as a named export for the
+ * callers that format a record outside of the winston chain.
+ */
+const redactSensitive = (info: Record<string, unknown>): Record<string, unknown> =>
+  redactValue(info) as Record<string, unknown>;
 const addContext = winston.format((info) => {
   const store = asyncLocalStorage.getStore();
   if (store) {
@@ -44,9 +41,20 @@ const addContext = winston.format((info) => {
   return info;
 });
 
+/** Guarantee the `event` key of the structured envelope (issue #738). */
+const attachEvent = winston.format((info) => {
+  if (typeof info.event !== 'string' || info.event.length === 0) {
+    info.event = deriveEventName(info.message);
+  }
+  return info;
+});
+
+/**
+ * `details` is a pre-serialised JSON string for the audit trail, so it is
+ * parsed, redacted and re-serialised. The record itself is redacted wholesale
+ * by `maskSensitive` below.
+ */
 const maskSensitive = winston.format((info) => {
-  if (info.body) info.body = redactSensitive(info.body as Record<string, unknown>);
-  if (info.headers) info.headers = redactSensitive(info.headers as Record<string, unknown>);
   if (info.details) {
     try {
       const parsed: Record<string, unknown> =
@@ -56,14 +64,15 @@ const maskSensitive = winston.format((info) => {
       /* non-serializable details — skip masking */
     }
   }
-  return info;
+  return redactLogRecord(info) as winston.Logform.TransformableInfo;
 });
 
 const jsonFormat = winston.format.combine(
   addContext(),
-  maskSensitive(),
   winston.format.timestamp(),
   winston.format.errors({ stack: true }),
+  attachEvent(),
+  maskSensitive(),
   winston.format.json(),
 );
 
@@ -81,10 +90,12 @@ export class LoggerService {
   }
 
   private enrich(entry: Record<string, unknown>): Record<string, unknown> {
+    const store = asyncLocalStorage.getStore();
     return {
       ...entry,
       ...this.context,
-      correlationId: entry.correlationId || this.context.correlationId,
+      correlationId: entry.correlationId || this.context.correlationId || (store?.get('correlationId') as string) || undefined,
+      requestId: entry.requestId || this.context.requestId || (store?.get('requestId') as string) || undefined,
       component: entry.component || this.context.component,
     };
   }
@@ -138,17 +149,21 @@ export class LoggerService {
 function createBaseLogger(): winston.Logger {
   const level = process.env.LOG_LEVEL || 'info';
   const environment = process.env.NODE_ENV || 'development';
+  // `LOG_FORMAT` wins over the NODE_ENV default so staging, CI and log
+  // shippers can always get the JSON envelope (issue #738).
+  const usePrettyFormat = resolveLogFormat(process.env, environment) === 'pretty';
   const transports: winston.transport[] = [
     new winston.transports.Console({
-      format: environment === 'development'
+      format: usePrettyFormat
         ? winston.format.combine(
             winston.format.colorize(),
             winston.format.printf((info: winston.Logform.TransformableInfo) => {
               const { level, message, timestamp, ...rest } = info;
+              const event = rest.event ? ` [${String(rest.event)}]` : '';
               const comp = rest.component ? ` [${String(rest.component)}]` : '';
               const corr = rest.correlationId ? ` (${String(rest.correlationId)})` : '';
-              const extra = Object.keys(rest).length ? ` ${JSON.stringify(redactSensitive(rest as unknown as Record<string, unknown>))}` : '';
-              return `${String(timestamp)} ${String(level)}${comp}${corr}: ${String(message)}${extra}`;
+              const extra = Object.keys(rest).length ? ` ${safeStringify(rest)}` : '';
+              return `${String(timestamp)} ${String(level)}${event}${comp}${corr}: ${String(message)}${extra}`;
             }),
           )
         : undefined,
@@ -174,24 +189,32 @@ function createBaseLogger(): winston.Logger {
   return winston.createLogger({
     level,
     format: jsonFormat,
-    defaultMeta: { service: 'traqora-api' },
+    defaultMeta: { service: 'traqora-api', environment },
     transports,
   });
 }
 
 let defaultLogger: LoggerService | null = null;
+let defaultLoggerEnvironment: string | null = null;
 
 export function getLogger(context?: LogContext): LoggerService {
   if (!defaultLogger) {
     defaultLogger = new LoggerService();
+    defaultLoggerEnvironment = process.env.NODE_ENV || 'development';
   }
   return context ? defaultLogger.child(context) : defaultLogger;
 }
 
 export function configureLogger(config: Pick<Config, 'logLevel' | 'environment'>): void {
-  if (defaultLogger) {
-    defaultLogger.setLevel(config.logLevel);
+  if (!defaultLogger) return;
+  // The output format and the production file transports are resolved when the
+  // base logger is built, so rebuild it if the environment was not what the
+  // process saw at import time (issue #738).
+  if (defaultLoggerEnvironment !== config.environment) {
+    defaultLogger = new LoggerService();
+    defaultLoggerEnvironment = config.environment;
   }
+  defaultLogger.setLevel(config.logLevel);
 }
 
 export { LoggerService as Logger };

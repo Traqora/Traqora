@@ -3,6 +3,7 @@ import { Booking, BookingStatus } from '../db/entities/Booking';
 import { CheckIn } from '../db/entities/CheckIn';
 import { Passenger } from '../db/entities/Passenger';
 import { User } from '../db/entities/User';
+import { buildRealisticFlightFixtures } from './realisticFlightFixtures';
 
 export interface MockFlightParams {
   id?: string;
@@ -118,6 +119,25 @@ export class MockFactories {
     user.walletAddress = params.walletAddress || 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     user.walletType = params.walletType || 'freighter';
     return user;
+  }
+
+  static createRealisticFlights(): Flight[] {
+    return buildRealisticFlightFixtures().map((fixture) =>
+      this.createFlight({
+        id: fixture.id,
+        flightNumber: fixture.flightNumber,
+        airlineCode: fixture.airlineCode,
+        fromAirport: fixture.fromAirport,
+        toAirport: fixture.toAirport,
+        departureTime: fixture.departureTime,
+        arrivalTime: fixture.arrivalTime,
+        priceCents: fixture.priceCents,
+        seatsAvailable: fixture.seatsAvailable,
+        status: fixture.status,
+        gate: fixture.gate,
+        terminal: fixture.terminal,
+      })
+    );
   }
 
   static createMLHistoricalData(count: number = 30) {

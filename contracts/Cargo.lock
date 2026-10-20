@@ -6,6 +6,7 @@ version = 4
 name = "access"
 version = "0.1.0"
 dependencies = [
+ "errors",
  "soroban-sdk",
 ]
 
@@ -14,6 +15,7 @@ name = "admin"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
 ]
 
@@ -34,6 +36,7 @@ name = "airline"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -245,6 +248,7 @@ name = "booking"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -254,6 +258,7 @@ name = "booking-receipt"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -309,6 +314,13 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "contract-events"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
 
 [[package]]
 name = "core-foundation-sys"
@@ -530,6 +542,7 @@ name = "dispute"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -539,6 +552,7 @@ name = "dispute-resolution"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -634,6 +648,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "errors"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "escape-bytes"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -678,6 +699,7 @@ name = "flight-booking"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -687,6 +709,7 @@ name = "flight-registry"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -757,6 +780,7 @@ name = "governance"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -906,8 +930,10 @@ dependencies = [
  "airline",
  "booking",
  "booking-receipt",
+ "contract-events",
  "dispute",
  "dispute-resolution",
+ "errors",
  "flight-booking",
  "flight-registry",
  "governance",
@@ -1003,6 +1029,7 @@ name = "loyalty"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -1069,6 +1096,7 @@ name = "oracle"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -1168,6 +1196,7 @@ name = "proxy"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -1292,6 +1321,7 @@ name = "refund"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -1301,6 +1331,7 @@ name = "refund-automation"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]
@@ -1869,6 +1900,7 @@ name = "token"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
 ]
 
@@ -1901,6 +1933,7 @@ name = "upgrade"
 version = "0.1.0"
 dependencies = [
  "access",
+ "contract-events",
  "soroban-sdk",
  "storage-version",
 ]

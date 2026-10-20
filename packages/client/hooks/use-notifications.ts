@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSocket } from "@/components/socket/SocketProvider";
+import { API_BASE_URL, getAuthHeader } from "@/lib/api";
 import type {
   Notification,
   NotificationPreference,
@@ -12,6 +13,23 @@ import type {
 
 /** How often to poll as a fallback when WebSocket is unavailable (ms) */
 const POLL_INTERVAL_MS = 30_000;
+
+/**
+ * Fetch against the notification API using the configured base URL and the
+ * current auth token. The backend mounts these routes under
+ * `/api/v1/notifications` and requires a bearer token, so relative URLs
+ * (which would hit the Next.js server) are not sufficient.
+ */
+function notifyFetch(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${API_BASE_URL}/api/v1/notifications${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...getAuthHeader(),
+      ...(init?.headers || {}),
+    },
+  });
+}
 
 export interface NotificationStats {
   total: number;
@@ -84,7 +102,7 @@ export function useNotifications(): UseNotificationsReturn {
 
   const fetchInbox = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/notifications/inbox");
+      const res = await notifyFetch("/inbox");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setNotifications(data.notifications ?? []);
@@ -98,7 +116,7 @@ export function useNotifications(): UseNotificationsReturn {
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch("/api/v1/notifications/stats");
+      const res = await notifyFetch("/stats");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setStats(data);
@@ -110,7 +128,7 @@ export function useNotifications(): UseNotificationsReturn {
   const fetchPreferences = useCallback(async () => {
     setPrefsLoading(true);
     try {
-      const res = await fetch("/api/v1/notifications/preferences");
+      const res = await notifyFetch("/preferences");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setPreferences(data.preferences ?? []);
@@ -179,9 +197,8 @@ export function useNotifications(): UseNotificationsReturn {
       );
 
       try {
-        const res = await fetch("/api/v1/notifications/mark-read", {
+        const res = await notifyFetch("/mark-read", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ notificationId }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -205,7 +222,7 @@ export function useNotifications(): UseNotificationsReturn {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true, readAt: now })));
 
     try {
-      const res = await fetch("/api/v1/notifications/mark-all-read", {
+      const res = await notifyFetch("/mark-all-read", {
         method: "POST",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -222,7 +239,7 @@ export function useNotifications(): UseNotificationsReturn {
     setNotifications([]);
 
     try {
-      const res = await fetch("/api/v1/notifications/clear", { method: "POST" });
+      const res = await notifyFetch("/clear", { method: "POST" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await fetchStats();
     } catch (err) {
@@ -269,9 +286,8 @@ export function useNotifications(): UseNotificationsReturn {
       );
 
       try {
-        const res = await fetch("/api/v1/notifications/preferences", {
+        const res = await notifyFetch("/preferences", {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             channel,
             category,
@@ -298,9 +314,8 @@ export function useNotifications(): UseNotificationsReturn {
   const updateContactSettings = useCallback(
     async (patch: { emailAddress?: string; phoneNumber?: string }) => {
       try {
-        const res = await fetch("/api/v1/notifications/settings/contact", {
+        const res = await notifyFetch("/settings/contact", {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(patch),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -316,9 +331,8 @@ export function useNotifications(): UseNotificationsReturn {
   const updateDoNotDisturb = useCallback(
     async (dnd: DoNotDisturbSettings) => {
       try {
-        const res = await fetch("/api/v1/notifications/settings/dnd", {
+        const res = await notifyFetch("/settings/dnd", {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(dnd),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

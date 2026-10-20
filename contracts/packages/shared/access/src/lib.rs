@@ -1,4 +1,5 @@
 #![no_std]
+use errors::{panic_with_error, ContractError};
 use soroban_sdk::{contracttype, Address, Env};
 
 #[contracttype]
@@ -19,9 +20,13 @@ pub struct AccessControl;
 
 impl AccessControl {
     /// Initialize the owner of the contract.
+    ///
+    /// # Errors
+    /// Panics with [`ContractError::OwnerAlreadyInitialized`] if the owner slot
+    /// has already been set.
     pub fn init_owner(env: &Env, owner: &Address) {
         if env.storage().instance().has(&DataKey::Owner) {
-            panic!("Owner already initialized");
+            panic_with_error!(env, ContractError::OwnerAlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Owner, owner);
     }
@@ -85,27 +90,36 @@ impl AccessControl {
     }
 
     /// Assert that the address is the owner.
+    ///
+    /// # Errors
+    /// Panics with [`ContractError::NotOwner`] if the caller is not the owner.
     pub fn require_owner(env: &Env, address: &Address) {
         address.require_auth();
         let owner = Self::get_owner(env);
         if &owner != address {
-            panic!("Not the owner");
+            panic_with_error!(env, ContractError::NotOwner);
         }
     }
 
     /// Assert that the address has at least the Admin role.
+    ///
+    /// # Errors
+    /// Panics with [`ContractError::NotAdmin`] if the caller lacks the role.
     pub fn require_admin(env: &Env, address: &Address) {
         address.require_auth();
         if !Self::has_role(env, address, Role::Admin) {
-            panic!("Not an admin");
+            panic_with_error!(env, ContractError::NotAdmin);
         }
     }
 
     /// Assert that the address has at least the Operator role.
+    ///
+    /// # Errors
+    /// Panics with [`ContractError::NotOperator`] if the caller lacks the role.
     pub fn require_operator(env: &Env, address: &Address) {
         address.require_auth();
         if !Self::has_role(env, address, Role::Operator) {
-            panic!("Not an operator");
+            panic_with_error!(env, ContractError::NotOperator);
         }
     }
 }

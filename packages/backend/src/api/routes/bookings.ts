@@ -12,10 +12,8 @@ import {
 } from "../../services/idempotency";
 import { BookingOrchestrationService } from "../../services/bookingOrchestrationService";
 import { getStripe, stripeWebhookSecret } from "../../services/stripe";
-import {
-  submitSignedSorobanXdr,
-  getTransactionStatus,
-} from "../../services/soroban";
+import { submitSignedSorobanXdr } from "../../services/soroban";
+import { confirmBookingTx } from "../../services/bookingConfirmRetry";
 import { withRetries } from "../../services/retry";
 import { getWebSocketServer } from "../../websockets/server";
 import { logger } from "../../utils/logger";
@@ -25,8 +23,17 @@ import {
   mapPassengerToRequest,
 } from "../../services/specialAssistanceService";
 import type { SpecialAssistanceRequest } from "../../types/specialAssistance";
+import { bookingRateLimit, excludingPaths } from "../../middleware/rate-limit-tiers";
 
 const router = Router();
+
+// Per-tier booking rate limiting (#550), applied to every route on this
+// router except the Stripe webhook — see excludingPaths's doc comment.
+// Wrapped in asyncHandler (the project's existing pattern) so a rejected
+// promise inside the rate limiter — e.g. a Redis error surfacing through
+// rate-limiter-flexible — reaches Express's error handler via next(err)
+// instead of becoming an unhandled rejection.
+router.use(asyncHandler(excludingPaths(bookingRateLimit, ["/webhook/stripe"])));
 
 // IATA name format: letters, spaces, hyphens, and apostrophes only
 const iatanameRegex = /^[A-Za-z\s'\-]+$/;
@@ -105,24 +112,32 @@ router.post(
     }
 
     const idempotencyKeyHeader = req.header("Idempotency-Key");
-    if (!idempotencyKeyHeader) {
-      throw new BadRequestError("Missing Idempotency-Key header");
+    if (!idempotencyKeyHeader || idempotencyKeyHeader.length > 128) {
+      throw new BadRequestError("Idempotency-Key header is required and must be at most 128 characters");
     }
 
-    const requestHash = hashObject(parsed.data);
+    const requestHash = hashObject({
+      flightId: parsed.data.flightId,
+      passenger: parsed.data.passenger,
+      walletAddress: req.user?.walletAddress,
+    });
 
     const bookingRepo = AppDataSource.getRepository(Booking);
     const idempotencyRepo = AppDataSource.getRepository(IdempotencyKey);
 
     const idem = await getOrCreateIdempotencyKey({
       key: idempotencyKeyHeader,
-      method: req.method,
-      path: req.baseUrl + req.path,
+      method: "POST",
+      path: "/api/v1/bookings",
       requestHash,
     });
 
-    if (idem.requestHash !== requestHash) {
-      throw new ConflictError("Idempotency key reuse with different payload");
+    if (
+      idem.method !== "POST" ||
+      idem.path !== "/api/v1/bookings" ||
+      idem.requestHash !== requestHash
+    ) {
+      throw new ConflictError("Idempotency key reuse with different request");
     }
 
     if (idem.resourceId) {
@@ -287,29 +302,15 @@ router.get(
       });
     }
 
-    const txStatus = await getTransactionStatus(booking.sorobanTxHash);
+    // #784: single idempotent confirm transition — re-polling an already
+    // settled transaction no longer re-saves or re-broadcasts.
+    const { outcome, changed, booking: updated, transactionStatus: txStatus } =
+      await confirmBookingTx(booking.id);
 
-    if (txStatus.status === "success" && booking.status !== "confirmed") {
-      booking.status = "confirmed";
-      if (txStatus.result) {
-        booking.sorobanBookingId = txStatus.result.bookingId || null;
-      }
-      await bookingRepo.save(booking);
+    if (changed) {
       try {
         const ws = getWebSocketServer();
-        ws.broadcastBookingStatus(booking.id, booking.status);
-      } catch (e) {
-        logger.warn(
-          "WebSocket server not ready - skipping booking status broadcast",
-        );
-      }
-    } else if (txStatus.status === "failed" && booking.status !== "failed") {
-      booking.status = "failed";
-      booking.lastError = txStatus.error || "Transaction failed";
-      await bookingRepo.save(booking);
-      try {
-        const ws = getWebSocketServer();
-        ws.broadcastBookingStatus(booking.id, booking.status);
+        ws.broadcastBookingStatus(updated.id, updated.status);
       } catch (e) {
         logger.warn(
           "WebSocket server not ready - skipping booking status broadcast",
@@ -320,8 +321,9 @@ router.get(
     return res.json({
       success: true,
       data: {
-        bookingStatus: booking.status,
+        bookingStatus: updated.status,
         transactionStatus: txStatus,
+        confirmOutcome: outcome,
       },
     });
   }),

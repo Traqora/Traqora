@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { AlertCircle, CheckCircle, Info, X, Edit3 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useBookingFormFocus, useBookingDialogFocus } from "@/hooks/use-booking-focus"
 
 const VALID_TITLES = ["Mr", "Mrs", "Ms", "Miss", "Dr", "Prof", "Sir", "Lady", "Lord", "Capt", "Col", "Maj"]
 const VALID_SUFFIXES = ["Jr", "Sr", "II", "III", "IV", "V", "PhD", "MD", "Esq", "CPA", "DDS", "RN"]
@@ -110,7 +111,30 @@ export function PassengerDetailsForm({ passenger, index, onChange, onRemove, sho
   const [correctionReason, setCorrectionReason] = useState("")
   const [correctionFee, setCorrectionFee] = useState<{ feeCents: number; breakdown: { label: string; amount: number }[] } | null>(null)
 
+  const formRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const correctionTriggerRef = useRef<HTMLButtonElement>(null)
+
   const localErrors = errors || {}
+
+  const { focusFirstError } = useBookingFormFocus({
+    formRef,
+    errors: localErrors,
+  })
+
+  useBookingDialogFocus({
+    dialogRef,
+    isOpen: showCorrectionDialog,
+    triggerElement: correctionTriggerRef.current,
+    onClose: () => setShowCorrectionDialog(false),
+  })
+
+  // Focus first error when errors change
+  useEffect(() => {
+    if (Object.keys(localErrors).length > 0) {
+      focusFirstError()
+    }
+  }, [localErrors, focusFirstError])
 
   const handleChange = useCallback((field: keyof PassengerData, value: string) => {
     onChange(index, { ...passenger, [field]: value })
@@ -140,7 +164,12 @@ export function PassengerDetailsForm({ passenger, index, onChange, onRemove, sho
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-lg font-serif">Passenger {index + 1}</CardTitle>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowCorrectionDialog(true)}>
+          <Button
+            ref={correctionTriggerRef}
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCorrectionDialog(true)}
+          >
             <Edit3 className="h-3 w-3 mr-1" />
             Correct Name
           </Button>
@@ -151,7 +180,7 @@ export function PassengerDetailsForm({ passenger, index, onChange, onRemove, sho
           )}
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent ref={formRef} className="space-y-4">
         <div className="grid grid-cols-4 gap-3">
           <div>
             <Label htmlFor={`title-${index}`}>Title</Label>
@@ -286,7 +315,7 @@ export function PassengerDetailsForm({ passenger, index, onChange, onRemove, sho
       </CardContent>
 
       <Dialog open={showCorrectionDialog} onOpenChange={setShowCorrectionDialog}>
-        <DialogContent>
+        <DialogContent ref={dialogRef}>
           <DialogHeader>
             <DialogTitle>Request Name Correction</DialogTitle>
             <DialogDescription>

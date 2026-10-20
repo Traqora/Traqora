@@ -4,6 +4,7 @@ module.exports = {
   roots: ['<rootDir>/tests', '<rootDir>/src'],
   testMatch: ['**/*.test.ts'],
   clearMocks: true,
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   testEnvironmentOptions: {
     env: {
       NODE_ENV: 'test',
@@ -12,9 +13,25 @@ module.exports = {
   },
   moduleNameMapper: {
     '^.*/src/index$': '<rootDir>/tests/mock-index.ts',
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '^@tests/(.*)$': '<rootDir>/tests/$1',
+  },
+  collectCoverageFrom: [
+    'src/services/**/*.ts',
+    'src/jobs/**/*.ts',
+    '!src/**/index.ts',
+    '!src/**/*.test.ts',
+  ],
+  coverageThreshold: {
+    global: {
+      statements: 35,
+      branches: 30,
+      functions: 34,
+      lines: 35,
+    },
   },
   setupFiles: ['<rootDir>/tests/setup.ts'],
-  moduleDirectories: ['node_modules', '../../node_modules', '../../node_modules/ts-jest'],
+  moduleDirectories: ['node_modules', '<rootDir>/node_modules'],
   transform: {
     '^.+\\.ts$': [
       'ts-jest',

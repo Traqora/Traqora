@@ -7,6 +7,7 @@ import { Passenger } from "../entities/Passenger";
 import { Booking } from "../entities/Booking";
 import { User } from "../entities/User";
 import { logger } from "../../utils/logger";
+import { REALISTIC_FLIGHT_SEED_DATA } from "./realisticFlightSeedData";
 
 export const seedDatabase = async () => {
   logger.info("Initializing database seeding...");
@@ -50,47 +51,15 @@ export const seedDatabase = async () => {
   const flightCount = await flightRepo.count();
   const seededFlights: Flight[] = [];
   if (flightCount === 0) {
-    const flightsData = [
-      {
-        flightNumber: "TQ101",
-        airlineCode: "TQ",
-        fromAirport: "JFK",
-        toAirport: "LHR",
-        departureTime: new Date(Date.now() + 24 * 60 * 60 * 1000), // tomorrow
-        arrivalTime: new Date(Date.now() + 32 * 60 * 60 * 1000),
-        seatsAvailable: 150,
-        priceCents: 45000, // $450.00
-        airlineSorobanAddress: "GCSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CS",
-        status: "SCHEDULED",
-        dataSource: "AMADEUS",
-      },
-      {
-        flightNumber: "TQ202",
-        airlineCode: "TQ",
-        fromAirport: "LAX",
-        toAirport: "HND",
-        departureTime: new Date(Date.now() + 48 * 60 * 60 * 1000),
-        arrivalTime: new Date(Date.now() + 60 * 60 * 60 * 1000),
-        seatsAvailable: 200,
-        priceCents: 85000, // $850.00
-        airlineSorobanAddress: "GCSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CS",
-        status: "SCHEDULED",
-        dataSource: "AMADEUS",
-      },
-      {
-        flightNumber: "TQ303",
-        airlineCode: "TQ",
-        fromAirport: "CDG",
-        toAirport: "DXB",
-        departureTime: new Date(Date.now() + 12 * 60 * 60 * 1000),
-        arrivalTime: new Date(Date.now() + 19 * 60 * 60 * 1000),
-        seatsAvailable: 80,
-        priceCents: 62000,
-        airlineSorobanAddress: "GCSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CS",
-        status: "SCHEDULED",
-        dataSource: "AMADEUS",
-      },
-    ];
+    const flightsData = REALISTIC_FLIGHT_SEED_DATA.map((fixture, index) => ({
+      ...fixture,
+      departureTime: new Date(Date.now() + fixture.departureOffsetHours * 60 * 60 * 1000),
+      arrivalTime: new Date(Date.now() + fixture.arrivalOffsetHours * 60 * 60 * 1000),
+      airlineSorobanAddress:
+        "GCSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CSW2J3WJ2CS",
+      status: "SCHEDULED",
+      dataSource: index % 2 === 0 ? "AMADEUS" : "SABRE",
+    }));
 
     for (const flightData of flightsData) {
       const flight = flightRepo.create(flightData);

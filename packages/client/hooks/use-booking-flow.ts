@@ -5,6 +5,7 @@ import type { WalletConnection } from "@/lib/wallet";
 // NEW: import real wallet store and signTransaction from stellar-wallet-connect
 import { useWalletStore, signTransaction } from "@/lib/stellar-wallet-connect";
 import { toast } from "sonner";
+import { addPendingSync } from "@/lib/offline-storage";
 
 export type BookingStep = 'details' | 'wallet' | 'payment' | 'signing' | 'submitting' | 'confirming' | 'success' | 'error';
 
@@ -85,6 +86,12 @@ export const useBookingFlow = (): [UseBookingFlowState, UseBookingFlowActions] =
   const createBooking = useCallback(async (request: CreateBookingRequest): Promise<boolean> => {
     setProcessing(true, 'Creating booking...');
 
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      addPendingSync('booking', request);
+      setError('You are offline. Your booking has been saved and will be processed when you reconnect.');
+      return false;
+    }
+
     try {
       const idempotencyKey = generateIdempotencyKey();
       const response = await apiClient.createBooking(request, idempotencyKey);
@@ -138,6 +145,12 @@ export const useBookingFlow = (): [UseBookingFlowState, UseBookingFlowActions] =
       }
 
       setProcessing(true, 'Submitting transaction to blockchain...');
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        addPendingSync('booking', { bookingId: state.booking.id, signedXdr });
+        setError('You are offline. Your transaction has been saved and will be submitted when you reconnect.');
+        return false;
+      }
 
       // Submit signed transaction
       const response = await apiClient.submitSignedTransaction(

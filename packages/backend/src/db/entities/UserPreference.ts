@@ -38,6 +38,28 @@ export class UserPreference {
   @Column({ nullable: true })
   webhookUrl: string;
 
+  // Push notification opt-in preferences by type
+  @Column({ default: true })
+  pushBookingEnabled: boolean;
+
+  @Column({ default: true })
+  pushReminderEnabled: boolean;
+
+  @Column({ default: true })
+  pushRefundEnabled: boolean;
+
+  @Column({ default: true })
+  pushPromoEnabled: boolean;
+
+  @Column({ default: false })
+  pushOptedIn: boolean; // Explicit opt-in flag for compliance
+
+  @Column({ type: "timestamp", nullable: true })
+  pushOptInAt: Date;
+
+  @Column({ type: "jsonb", nullable: true })
+  pushDeviceTokens: Array<{ token: string; platform: string; lastUsed: Date }>;
+
   @CreateDateColumn()
   createdAt: Date;
 

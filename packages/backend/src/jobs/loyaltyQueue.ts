@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { createJobLogger } from './jobLogger';
+import { deadLetterQueue, DeadLetterQueue } from './deadLetterQueue';
 
 type JobHandler = (data: Record<string, unknown>) => Promise<void>;
 
@@ -29,8 +30,10 @@ export class LoyaltyQueue {
   private redis: Redis | null = null;
   private handlers = new Map<string, JobHandler>();
   private processing = false;
+  private readonly deadLetterQueue: DeadLetterQueue;
 
-  constructor() {
+  constructor(deadLetter: DeadLetterQueue = deadLetterQueue) {
+    this.deadLetterQueue = deadLetter;
     this.initRedis();
   }
 
@@ -158,19 +161,31 @@ export class LoyaltyQueue {
       log.complete({ type: job.type });
     } catch (err) {
       job.attempts++;
+      const errorMessage = err instanceof Error ? err.message : String(err);
 
       if (job.attempts < MAX_RETRIES && this.redis) {
         await this.redis.rpush(QUEUE_KEY, JSON.stringify(job));
         log.step('retry', {
           outcome: 'failure',
           attempt: job.attempts,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage,
         });
       } else {
+        // Retries exhausted (or no queue to retry against): quarantine instead of
+        // silently dropping the job so it stays logged and inspectable.
+        await this.deadLetterQueue.add({
+          id: job.id,
+          queue: 'loyalty-queue',
+          type: job.type,
+          data: job.data,
+          attempts: job.attempts,
+          error: errorMessage,
+        });
         log.fail({
           step: 'execute',
           attempts: job.attempts,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage,
+          deadLettered: true,
         });
       }
     }

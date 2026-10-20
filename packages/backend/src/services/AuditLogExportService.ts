@@ -16,6 +16,20 @@ export interface ExportFilters {
   resource?: string;
   ipAddress?: string;
   logType?: LogType;
+  skip?: number;
+  take?: number;
+}
+
+export interface PaginatedExportResult {
+  format: ExportFormat;
+  logType: LogType;
+  pageNumber: number;
+  pageSize: number;
+  recordCount: number;
+  hasNextPage: boolean;
+  data: string;
+  filename: string;
+  exportedAt: Date;
 }
 
 export interface ExportResult {
@@ -31,23 +45,66 @@ export interface ExportResult {
  * Service for exporting audit logs in various formats for regulatory compliance
  */
 export class AuditLogExportService {
-  /**
-   * Export audit logs in JSON format
+   /**
+   * Export audit logs by streaming in pages to prevent high memory usage,
+   * outputting a consistent schema optimized for compliance tooling.
    */
-  static async exportLogsJSON(filters: ExportFilters = {}): Promise<ExportResult> {
-    const logs = await this.getLogs(filters);
-    const filename = this.generateFilename('json', filters.logType || 'all');
-    const data = JSON.stringify(logs, null, 2);
+  static async exportLogsStream(filters: ExportFilters = {}, pageSize = 1000): Promise<import('stream').Readable> {
+    const { Readable } = await import('stream');
+    let page = 1;
+    let keepStreaming = true;
+    const self = this;
 
-    return {
-      format: 'json',
-      logType: filters.logType || 'all',
-      recordCount: logs.length,
-      data,
-      filename,
-      exportedAt: new Date(),
-    };
+    return new Readable({
+      objectMode: true,
+      async read() {
+        try {
+          if (!keepStreaming) {
+            this.push(null); // End the stream channel gracefully
+            return;
+          }
+
+          // Merge our pagination limits into your existing filter logic
+          const paginatedFilters = {
+            ...filters,
+            skip: (page - 1) * pageSize,
+            take: pageSize
+          };
+
+          // Fetch discrete database rows page-by-page using your existing helper method
+          const logs = await (self as any).getLogs(paginatedFilters);
+
+          if (!logs || logs.length === 0) {
+            keepStreaming = false;
+            this.push(null);
+            return;
+          }
+
+          // Format entries row-by-row into a consistent schema structure for compliance tools
+          for (const log of logs) {
+            this.push({
+              timestamp: new Date(log.createdAt || log.timestamp).toISOString(),
+              actorId: log.userId || log.actorId || 'SYSTEM',
+              actionPerformed: log.action || log.event || 'UNKNOWN',
+              resourceTarget: log.targetResource || 'N/A',
+              status: log.status || 'SUCCESS',
+              checksum: log.stellarTransactionHash || 'N/A' // Mandatory Stellar audit tracking
+            });
+          }
+
+          // If the page returned fewer items than the max, we reached the end
+          if (logs.length < pageSize) {
+            keepStreaming = false;
+          } else {
+            page++;
+          }
+        } catch (err) {
+          this.destroy(err as Error);
+        }
+      }
+    });
   }
+
 
   /**
    * Export audit logs in CSV format
@@ -68,26 +125,75 @@ export class AuditLogExportService {
   }
 
   /**
-   * Get logs based on filters
+   * Export audit logs in paginated format (CSV or JSON)
+   * Supports large result sets by returning records page-by-page
+   */
+  static async exportLogsPaginated(
+    filters: ExportFilters = {},
+    pageNumber: number = 1,
+    pageSize: number = 1000,
+    format: ExportFormat = 'json'
+  ): Promise<PaginatedExportResult> {
+    if (pageNumber < 1) {
+      throw new Error('Page number must be >= 1');
+    }
+    if (pageSize < 1 || pageSize > 10000) {
+      throw new Error('Page size must be between 1 and 10000');
+    }
+
+    const skip = (pageNumber - 1) * pageSize;
+    const take = pageSize + 1; // Fetch one extra to determine if there's a next page
+
+    const logsWithExtra = await this.getLogs({ ...filters, skip, take });
+    const hasNextPage = logsWithExtra.length > pageSize;
+    const logs = hasNextPage ? logsWithExtra.slice(0, pageSize) : logsWithExtra;
+
+    let data: string;
+    if (format === 'csv') {
+      data = this.convertToCSV(logs);
+    } else {
+      data = JSON.stringify(logs, null, 2);
+    }
+
+    const filename = this.generateFilename(format, filters.logType || 'all', pageNumber, pageSize);
+
+    return {
+      format,
+      logType: filters.logType || 'all',
+      pageNumber,
+      pageSize,
+      recordCount: logs.length,
+      hasNextPage,
+      data,
+      filename,
+      exportedAt: new Date(),
+    };
+  }
+
+  /**
+   * Get logs based on filters with pagination support
    */
   private static async getLogs(filters: ExportFilters): Promise<any[]> {
     await initDataSource();
     const allLogs: any[] = [];
+    
+    const skip = filters.skip ?? 0;
+    const take = filters.take ?? 1000;
 
     const logType = filters.logType || 'all';
 
     if (logType === 'security' || logType === 'all') {
-      const securityLogs = await this.getSecurityLogs(filters);
+      const securityLogs = await this.getSecurityLogs({ ...filters, skip, take });
       allLogs.push(...securityLogs.map(log => this.transformSecurityLog(log)));
     }
 
     if (logType === 'admin' || logType === 'all') {
-      const adminLogs = await this.getAdminLogs(filters);
+      const adminLogs = await this.getAdminLogs({ ...filters, skip, take });
       allLogs.push(...adminLogs.map(log => this.transformAdminLog(log)));
     }
 
     if (logType === 'approvals' || logType === 'all') {
-      const approvalLogs = await this.getApprovalLogs(filters);
+      const approvalLogs = await this.getApprovalLogs({ ...filters, skip, take });
       allLogs.push(...approvalLogs.map(log => this.transformApprovalLog(log)));
     }
 
@@ -98,7 +204,7 @@ export class AuditLogExportService {
   }
 
   /**
-   * Get security audit logs with filters
+   * Get security audit logs with filters and pagination
    */
   private static async getSecurityLogs(filters: ExportFilters): Promise<SecurityAuditLog[]> {
     const repo = AppDataSource.getRepository(SecurityAuditLog);
@@ -113,11 +219,20 @@ export class AuditLogExportService {
       queryBuilder.andWhere('log.action = :action', { action: filters.action });
     }
 
-    return queryBuilder.orderBy('log.createdAt', 'DESC').getMany();
+    queryBuilder.orderBy('log.createdAt', 'DESC');
+    
+    if (filters.skip !== undefined) {
+      queryBuilder.skip(filters.skip);
+    }
+    if (filters.take !== undefined) {
+      queryBuilder.take(filters.take);
+    }
+
+    return queryBuilder.getMany();
   }
 
   /**
-   * Get admin audit logs with filters
+   * Get admin audit logs with filters and pagination
    */
   private static async getAdminLogs(filters: ExportFilters): Promise<AdminAuditLog[]> {
     const repo = AppDataSource.getRepository(AdminAuditLog);
@@ -135,11 +250,20 @@ export class AuditLogExportService {
       queryBuilder.andWhere('log.resource = :resource', { resource: filters.resource });
     }
 
-    return queryBuilder.orderBy('log.createdAt', 'DESC').getMany();
+    queryBuilder.orderBy('log.createdAt', 'DESC');
+    
+    if (filters.skip !== undefined) {
+      queryBuilder.skip(filters.skip);
+    }
+    if (filters.take !== undefined) {
+      queryBuilder.take(filters.take);
+    }
+
+    return queryBuilder.getMany();
   }
 
   /**
-   * Get sensitive operation approval logs with filters
+   * Get sensitive operation approval logs with filters and pagination
    */
   private static async getApprovalLogs(filters: ExportFilters): Promise<SensitiveOperationApproval[]> {
     const repo = AppDataSource.getRepository(SensitiveOperationApproval);
@@ -151,7 +275,16 @@ export class AuditLogExportService {
       queryBuilder.andWhere('(log.requesterId = :adminId OR log.approverId = :adminId)', { adminId: filters.adminId });
     }
 
-    return queryBuilder.orderBy('log.createdAt', 'DESC').getMany();
+    queryBuilder.orderBy('log.createdAt', 'DESC');
+    
+    if (filters.skip !== undefined) {
+      queryBuilder.skip(filters.skip);
+    }
+    if (filters.take !== undefined) {
+      queryBuilder.take(filters.take);
+    }
+
+    return queryBuilder.getMany();
   }
 
   /**
@@ -299,9 +432,13 @@ export class AuditLogExportService {
   /**
    * Generate filename for export
    */
-  private static generateFilename(format: ExportFormat, logType: LogType): string {
+  private static generateFilename(format: ExportFormat, logType: LogType, pageNumber?: number, pageSize?: number): string {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    return `audit-logs-${logType}-${timestamp}.${format}`;
+    let filename = `audit-logs-${logType}-${timestamp}`;
+    if (pageNumber !== undefined && pageSize !== undefined) {
+      filename += `-page-${pageNumber}-size-${pageSize}`;
+    }
+    return `${filename}.${format}`;
   }
 
   /**

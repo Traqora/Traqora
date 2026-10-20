@@ -10,24 +10,13 @@ NETWORK="${1:-testnet}"
 DEPLOY_TAG="${2:-$(date +%Y%m%d-%H%M%S)}"
 VERIFY="${3:-false}"
 
-RPC_URL=""
-NETWORK_PASSPHRASE=""
 STELLAR_SECRET_KEY="${STELLAR_SECRET_KEY:-}"
 
-case "$NETWORK" in
-    testnet)
-        RPC_URL="${RPC_URL:-https://soroban-testnet.stellar.org:443}"
-        NETWORK_PASSPHRASE="${NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}"
-        ;;
-    mainnet)
-        RPC_URL="${RPC_URL:-https://soroban-rpc.stellar.org:443}"
-        NETWORK_PASSPHRASE="${NETWORK_PASSPHRASE:-Public Global Stellar Network ; September 2015}"
-        ;;
-    *)
-        echo "Error: Unknown network '$NETWORK'. Use 'testnet' or 'mainnet'."
-        exit 1
-        ;;
-esac
+# shellcheck source=lib/network-guard.sh
+source "$SCRIPT_DIR/lib/network-guard.sh"
+resolve_network_config "$NETWORK" || exit $?
+RPC_URL="$GUARD_RPC_URL"
+NETWORK_PASSPHRASE="$GUARD_NETWORK_PASSPHRASE"
 
 if [ -z "$STELLAR_SECRET_KEY" ]; then
     echo "Error: STELLAR_SECRET_KEY environment variable is required."
@@ -37,6 +26,7 @@ fi
 echo "=== Deploying Contracts to $NETWORK ==="
 echo "Tag: $DEPLOY_TAG"
 echo "RPC: $RPC_URL"
+echo "Passphrase: $NETWORK_PASSPHRASE"
 echo ""
 
 mkdir -p "$DEPLOY_ARTIFACTS_DIR/$NETWORK/$DEPLOY_TAG"
@@ -45,12 +35,6 @@ if ! command -v stellar &> /dev/null; then
     echo "Installing Stellar CLI..."
     cargo install --locked stellar-cli
 fi
-
-echo "Configuring network $NETWORK..."
-stellar network add \
-    --rpc-url "$RPC_URL" \
-    --network-passphrase "$NETWORK_PASSPHRASE" \
-    "$NETWORK" 2>/dev/null || true
 
 echo "Configuring deployer identity..."
 printf '%s' "$STELLAR_SECRET_KEY" | stellar keys generate deployer --secret-key 2>/dev/null || true
@@ -87,7 +71,8 @@ for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
     contract_id=$(stellar contract deploy \
         --wasm "$wasm" \
         --source deployer \
-        --network "$NETWORK" 2>&1 | tail -1)
+        --rpc-url "$RPC_URL" \
+        --network-passphrase "$NETWORK_PASSPHRASE" 2>&1 | tail -1)
 
     CONTRACT_IDS["$name"]="$contract_id"
     echo "    Contract ID: $contract_id"

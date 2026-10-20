@@ -25,8 +25,8 @@ Step-by-step procedure for deploying and upgrading Traqora's Soroban contracts o
 # Testnet
 ./scripts/deploy-contracts.sh testnet
 
-# Mainnet
-./scripts/deploy-contracts.sh mainnet
+# Mainnet: explicit confirmation is required (see "Network guard" below)
+CONFIRM_MAINNET=mainnet ./scripts/deploy-contracts.sh mainnet
 ```
 
 Optional arguments:
@@ -54,6 +54,52 @@ Tag: 20260826-120000
   Deploying booking...
     Contract ID: CABC...
     WASM Hash: abc123...
+```
+
+### Network guard
+
+Before the script builds or deploys anything, it runs
+`resolve_network_config` from [`scripts/lib/network-guard.sh`](../../scripts/lib/network-guard.sh).
+The guard makes sure the RPC endpoint and the network passphrase both belong to the network you
+asked for, so a mainnet deploy cannot use testnet settings or the other way round.
+
+**Inputs**
+
+| Input | Default | Rule |
+|-------|---------|------|
+| `<network>` (first argument) | `testnet` | Must be `testnet` or `mainnet` |
+| `RPC_URL` | testnet: `https://soroban-testnet.stellar.org:443`, mainnet: `https://soroban-rpc.stellar.org:443` | Must use `https`. For mainnet it must not contain `testnet`, `futurenet`, `localhost` or `127.0.0.1`. For testnet it must not contain `mainnet` or be the default mainnet RPC |
+| `NETWORK_PASSPHRASE` | The standard passphrase for the network | Must be **exactly** `Test SDF Network ; September 2015` (testnet) or `Public Global Stellar Network ; September 2015` (mainnet) |
+| `CONFIRM_MAINNET` | unset | Must be `mainnet` for a mainnet target |
+
+**Output:** the script prints the resolved RPC and passphrase and passes them directly to
+`stellar contract deploy` (`--rpc-url` / `--network-passphrase`). It does not use a
+`stellar network` alias, so a stale local alias can no longer send a deploy to the wrong network.
+
+**Error cases:** the script stops before building, deploying or writing to `.deployments/`.
+
+| Exit code | Cause |
+|-----------|-------|
+| `2` | Unknown network |
+| `3` | The passphrase does not match the network. This includes typos such as `October 2015` |
+| `4` | The RPC URL is not `https`, or it points at the other network or a local endpoint |
+| `5` | Mainnet target without `CONFIRM_MAINNET=mainnet` |
+
+The configuration checks (2–4) run before the confirmation check (5). A misconfigured mainnet
+deploy therefore reports the real problem, not just a missing confirmation.
+
+In CI, `cd.yml` and `deploy-automated.yml` set `CONFIRM_MAINNET` to the same value as the
+selected network. A testnet run leaves it as `testnet`, so the mainnet opt-in is only present
+when the workflow itself has chosen mainnet.
+
+Before this change, the script cleared `RPC_URL` and `NETWORK_PASSPHRASE` before applying its
+defaults, so overrides were silently ignored. Overrides now take effect, but only after they
+pass the checks above.
+
+Regression tests (no Stellar CLI or network access needed):
+
+```bash
+npm run test:scripts        # or: bash scripts/tests/network-guard.test.sh
 ```
 
 ### Step 2 — Record contract IDs

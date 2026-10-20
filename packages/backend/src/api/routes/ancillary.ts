@@ -60,6 +60,34 @@ router.get(
 );
 
 /**
+ * GET /api/v1/ancillary/availability/:bookingId/:serviceCode
+ * Check if a specific ancillary service is currently available for a booking.
+ */
+router.get(
+  '/availability/:bookingId/:serviceCode',
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const parsedBookingId = z.string().uuid().safeParse(req.params.bookingId);
+    if (!parsedBookingId.success) {
+      return res.status(400).json({ error: parsedBookingId.error.flatten() });
+    }
+    const serviceCode = String(req.params.serviceCode || '').trim();
+    if (!serviceCode) {
+      return res.status(400).json({ error: 'Service code is required' });
+    }
+
+    const result = await ancillaryService.checkAvailability(
+      parsedBookingId.data,
+      serviceCode,
+      req.user?.walletAddress,
+      req.query as Record<string, string | number | boolean>,
+    );
+
+    return res.json({ data: result });
+  }),
+);
+
+/**
  * POST /api/v1/ancillary/purchases
  * Purchase priority boarding, lounge access, extra legroom, or a fixed-price upgrade.
  */

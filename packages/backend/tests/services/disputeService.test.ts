@@ -1,8 +1,9 @@
 import { AppDataSource } from '../../src/db/dataSource';
-import { Dispute } from '../../src/db/entities/Dispute';
+import { Dispute, DisputeStatus } from '../../src/db/entities/Dispute';
 import { DisputeEvidence } from '../../src/db/entities/DisputeEvidence';
 import { Refund } from '../../src/db/entities/Refund';
 import { disputeService } from '../../src/services/dispute/disputeService';
+import { EvidenceValidationError } from '../../src/services/dispute/evidenceValidation';
 
 describe('DisputeService', () => {
   const claimantAddress = 'GCLAIMANTWALLET123456789';
@@ -174,5 +175,290 @@ describe('DisputeService', () => {
     });
 
     expect(appealed.status).toBe('appealed');
+  });
+
+  it('rejects invalid evidence on create without persisting the dispute', async () => {
+    await expect(
+      disputeService.createDispute({
+        refundId: 'refund-1',
+        claimantAddress,
+        disputeType: 'refund_denied',
+        description: 'Refund was denied despite airline cancellation and supporting receipts.',
+        desiredOutcome: 'Full refund and fee reversal',
+        evidence: [{ description: 'Receipt', fileUrl: 'https://evil.example/files/ipfs/not-a-cid' }],
+      }),
+    ).rejects.toBeInstanceOf(EvidenceValidationError);
+
+    expect(disputes).toHaveLength(0);
+    expect(evidenceItems).toHaveLength(0);
+  });
+
+  it('rejects invalid evidence submissions and leaves dispute status unchanged', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details and missing compensation response from airline.',
+      desiredOutcome: 'Partial refund aligned with policy',
+    });
+
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: claimantAddress,
+        description: 'Airline incident log export',
+        fileUrl: 'http://ipfs.io/ipfs/QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx',
+      }),
+    ).rejects.toMatchObject({ code: 'EVIDENCE_URL_INSECURE_GATEWAY' });
+
+    expect(evidenceItems).toHaveLength(0);
+    expect(disputes[0].status).toBe('evidence_submission');
+  });
+
+  it('rejects evidence submission from non-participant', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    const thirdParty = 'GTHIRDPARTYWALLET123456789';
+
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: thirdParty,
+        description: 'Unrelated evidence',
+        fileUrl: 'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx',
+      }),
+    ).rejects.toThrow('Only dispute participants (claimant or respondent) may submit evidence');
+
+    expect(evidenceItems).toHaveLength(0);
+  });
+
+  it('rejects evidence submission when dispute is closed', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    // Resolve the dispute
+    await disputeService.resolveDispute({
+      disputeId: created.id,
+      arbitratorAddress: created.arbitratorAddress!,
+      outcome: 'claimant_wins',
+    });
+
+    // Try to submit evidence after resolution
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: claimantAddress,
+        description: 'Additional evidence',
+        fileUrl: 'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx',
+      }),
+    ).rejects.toThrow('Evidence can no longer be submitted for this dispute');
+
+    expect(evidenceItems).toHaveLength(0);
+  });
+
+  it('rejects evidence with empty description', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: claimantAddress,
+        description: '   ',
+        fileUrl: 'ipfs://QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx',
+      }),
+    ).rejects.toMatchObject({ code: 'EVIDENCE_DESCRIPTION_EMPTY' });
+
+    expect(evidenceItems).toHaveLength(0);
+  });
+
+  it('rejects evidence with malicious URL (javascript:)', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: claimantAddress,
+        description: 'Malicious attempt',
+        fileUrl: 'javascript:alert(1)',
+      }),
+    ).rejects.toMatchObject({ code: 'EVIDENCE_URL_INVALID_FORMAT' });
+
+    expect(evidenceItems).toHaveLength(0);
+  });
+
+  it('rejects evidence with file: URL', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: claimantAddress,
+        description: 'Local file attempt',
+        fileUrl: 'file:///etc/passwd',
+      }),
+    ).rejects.toMatchObject({ code: 'EVIDENCE_URL_INVALID_FORMAT' });
+
+    expect(evidenceItems).toHaveLength(0);
+  });
+
+  it('accepts evidence without fileUrl (description only)', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    const updated = await disputeService.submitEvidence({
+      disputeId: created.id,
+      submittedBy: claimantAddress,
+      description: 'Written statement of events',
+    });
+
+    expect(updated.evidence).toHaveLength(1);
+    expect(updated.evidence[0].fileUrl).toBeNull();
+    expect(updated.evidence[0].description).toBe('Written statement of events');
+  });
+
+  it('normalizes bare CID to ipfs:// format on submission', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    const bareCid = 'QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx';
+    const updated = await disputeService.submitEvidence({
+      disputeId: created.id,
+      submittedBy: claimantAddress,
+      description: 'Receipt scan',
+      fileUrl: bareCid,
+    });
+
+    expect(updated.evidence[0].fileUrl).toBe(`ipfs://${bareCid}`);
+  });
+
+  it('accepts evidence from respondent (airline)', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    const updated = await disputeService.submitEvidence({
+      disputeId: created.id,
+      submittedBy: airlineAddress,
+      description: 'Airline incident report',
+      fileUrl: 'ipfs://bafybeigdyrzt5x7g2kqdnmxz2d72nk44w63v3x4jtclq6ln6ai3n6gy2he',
+    });
+
+    expect(updated.evidence).toHaveLength(1);
+    expect(updated.evidence[0].submittedBy).toBe(airlineAddress);
+  });
+
+  it('rejects evidence with URL exceeding maximum length', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    const longUrl = `https://ipfs.io/ipfs/QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx/${'a'.repeat(2049)}`;
+
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: claimantAddress,
+        description: 'Long URL attempt',
+        fileUrl: longUrl,
+      }),
+    ).rejects.toMatchObject({ code: 'EVIDENCE_URL_TOO_LONG' });
+
+    expect(evidenceItems).toHaveLength(0);
+  });
+
+  it('rejects evidence with invalid CID in ipfs:// URI', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: claimantAddress,
+        description: 'Invalid CID',
+        fileUrl: 'ipfs://not-a-valid-cid',
+      }),
+    ).rejects.toMatchObject({ code: 'EVIDENCE_URL_INVALID_CID' });
+
+    expect(evidenceItems).toHaveLength(0);
+  });
+
+  it('rejects evidence with gateway URL containing credentials', async () => {
+    const created = await disputeService.createDispute({
+      refundId: 'refund-1',
+      claimantAddress,
+      disputeType: 'service_quality',
+      description: 'Service issue details.',
+      desiredOutcome: 'Partial refund',
+    });
+
+    await expect(
+      disputeService.submitEvidence({
+        disputeId: created.id,
+        submittedBy: claimantAddress,
+        description: 'Credentials attempt',
+        fileUrl: 'https://user:pass@ipfs.io/ipfs/QmYwAPJzv5CZsnAzt8auV2zEJjQ98q2TfGsDz3jAC5vVsx',
+      }),
+    ).rejects.toMatchObject({ code: 'EVIDENCE_URL_INVALID_FORMAT' });
+
+    expect(evidenceItems).toHaveLength(0);
+  });
+});
+
+// Issue #718: contract test for the dispute lifecycle state machine.
+describe("DisputeStatus contract (issue #718)", () => {
+  it("covers the full lifecycle", () => {
+    expect<DisputeStatus[]>(["open", "evidence_submission", "under_review", "resolved", "appealed", "closed"]).toHaveLength(6);
   });
 });

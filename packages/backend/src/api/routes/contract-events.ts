@@ -4,6 +4,7 @@ import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { AppDataSource } from '../../db/dataSource';
 import { ContractEventLog } from '../../db/entities/ContractEventLog';
+import { createPaginationMeta } from '../../types/pagination';
 
 const router = Router();
 
@@ -47,11 +48,10 @@ router.get(
       .take(limit)
       .getManyAndCount();
 
+    const pagination = createPaginationMeta(page, limit, total);
     return res.json({
-      items,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
+      data: items,
+      pagination,
     });
   }),
 );

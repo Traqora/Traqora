@@ -4,11 +4,11 @@ import { asyncHandler } from '../../utils/errorHandler';
 import { AppDataSource } from '../../db/dataSource';
 import { Booking } from '../../db/entities/Booking';
 import {
-  getTransactionStatus,
   submitSignedSorobanXdr,
   explorerUrlForTx,
   generateTransactionReceiptPdf,
 } from '../../services/soroban';
+import { confirmBookingTx } from '../../services/bookingConfirmRetry';
 import { withRetries } from '../../services/retry';
 import { getWebSocketServer } from '../../websockets/server';
 import { logger } from '../../utils/logger';
@@ -78,27 +78,21 @@ router.get(
       });
     }
 
-    const txStatus = await getTransactionStatus(booking.sorobanTxHash);
+    // #784: single idempotent confirm transition — no re-save / re-broadcast
+    // when the transaction has already settled.
+    const { outcome, changed, booking: updated, transactionStatus: txStatus } =
+      await confirmBookingTx(req.params.bookingId);
 
-    if (txStatus.status === 'success' && booking.status !== 'confirmed') {
-      booking.status = 'confirmed';
-      if (txStatus.result) {
-        booking.sorobanBookingId = txStatus.result.bookingId || null;
-      }
-      await bookingRepo.save(booking);
-      broadcastStatus(booking);
-    } else if (txStatus.status === 'failed' && booking.status !== 'failed') {
-      booking.status = 'failed';
-      booking.lastError = txStatus.error || 'Transaction failed';
-      await bookingRepo.save(booking);
-      broadcastStatus(booking);
+    if (changed) {
+      broadcastStatus(updated);
     }
 
     return res.json({
       success: true,
       data: {
-        ...serializeTransaction(booking),
-        chainStatus: txStatus.status,
+        ...serializeTransaction(updated),
+        chainStatus: txStatus?.status ?? null,
+        confirmOutcome: outcome,
       },
     });
   }),
