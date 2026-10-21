@@ -16,6 +16,8 @@ export interface CachedBooking {
   bookingDate: string;
   status: "pending" | "confirmed" | "cancelled";
   currency?: string;
+  /** Provider ticketing deadline. Not the departure time (#906). */
+  ticketingDeadline?: string | null;
 }
 
 export interface CachedItinerary {

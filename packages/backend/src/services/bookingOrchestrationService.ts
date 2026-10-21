@@ -26,6 +26,9 @@ import type {
 } from "./fareRulesService";
 import { getWebSocketServer } from "../websockets/server";
 import { executeIdempotentOperation, hashObject } from "./idempotency";
+import { assertCheckoutActionable } from "./checkoutOfferExpiry";
+import { assertPassengerAgeRules, type PassengerAgeInput } from "./passengerAgeRules";
+import { resolveStoredTicketingDeadline } from "./ticketingDeadline";
 
 // ── Booking cancel policy engine (#785) ────────────────────────────────────
 //
@@ -294,11 +297,30 @@ export class BookingOrchestrationService {
     };
     idempotencyKey: string;
     walletAddress?: string;
+    /** Present together, these cap checkout at the earlier expiry (#918). */
+    sessionExpiresAt?: string | Date;
+    offerExpiresAt?: string | Date;
+    now?: string | Date;
+    refreshPath?: string;
+    /** When set, infant and child rules run before a reservation is created (#907). */
+    passengers?: PassengerAgeInput[];
+    /** Provider deadline. Never filled from the departure time (#906). */
+    ticketingDeadline?: string | Date | null;
+    lastTicketingDate?: string | null;
+    lastTicketingDateTime?: string | null;
   }): Promise<Booking> {
     const requestHash = hashObject({
       flightId: params.flightId,
       passenger: params.passenger,
       walletAddress: params.walletAddress,
+      ...(params.passengers ? { passengers: params.passengers } : {}),
+      ...(params.sessionExpiresAt ? { sessionExpiresAt: params.sessionExpiresAt } : {}),
+      ...(params.offerExpiresAt ? { offerExpiresAt: params.offerExpiresAt } : {}),
+      ...(params.refreshPath ? { refreshPath: params.refreshPath } : {}),
+      ...(params.lastTicketingDate ? { lastTicketingDate: params.lastTicketingDate } : {}),
+      ...(params.lastTicketingDateTime
+        ? { lastTicketingDateTime: params.lastTicketingDateTime }
+        : {}),
     });
 
     const { result: booking, isCached } = await executeIdempotentOperation(
@@ -313,6 +335,31 @@ export class BookingOrchestrationService {
           });
           if (!flight) throw new Error("Flight not found");
           if (flight.seatsAvailable <= 0) throw new Error("Flight sold out");
+
+          if (params.sessionExpiresAt && params.offerExpiresAt) {
+            assertCheckoutActionable({
+              sessionExpiresAt: params.sessionExpiresAt,
+              offerExpiresAt: params.offerExpiresAt,
+              now: params.now,
+              refreshPath: params.refreshPath ?? `/flights/${flight.id}`,
+            });
+          }
+
+          if (params.passengers?.length) {
+            assertPassengerAgeRules({
+              passengers: params.passengers,
+              itineraryDeparture: flight.departureTime,
+            });
+          }
+
+          const rawDeadline =
+            params.ticketingDeadline ??
+            params.lastTicketingDateTime ??
+            params.lastTicketingDate;
+          const ticketingDeadline =
+            rawDeadline == null
+              ? null
+              : resolveStoredTicketingDeadline(rawDeadline, flight.departureTime);
 
           const updated = await this.flightRepo
             .createQueryBuilder()
@@ -361,6 +408,7 @@ export class BookingOrchestrationService {
               sorobanFeeBumpTxHash: result.feeBumpTxHash ?? null,
               sorobanIsFeeBump: result.isFeeBump,
               bookingReference: result.bookingReference ?? bookingReference ?? null,
+              ticketingDeadline,
             });
             booking.id = bookingId;
 

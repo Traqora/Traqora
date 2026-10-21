@@ -72,6 +72,12 @@ export class Booking {
   @Column({ type: 'varchar', length: 64, nullable: true })
   bookingReference?: string | null;
 
+  /**
+   * Provider ticketing deadline. Distinct from the flight departure time (#906).
+   */
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', nullable: true })
+  ticketingDeadline?: Date | null;
+
   @Column({ type: 'bigint', nullable: true })
   sorobanBookingId?: string | null;
 
