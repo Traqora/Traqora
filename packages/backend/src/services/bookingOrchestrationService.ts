@@ -15,6 +15,9 @@ import { logger } from "../utils/logger";
 import { withRetries } from "./retry";
 import { config } from "../config";
 import { BadRequestError, ConflictError } from "../utils/errors";
+import { assertTrustedStablecoin, parseAllowlist } from "./stablecoinIssuerAllowlist";
+import { evaluateProviderReprice } from "./itineraryRepricing";
+import { normalizeTicketNumbers } from "./airlineTicketing";
 import { FareRulesService, FareClass } from "./fareRulesService";
 import type {
   ChangeFeeQuote,
@@ -295,6 +298,10 @@ export class BookingOrchestrationService {
     };
     idempotencyKey: string;
     walletAddress?: string;
+    stablecoin?: { code: string; issuer: string };
+    confirmedProviderPriceCents?: number;
+    repriceAccepted?: boolean;
+    ticketNumbers?: string[];
   }): Promise<Booking> {
     const requestHash = hashObject({
       flightId: params.flightId,
@@ -314,6 +321,23 @@ export class BookingOrchestrationService {
           });
           if (!flight) throw new Error("Flight not found");
           if (flight.seatsAvailable <= 0) throw new Error("Flight sold out");
+
+          if (params.stablecoin) {
+            const allowlist = parseAllowlist(process.env.STABLECOIN_ALLOWLIST);
+            const trusted = assertTrustedStablecoin(params.stablecoin, allowlist);
+            if (!trusted.ok) {
+              throw new BadRequestError(trusted.message, trusted);
+            }
+          }
+
+          const confirmedPrice = params.confirmedProviderPriceCents ?? flight.priceCents;
+          const reprice = evaluateProviderReprice(flight.priceCents, confirmedPrice);
+          if (reprice.action === "require_traveler_confirmation" && !params.repriceAccepted) {
+            throw new ConflictError(
+              "Provider price changed; traveler must review and accept the new total before payment capture.",
+              reprice,
+            );
+          }
 
           const updated = await this.flightRepo
             .createQueryBuilder()
@@ -362,6 +386,7 @@ export class BookingOrchestrationService {
               sorobanFeeBumpTxHash: result.feeBumpTxHash ?? null,
               sorobanIsFeeBump: result.isFeeBump,
               bookingReference: result.bookingReference ?? bookingReference ?? null,
+              ticketNumbers: normalizeTicketNumbers(params.ticketNumbers),
             });
             booking.id = bookingId;
 
