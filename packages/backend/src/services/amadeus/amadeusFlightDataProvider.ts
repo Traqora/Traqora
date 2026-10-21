@@ -40,6 +40,7 @@ import type {
 } from '../../types/flightSync';
 import { OffchainFlightDataProvider } from '../offchainFlightDataProvider';
 import { AmadeusAnalyticsClient } from './amadeusClient';
+import { resolveSegmentCarriers } from '../carrierIdentity';
 
 /** Minimal config surface — keeps the provider testable without env vars. */
 export interface AmadeusConfigSource {
@@ -91,16 +92,62 @@ export function mapAmadeusOfferToFlight(offer: AmadeusFlightData): Flight | null
     return null;
   }
 
-  const carrier = firstSegment.operatingAirline?.carrierCode || offer.validatingAirlineCodes?.[0] || 'XX';
+  const carriers = resolveSegmentCarriers({
+    carrierCode: firstSegment.carrierCode,
+    marketingCarrier: firstSegment.carrierCode || offer.validatingAirlineCodes?.[0],
+    operatingAirline: firstSegment.operatingAirline || firstSegment.operatingCarrier,
+    operatingCarrier:
+      typeof firstSegment.operating === 'object'
+        ? firstSegment.operating?.carrierCode
+        : undefined,
+  });
+  const marketing =
+    'error' in carriers
+      ? offer.validatingAirlineCodes?.[0] || 'XX'
+      : carriers.marketingCarrier;
+  const operating = 'error' in carriers ? marketing : carriers.operatingCarrier;
   const number = firstSegment.number || '';
+  const synthesizedId = `amadeus-${marketing}${number}-${departureIso}`;
+
+  const segments = itinerary.segments.map((segment) => {
+    const resolved = resolveSegmentCarriers({
+      carrierCode: segment.carrierCode,
+      marketingCarrier: segment.carrierCode || marketing,
+      operatingAirline: segment.operatingAirline || segment.operatingCarrier,
+      operatingCarrier:
+        typeof segment.operating === 'object' ? segment.operating?.carrierCode : undefined,
+    });
+    if ('error' in resolved) {
+      return {
+        marketingCarrier: marketing,
+        operatingCarrier: operating,
+        from: segment.departure.iataCode,
+        to: segment.arrival.iataCode,
+        departureAt: segment.departure.at,
+        arrivalAt: segment.arrival.at,
+      };
+    }
+    return {
+      marketingCarrier: resolved.marketingCarrier,
+      operatingCarrier: resolved.operatingCarrier,
+      from: segment.departure.iataCode,
+      to: segment.arrival.iataCode,
+      departureAt: segment.departure.at,
+      arrivalAt: segment.arrival.at,
+    };
+  });
 
   return {
-    id: `amadeus-${carrier}${number}-${departureIso}`,
+    id: synthesizedId,
+    providerOfferId: offer.id || synthesizedId,
     from: firstSegment.departure.iataCode,
     to: lastSegment.arrival.iataCode,
     date: departureIso.slice(0, 10),
     departure_time: departureIso,
-    airline: carrier,
+    airline: marketing,
+    marketingCarrier: marketing,
+    operatingCarrier: operating,
+    segments,
     stops: Math.max(0, itinerary.segments.length - 1),
     duration:
       parseIsoDurationMinutes(itinerary.duration) ||

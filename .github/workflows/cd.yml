@@ -78,10 +78,39 @@ jobs:
           echo "run_migrations=$RUN_MIGRATIONS" >> "$GITHUB_OUTPUT"
           echo "skip_verify=$SKIP_VERIFY" >> "$GITHUB_OUTPUT"
 
+  # ─── Provider sandbox smoke (#916) ────────────────────────────────
+  # Credential-safe auth + one-offer search against configured airline
+  # sandboxes. Runs before image build / deploy promotion. Unconfigured
+  # providers are skipped so forks without secrets still pass.
+  provider-sandbox-smoke:
+    name: Provider sandbox smoke
+    needs: [environment]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Unit tests for sandbox smoke
+        run: npm test --workspace=packages/backend -- --runInBand src/services/__tests__/providerSandboxSmoke.test.ts
+
+      - name: Live sandbox smoke (skipped without credentials)
+        env:
+          AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
+          AMADEUS_CLIENT_SECRET: ${{ secrets.AMADEUS_CLIENT_SECRET }}
+          AMADEUS_BASE_URL: ${{ secrets.AMADEUS_BASE_URL }}
+        run: npm run smoke:providers --workspace=packages/backend
+
   # ─── Docker Images ─────────────────────────────────────────────────
   docker-build:
     name: Docker Build & Push
-    needs: [environment]
+    needs: [environment, provider-sandbox-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: read

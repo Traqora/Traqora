@@ -98,6 +98,7 @@ const correctionRejectionSchema = z.object({
 const createBookingSchema = z.object({
   flightId: z.string().uuid(),
   passenger: passengerSchema,
+  providerOfferId: z.string().min(1).max(256).optional(),
 });
 
 import { BadRequestError, NotFoundError, ConflictError, InternalServerError } from "../../utils/errors";
@@ -120,6 +121,7 @@ router.post(
       flightId: parsed.data.flightId,
       passenger: parsed.data.passenger,
       walletAddress: req.user?.walletAddress,
+      providerOfferId: parsed.data.providerOfferId,
     });
 
     const bookingRepo = AppDataSource.getRepository(Booking);
@@ -158,6 +160,7 @@ router.post(
         passenger: parsed.data.passenger,
         idempotencyKey: idempotencyKeyHeader,
         walletAddress: req.user?.walletAddress,
+        providerOfferId: parsed.data.providerOfferId,
       });
 
       // Update idempotency key with resource ID

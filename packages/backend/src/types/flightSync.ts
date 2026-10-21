@@ -44,13 +44,18 @@ export interface AmadeusSegment {
     at: string;
     terminal?: string;
   };
-  operatingAirline: {
+  /** Marketing carrier IATA code. */
+  carrierCode?: string;
+  operatingAirline?: {
     carrierCode: string;
   };
+  operatingCarrier?: {
+    carrierCode: string;
+  };
+  operating?: { carrierCode?: string } | string;
   aircraft: {
     code: string;
   };
-  operating: string;
   number: string;
   aircraft_type?: string;
   class?: string;
