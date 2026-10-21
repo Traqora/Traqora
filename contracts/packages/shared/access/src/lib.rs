@@ -40,9 +40,13 @@ impl AccessControl {
     }
 
     /// Check if an address has a specific role.
-    /// Note: Owner implicitly has all roles. Admin implicitly has Operator role.
+    ///
+    /// Owner implicitly has all roles, but Admin and Operator are distinct roles.
+    /// An admin must be granted the Operator role explicitly when operator-only
+    /// permissions are required; this keeps role scopes aligned with the
+    /// principle of least privilege.
     pub fn has_role(env: &Env, address: &Address, role: Role) -> bool {
-        // Owner has all roles
+        // Owner has all roles.
         if let Some(owner) = env.storage().instance().get::<_, Address>(&DataKey::Owner) {
             if &owner == address {
                 return true;
@@ -50,21 +54,15 @@ impl AccessControl {
         }
 
         match role {
-            Role::Owner => false, // Only the explicit owner check above returns true for Owner
+            Role::Owner => false, // Owner is handled by the explicit owner check above.
             Role::Admin => env
                 .storage()
                 .persistent()
                 .has(&DataKey::Role(address.clone(), Role::Admin)),
-            Role::Operator => {
-                // Admin also has Operator role
-                env.storage()
-                    .persistent()
-                    .has(&DataKey::Role(address.clone(), Role::Admin))
-                    || env
-                        .storage()
-                        .persistent()
-                        .has(&DataKey::Role(address.clone(), Role::Operator))
-            }
+            Role::Operator => env
+                .storage()
+                .persistent()
+                .has(&DataKey::Role(address.clone(), Role::Operator)),
         }
     }
 
@@ -112,10 +110,12 @@ impl AccessControl {
         }
     }
 
-    /// Assert that the address has at least the Operator role.
+    /// Assert that the address has the Operator role explicitly.
     ///
     /// # Errors
     /// Panics with [`ContractError::NotOperator`] if the caller lacks the role.
+    /// Admins are not treated as operators unless they were granted the
+    /// explicit Operator role for the least-privilege access model.
     pub fn require_operator(env: &Env, address: &Address) {
         address.require_auth();
         if !Self::has_role(env, address, Role::Operator) {

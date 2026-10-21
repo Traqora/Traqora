@@ -266,6 +266,11 @@ authorized the change.
 `(mint, success)` is shared with the token contract; disambiguate by
 `contractId` when querying.
 
+Receipt metadata validation on mint requires a nonzero booking ID and positive
+price, a 1 to 16 character flight number, 1 to 8 bytes of seat text, and
+distinct three- or four-letter uppercase airport codes. Invalid metadata is
+rejected before a receipt ID is allocated or ownership is recorded.
+
 ---
 
 ## Oracle Contract (`oracle`)

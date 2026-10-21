@@ -24,7 +24,8 @@ All middleware-driven failures return this envelope:
 ## Retry and Circuit Breaker Policy
 
 - External calls use exponential backoff retries.
-- Circuit opens after 5 consecutive failures.
+- Amadeus requests retry on transient network and timeout failures, using a short base delay with capped jitter before a final failure.
+- The Amadeus circuit breaker opens after the configured failure threshold and remains open until the cooldown expires, then probes in half-open mode.
 - When open, API responds with `503` and `code: CIRCUIT_OPEN`.
 - Retry delayed until `retryAfterMs` expires.
 
