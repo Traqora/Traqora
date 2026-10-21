@@ -190,6 +190,14 @@
                           "map": [
                             {
                               "key": {
+                                "symbol": "quorum"
+                              },
+                              "val": {
+                                "u64": 0
+                              }
+                            },
+                            {
+                              "key": {
                                 "symbol": "voting_period_secs"
                               },
                               "val": {

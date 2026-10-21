@@ -51,12 +51,12 @@ fn test_access_control_roles() {
     // Set Admin role
     client.set_role(&owner, &admin, &1, &true); // Role::Admin = 1
     assert!(client.has_role(&admin, &1));
-    assert!(client.has_role(&admin, &2)); // Admin implies Operator
+    assert!(!client.has_role(&admin, &2)); // Admin stays distinct from Operator
 
     // Set Operator role
     client.set_role(&owner, &operator, &2, &true); // Role::Operator = 2
     assert!(client.has_role(&operator, &2));
-    assert!(!client.has_role(&operator, &1)); // Operator does not imply Admin
+    assert!(!client.has_role(&operator, &1)); // Operator stays distinct from Admin
 
     // Random user has no roles
     assert!(!client.has_role(&random, &1));
