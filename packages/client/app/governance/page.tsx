@@ -21,10 +21,12 @@ import { useGovernance, useVotingPower } from "@/hooks/governance/useGovernance"
 import { ProposalCard } from "@/components/governance/proposal-card"
 import { VotingPowerCard } from "@/components/governance/voting-power-card"
 import { NavWalletButton } from "@/components/nav-wallet-button"
+import { useGovernanceWallet } from "./use-governance-wallet"
 
 export default function GovernancePage() {
   const { proposals, activeProposals, passedProposals, rejectedProposals, loading } = useGovernance()
-  const { votingPower } = useVotingPower('current-user-address') // TODO: Get from wallet context
+  const { account } = useGovernanceWallet()
+  const { votingPower } = useVotingPower(account ?? "")
   const [activeTab, setActiveTab] = useState("all")
 
   const getFilteredProposals = () => {

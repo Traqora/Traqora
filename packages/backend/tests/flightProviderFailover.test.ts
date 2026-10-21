@@ -23,6 +23,7 @@ import {
   FailoverFlightDataProvider,
   FlightProviderUnavailableError,
   NamedFlightDataProvider,
+  redactProviderSecrets,
 } from '../src/services/failoverFlightDataProvider';
 import {
   AmadeusFlightDataProvider,
@@ -145,6 +146,79 @@ describe('FailoverFlightDataProvider (#779)', () => {
   });
 });
 
+describe('FailoverFlightDataProvider.searchAll (#913)', () => {
+  it('keeps flights from every successful provider and marks the search complete', async () => {
+    const provider = new FailoverFlightDataProvider([
+      makeProvider('primary', jest.fn().mockResolvedValue([makeFlight('a')])),
+      makeProvider('secondary', jest.fn().mockResolvedValue([makeFlight('a'), makeFlight('b')])),
+    ]);
+
+    const result = await provider.searchAll(criteria, pagination);
+    expect(result.flights.map((flight) => flight.id)).toEqual(['a', 'b']);
+    expect(result.provider_results).toEqual({ complete: true, succeeded: 2, failed: 0 });
+  });
+
+  it('returns partial results when one provider fails and never leaks secrets', async () => {
+    const provider = new FailoverFlightDataProvider([
+      makeProvider(
+        'primary',
+        jest.fn().mockRejectedValue(new Error('401 bearer sk_live_abc123 token=super-secret')),
+      ),
+      makeProvider('secondary', jest.fn().mockResolvedValue([makeFlight('kept')])),
+    ]);
+
+    const result = await provider.searchAll(criteria, pagination);
+    expect(result.flights).toHaveLength(1);
+    expect(result.flights[0].id).toBe('kept');
+    expect(result.provider_results).toEqual({ complete: false, succeeded: 1, failed: 1 });
+    expect(JSON.stringify(result)).not.toMatch(/sk_live|super-secret|bearer sk/i);
+  });
+
+  it('FAILURE MODE: every provider failing throws a redacted total-failure error', async () => {
+    const provider = new FailoverFlightDataProvider([
+      makeProvider('primary', jest.fn().mockRejectedValue(new Error('api_key=abcd'))),
+      makeProvider('secondary', jest.fn().mockRejectedValue(new Error('token=xyz'))),
+    ]);
+
+    await expect(provider.searchAll(criteria, pagination)).rejects.toMatchObject({
+      name: 'FlightProviderUnavailableError',
+    });
+    try {
+      await provider.searchAll(criteria, pagination);
+    } catch (error: any) {
+      expect(error.message).not.toMatch(/abcd|xyz/);
+      expect(error.attempts[0].error).toContain('[redacted]');
+    }
+  });
+
+  it('retry: a later search can succeed after a previous partial failure', async () => {
+    const primary = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce([makeFlight('recovered')]);
+    const secondary = jest.fn().mockResolvedValue([makeFlight('backup')]);
+    const provider = new FailoverFlightDataProvider([
+      makeProvider('primary', primary),
+      makeProvider('secondary', secondary),
+    ]);
+
+    const first = await provider.searchAll(criteria, pagination);
+    expect(first.provider_results.complete).toBe(false);
+    const second = await provider.searchAll(criteria, pagination);
+    expect(second.provider_results).toEqual({ complete: true, succeeded: 2, failed: 0 });
+    expect(second.flights.map((flight) => flight.id)).toEqual(['recovered', 'backup']);
+  });
+});
+
+describe('redactProviderSecrets (#913)', () => {
+  it('strips bearer tokens, api keys, and JWTs', () => {
+    const raw = 'bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ.aaa.bbb api_key=secret-value';
+    const safe = redactProviderSecrets(raw);
+    expect(safe).not.toMatch(/eyJhbGci|secret-value/i);
+    expect(safe.toLowerCase()).toContain('[redacted]');
+  });
+});
+
 describe('AmadeusFlightDataProvider (#779 secondary)', () => {
   const baseOffer: AmadeusFlightData = {
     id: 'offer-1',
@@ -229,6 +303,10 @@ describe('AmadeusFlightDataProvider (#779 secondary)', () => {
     const flight = mapAmadeusOfferToFlight(offer);
     expect(flight!.stops).toBe(1);
     expect(flight!.to).toBe('SFO');
+    expect(flight!.segments).toEqual([
+      { origin: 'JFK', destination: 'LAX' },
+      { origin: 'LAX', destination: 'SFO' },
+    ]);
     // duration fell back to first-departure → last-arrival wall clock
     expect(flight!.duration).toBe(630);
   });

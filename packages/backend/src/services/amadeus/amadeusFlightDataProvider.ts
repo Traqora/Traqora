@@ -114,6 +114,10 @@ export function mapAmadeusOfferToFlight(offer: AmadeusFlightData): Flight | null
     rating: 0,
     available_seats: offer.numberOfBookableSeats ?? 0,
     class: firstCabinClass(offer.travelerPricings),
+    segments: itinerary.segments.map((segment) => ({
+      origin: segment.departure.iataCode,
+      destination: segment.arrival.iataCode,
+    })),
   };
 }
 
