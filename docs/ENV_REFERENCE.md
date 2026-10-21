@@ -30,10 +30,13 @@ and are disabled in the example file.
 
 | Variable | Type | Default | Description |
 | --- | --- | --- | --- |
-| `STELLAR_NETWORK` | Enum: production \| testnet \| standalone | testnet | The Stellar network to connect to. |
+| `STELLAR_NETWORK` | Enum: production \| mainnet \| testnet \| standalone | testnet | The Stellar network to connect to. |
 | `STELLAR_SECRET_KEY` | String | (None - Generate a secure key for staging/production) | The private key of the Stellar account used by the backend for transactions. |
 | `HORIZON_URL` | URL | https://horizon-testnet.stellar.org | The URL of the Horizon server. |
 | `SOROBAN_RPC_URL` | URL | https://soroban-testnet.stellar.org | The URL of the Soroban RPC endpoint. |
+| `STELLAR_NETWORK_PASSPHRASE` | String | derived from STELLAR_NETWORK | Optional explicit passphrase. When set it must match STELLAR_NETWORK or startup fails. |
+| `CONTRACTS_NETWORK` | Enum: production \| mainnet \| testnet \| standalone | (None) | The network the configured contract IDs were deployed to. Required with contract IDs in production/staging. |
+| `BOOKING_MEMO_SECRET` | String | JWT_SECRET | Secret used to derive stable, privacy-safe booking reference memos. Minimum 16 characters. |
 
 ### 3. SMART CONTRACT ADDRESSES (SOROBAN CONTRACT IDS)
 
@@ -162,10 +165,13 @@ and are disabled in the example file.
 
 | Variable | Type | Default | Description |
 | --- | --- | --- | --- |
-| `STELLAR_NETWORK` | Enum: production \| testnet \| standalone | testnet | The Stellar network to connect to. |
+| `STELLAR_NETWORK` | Enum: production \| mainnet \| testnet \| standalone | testnet | The Stellar network to connect to. |
 | `STELLAR_SECRET_KEY` | String | (None - Generate a secure key for staging/production) | The private key of the Stellar account used by the backend for transactions. |
 | `HORIZON_URL` | URL | https://horizon-testnet.stellar.org | The URL of the Horizon server. |
 | `SOROBAN_RPC_URL` | URL | https://soroban-testnet.stellar.org | The URL of the Soroban RPC endpoint. |
+| `STELLAR_NETWORK_PASSPHRASE` | String | derived from STELLAR_NETWORK | Optional explicit passphrase. When set it must match STELLAR_NETWORK or startup fails. |
+| `CONTRACTS_NETWORK` | Enum: production \| mainnet \| testnet \| standalone | (None) | The network the configured contract IDs were deployed to. Required with contract IDs in production/staging. |
+| `BOOKING_MEMO_SECRET` | String | JWT_SECRET | Secret used to derive stable, privacy-safe booking reference memos. Minimum 16 characters. |
 
 ### 3. SMART CONTRACT ADDRESSES (SOROBAN CONTRACT IDS)
 

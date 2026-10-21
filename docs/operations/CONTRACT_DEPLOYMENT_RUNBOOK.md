@@ -106,6 +106,16 @@ npm run test:scripts        # or: bash scripts/tests/network-guard.test.sh
 
 Copy `contracts.json` from `.deployments/<network>/<tag>/` into your secrets manager / deployment notes and update backend environment variables (contract IDs referenced by `packages/backend`) before restarting services. Never commit real contract IDs for mainnet without maintainer approval.
 
+Also set the backend network binding before restarting:
+
+- `STELLAR_NETWORK` must be `testnet`, `mainnet`/`production`, or `standalone`.
+- `CONTRACTS_NETWORK` must match `STELLAR_NETWORK`. Since contract IDs are network-agnostic StrKeys, startup refuses to run in production/staging with configured contracts and no binding (#926).
+- `STELLAR_NETWORK_PASSPHRASE`, if set, must equal the passphrase for `STELLAR_NETWORK` (#925).
+- `HORIZON_URL` and `SOROBAN_RPC_URL` must point at the same network.
+- `BOOKING_MEMO_SECRET` should be a dedicated 16+ character secret; booking reference memos are derived from it (#924).
+
+If any of these disagree, the backend logs a `StellarConfigurationError` listing every mismatch and exits before serving traffic.
+
 ### Step 3 — Verify health
 
 ```bash

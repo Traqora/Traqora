@@ -1,4 +1,5 @@
 import { AppDataSource } from "../db/dataSource";
+import crypto from "crypto";
 import { Booking, BookingStatus } from "../db/entities/Booking";
 import { Flight } from "../db/entities/Flight";
 import { Passenger } from "../db/entities/Passenger";
@@ -6,7 +7,9 @@ import { TravelDocument, DocumentType } from "../db/entities/TravelDocument";
 import { GroupBooking } from "../db/entities/GroupBooking";
 
 import { getTransactionStatus, signAndSubmitCreateBooking } from "./soroban";
+import type { TransactionStatus } from "./soroban";
 import { GroupBookingService } from "./groupBooking";
+import { bookingReferenceForBookingId } from "./bookingReference";
 
 import { logger } from "../utils/logger";
 import { withRetries } from "./retry";
@@ -325,6 +328,15 @@ export class BookingOrchestrationService {
           const passenger = this.passengerRepo.create(params.passenger);
           await this.passengerRepo.save(passenger);
 
+          const bookingId = crypto.randomUUID();
+          const memoSecret =
+            config.bookingMemoSecret ||
+            config.jwtSecret ||
+            config.stellarSecretKey;
+          const bookingReference = memoSecret
+            ? bookingReferenceForBookingId(bookingId, memoSecret)
+            : undefined;
+
           try {
             const result = await signAndSubmitCreateBooking({
               passenger: passenger.sorobanAddress,
@@ -335,6 +347,7 @@ export class BookingOrchestrationService {
               departureTime: Math.floor(flight.departureTime.getTime() / 1000),
               price: BigInt(flight.priceCents),
               token: config.contracts.token,
+              bookingReference,
             });
 
             const booking = this.bookingRepo.create({
@@ -345,11 +358,21 @@ export class BookingOrchestrationService {
               status: "onchain_submitted",
               amountCents: flight.priceCents,
               sorobanTxHash: result.txHash,
+              sorobanInnerTxHash: result.innerTxHash,
+              sorobanFeeBumpTxHash: result.feeBumpTxHash ?? null,
+              sorobanIsFeeBump: result.isFeeBump,
+              bookingReference: result.bookingReference ?? bookingReference ?? null,
             });
+            booking.id = bookingId;
 
             const savedBooking = await this.bookingRepo.save(booking);
 
-            this.pollTransactionStatus(savedBooking.id, result.txHash).catch(
+            this.pollTransactionStatus(
+              savedBooking.id,
+              result.txHash,
+              result.innerTxHash,
+              result.feeBumpTxHash,
+            ).catch(
               (err) => {
                 logger.error("Error polling transaction status", {
                   bookingId: savedBooking.id,
@@ -383,19 +406,27 @@ export class BookingOrchestrationService {
     return booking;
   }
 
-  private async pollTransactionStatus(bookingId: string, txHash: string) {
-    const start = Date.now();
-    let terminalFailed: boolean | undefined;
+  private async pollTransactionStatus(
+    bookingId: string,
+    txHash: string,
+    innerTxHash?: string | null,
+    feeBumpTxHash?: string | null,
+  ) {
     try {
       await withRetries(
         async () => {
-          const status = await getTransactionStatus(txHash);
+          const status = await getTransactionStatus(txHash, {
+            innerTxHash,
+            feeBumpTxHash,
+          });
 
           const booking = await this.bookingRepo.findOne({
             where: { id: bookingId },
             relations: ["flight"],
           });
           if (!booking) return;
+
+          applyTransactionMetadata(booking, status);
 
           if (status.status === "success") {
             booking.status = "confirmed";
@@ -1185,4 +1216,20 @@ function isBookingEditable(status: string): boolean {
     "confirmed",
   ];
   return editableStatuses.includes(status);
+}
+
+/** Copy fee-bump/inner-hash metadata from the resolved status (#923). */
+function applyTransactionMetadata(
+  booking: Booking,
+  status: TransactionStatus,
+): void {
+  if (status.innerTxHash) {
+    booking.sorobanInnerTxHash = status.innerTxHash;
+  }
+  if (status.feeBumpTxHash) {
+    booking.sorobanFeeBumpTxHash = status.feeBumpTxHash;
+  }
+  if (status.isFeeBump !== undefined) {
+    booking.sorobanIsFeeBump = status.isFeeBump;
+  }
 }

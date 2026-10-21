@@ -79,6 +79,21 @@ impl ReceiptStorage {
             .get(&(symbol_short!("owner"), receipt_id))
     }
 
+    // Renew the TTL (Time To Live) for a receipt entry to prevent pruning
+    // of long-lived persistent storage. This must be called before the entry's
+    // TTL expires to keep the receipt record readable for the booking and
+    // dispute lifecycle.
+    //
+    // # Arguments
+    // * `receipt_id` - The receipt ID whose TTL should be renewed
+    pub fn renew_receipt_ttl(env: Env, receipt_id: u64) {
+        let owner = env.storage().persistent().get(&(symbol_short!("owner"), receipt_id)).expect("Receipt not found");
+        owner.require_auth();
+        env.storage()
+            .persistent()
+            .extend_ttl(&(symbol_short!("owner"), receipt_id), /* delta = */ 0);
+    }
+
     pub fn set_owner(env: &Env, receipt_id: u64, owner: &Address) {
         env.storage()
             .persistent()
