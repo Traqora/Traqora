@@ -129,6 +129,11 @@ fn test_full_booking_lifecycle() {
     // 3. Fund the passenger and pay for the booking (escrows the price).
     contracts.token.mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id);
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.status, soroban_sdk::Symbol::new(&env, "confirmed"));
+    assert_eq!(booking.amount_escrowed, price);
+    assert_eq!(contracts.token.balance_of(&actors.passenger), 0);
+    assert_eq!(contracts.token.balance_of(&contracts.booking.address), price);
     assert_eq!(
         contracts.token.balance_of(&actors.airline),
         0,
@@ -137,6 +142,10 @@ fn test_full_booking_lifecycle() {
 
     // 4. Release payment to the airline once the trip is fulfilled.
     contracts.booking.release_payment_to_airline(&booking_id);
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.status, soroban_sdk::Symbol::new(&env, "completed"));
+    assert_eq!(booking.amount_escrowed, 0);
+    assert_eq!(contracts.token.balance_of(&contracts.booking.address), 0);
     assert_eq!(contracts.token.balance_of(&actors.airline), price);
 }
 ```
@@ -154,8 +163,8 @@ Expected output ends with something like `test test_full_booking_lifecycle ... o
 
 - `new_env()` + `generate_actors()` + `register_contracts()` + `initialize_token()` set up a clean, self-contained ledger with a funded admin.
 - `create_booking(...)` returns a `u64` booking id; state is read back with `get_booking(...)`, which returns `Option<Booking>`.
-- `mint(...)` funds the passenger from the admin; `pay_for_booking(...)` triggers the escrow transfer to the booking contract, so the airline balance stays `0`.
-- `release_payment_to_airline(...)` settles the escrow; the assertions verify the resulting state.
+- `mint(...)` funds the passenger from the admin; `pay_for_booking(...)` transfers the price into the booking contract and changes the booking to `confirmed`.
+- `release_payment_to_airline(...)` transfers the full escrow to the airline and changes the booking to `completed`; the assertions verify both balances and booking state at each transition.
 
 > When you add a new contract, define an analogous helper in `packages/integration-tests/src/lib.rs` (e.g. `register_<name>(&env) -> <Name>ContractClient`) so all test files share it. A test file should only ever call `integration_tests::...` helpers and the contract clients.
 
