@@ -661,6 +661,9 @@ export class FlightSynchronizationService {
     flight.cancellationReason = data.cancellationReason;
     flight.dataSource = source;
     flight.lastSyncedAt = new Date();
+    flight.sourceImportedAt = flight.lastSyncedAt;
+    flight.sourceUpdatedAt = data.sourceUpdatedAt;
+    flight.sourceFreshness = data.sourceUpdatedAt ? 'fresh' : 'unknown';
     flight.syncAttempts++;
     flight.rawData = data;
 

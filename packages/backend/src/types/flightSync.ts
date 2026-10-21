@@ -141,6 +141,7 @@ export interface AirlineFlightData {
   priceCurrency: string;
   delayMinutes?: number;
   cancellationReason?: string;
+  sourceUpdatedAt?: Date;
   equipment?: string;
   codeshare?: boolean;
   codeshareOperator?: string;
