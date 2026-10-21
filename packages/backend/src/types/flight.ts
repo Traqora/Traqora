@@ -4,6 +4,11 @@ export type FlightSortBy = 'price' | 'duration' | 'departure_time' | 'rating';
 
 export type SortOrder = 'asc' | 'desc';
 
+export interface FlightSegment {
+  origin: string;
+  destination: string;
+}
+
 export interface Flight {
   id: string;
   from: string;
@@ -17,6 +22,8 @@ export interface Flight {
   rating: number;
   available_seats: number;
   class: CabinClass;
+  /** Ordered legs when the provider returned a connecting itinerary. */
+  segments?: FlightSegment[];
 }
 
 export interface EnrichedFlight extends Flight {
@@ -52,9 +59,21 @@ export interface FlightSearchCriteria {
 
 import { CursorPaginationMeta } from './pagination';
 
+export interface ProviderResultSummary {
+  /** False when at least one upstream provider failed and another returned flights. */
+  complete: boolean;
+  succeeded: number;
+  failed: number;
+}
+
 export interface FlightSearchResponse {
   data: EnrichedFlight[];
   pagination: CursorPaginationMeta;
+  /**
+   * Present on flight-search responses. Counts only — never provider names,
+   * credentials, or upstream error text.
+   */
+  provider_results: ProviderResultSummary;
 }
 
 export interface FlightPagination {

@@ -131,6 +131,7 @@ export interface Flight {
   fromCity?: string
   toCity?: string
   airline_name?: string
+  segments?: Array<{ origin: string; destination: string }>
 }
 
 export interface FlightSearchResponse {
@@ -139,6 +140,11 @@ export interface FlightSearchResponse {
     next_cursor: string | null
     has_more: boolean
     page_size: number
+  }
+  provider_results?: {
+    complete: boolean
+    succeeded: number
+    failed: number
   }
 }
 

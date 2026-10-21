@@ -13,23 +13,33 @@ import { Badge } from "@/components/ui/badge"
 import { ThumbsUp, ThumbsDown, Shield, Loader2 } from "lucide-react"
 
 interface VoteDialogProps {
-  proposalId: number
-  proposalTitle: string
+  proposalId?: number
+  proposalTitle?: string
+  proposal?: { id: number; title: string }
   votingPower: number
-  onVote: (support: boolean) => void
-  hasVoted: boolean
+  onVote: (support: boolean) => void | Promise<void>
+  hasVoted?: boolean
   disabled?: boolean
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 export function VoteDialog({
   proposalId,
   proposalTitle,
+  proposal,
   votingPower,
   onVote,
-  hasVoted,
+  hasVoted = false,
   disabled = false,
+  open,
+  onOpenChange,
 }: VoteDialogProps) {
-  const [open, setOpen] = useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const dialogOpen = open ?? uncontrolledOpen
+  const setOpen = onOpenChange ?? setUncontrolledOpen
+  const resolvedId = proposal?.id ?? proposalId ?? 0
+  const resolvedTitle = proposal?.title ?? proposalTitle ?? ""
   const [selectedVote, setSelectedVote] = useState<boolean | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isConfirmed, setIsConfirmed] = useState(false)
@@ -42,7 +52,7 @@ export function VoteDialog({
     // Simulate wallet signing delay
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
-    onVote(selectedVote)
+    await onVote(selectedVote)
     setIsSubmitting(false)
     setIsConfirmed(true)
 
@@ -54,6 +64,7 @@ export function VoteDialog({
   }
 
   if (hasVoted) {
+    if (open !== undefined) return null
     return (
       <Button variant="outline" disabled className="w-full">
         <Shield className="h-4 w-4 mr-2" />
@@ -63,13 +74,15 @@ export function VoteDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="w-full" disabled={disabled}>
-          <Shield className="h-4 w-4 mr-2" />
-          Cast Your Vote
-        </Button>
-      </DialogTrigger>
+    <Dialog open={dialogOpen} onOpenChange={setOpen}>
+      {open === undefined && (
+        <DialogTrigger asChild>
+          <Button className="w-full" disabled={disabled}>
+            <Shield className="h-4 w-4 mr-2" />
+            Cast Your Vote
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="font-serif">Cast Your Vote</DialogTitle>
@@ -89,8 +102,8 @@ export function VoteDialog({
           <div className="space-y-6">
             {/* Proposal Info */}
             <div className="p-4 bg-muted rounded-lg">
-              <p className="text-sm text-muted-foreground">Proposal #{proposalId}</p>
-              <p className="font-medium mt-1">{proposalTitle}</p>
+              <p className="text-sm text-muted-foreground">Proposal #{resolvedId}</p>
+              <p className="font-medium mt-1">{resolvedTitle}</p>
             </div>
 
             {/* Voting Power */}

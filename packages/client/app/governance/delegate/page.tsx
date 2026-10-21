@@ -20,35 +20,49 @@ import { useVotingPower, useDelegations } from "@/hooks/governance/useGovernance
 import { useGovernanceStore } from "@/lib/stores/governance"
 import { VotingPowerCard } from "@/components/governance/voting-power-card"
 import { DelegationForm } from "@/components/governance/delegation-form"
+import { DISCONNECTED_WALLET_MESSAGE } from "../wallet-session"
+import { useBoundGovernanceDraft } from "../use-governance-wallet"
 
 export default function DelegatePage() {
   const store = useGovernanceStore()
-  const { votingPower, loading: votingPowerLoading } = useVotingPower('current-user-address') // TODO: Get from wallet context
-  const { delegations, loading: delegationsLoading } = useDelegations('current-user-address') // TODO: Get from wallet context
+  const draft = useBoundGovernanceDraft<{ delegate: string; amount: number }>("delegation")
+  const account = draft.account ?? ""
+  const { votingPower, loading: votingPowerLoading } = useVotingPower(account)
+  const { delegations, loading: delegationsLoading } = useDelegations(account)
   const delegatedTo = Array.isArray((delegations as any)?.delegatedTo) ? (delegations as any).delegatedTo : []
   const delegatedBy = Array.isArray((delegations as any)?.delegatedBy) ? (delegations as any).delegatedBy : []
   const [isDelegating, setIsDelegating] = useState(false)
   const [isRevoking, setIsRevoking] = useState<string | null>(null)
+  const [walletNotice, setWalletNotice] = useState<string | null>(null)
 
   const handleDelegate = async (delegate: string, amount: number) => {
+    const started = draft.startDraft({ delegate, amount })
+    if (!started) {
+      setWalletNotice(draft.notice || DISCONNECTED_WALLET_MESSAGE)
+      return
+    }
+    setWalletNotice(null)
     setIsDelegating(true)
-    const success = await store.delegate('current-user-address', delegate, amount) // TODO: Get from wallet context
+    const success = await store.delegate(started.account, delegate, amount)
     setIsDelegating(false)
     if (success) {
-      // Refresh data
-      store.refreshVotingPower('current-user-address')
-      store.refreshDelegations('current-user-address')
+      store.refreshVotingPower(started.account)
+      store.refreshDelegations(started.account)
     }
   }
 
   const handleRevokeDelegation = async (delegator: string) => {
+    const active = draft.requireAccount()
+    if (!active) {
+      setWalletNotice(draft.notice || DISCONNECTED_WALLET_MESSAGE)
+      return
+    }
     setIsRevoking(delegator)
     const success = await store.revokeDelegation(delegator)
     setIsRevoking(null)
     if (success) {
-      // Refresh data
-      store.refreshVotingPower('current-user-address')
-      store.refreshDelegations('current-user-address')
+      store.refreshVotingPower(active)
+      store.refreshDelegations(active)
     }
   }
 
@@ -85,6 +99,11 @@ export default function DelegatePage() {
             Delegate your TRQ tokens to other community members or revoke existing delegations.
             Delegated tokens maintain their voting power but are controlled by the delegate.
           </p>
+          {(walletNotice || draft.notice) && (
+            <p role="alert" className="text-sm text-red-600 mt-3">
+              {walletNotice || draft.notice}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
