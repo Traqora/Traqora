@@ -223,7 +223,11 @@ async function performConfirmBookingTx(
   }
 
   const transactionStatus = await withRetries(
-    () => getTransactionStatus(booking.sorobanTxHash as string),
+    () =>
+      getTransactionStatus(booking.sorobanTxHash as string, {
+        innerTxHash: booking.sorobanInnerTxHash ?? undefined,
+        feeBumpTxHash: booking.sorobanFeeBumpTxHash ?? undefined,
+      }),
     { maxAttempts: 3, delayMs: 200, operationName: "confirmBookingTx:getTransactionStatus" },
   );
 
@@ -236,7 +240,17 @@ async function performConfirmBookingTx(
     transactionStatus,
   });
 
-  if (decision.changed) {
+  // Fee-bump/inner-hash metadata may arrive after the status itself settled
+  // (for example when an older booking is first polled with the new code).
+  const metadataChanged =
+    (transactionStatus.innerTxHash !== undefined &&
+      transactionStatus.innerTxHash !== booking.sorobanInnerTxHash) ||
+    (transactionStatus.feeBumpTxHash !== undefined &&
+      transactionStatus.feeBumpTxHash !== booking.sorobanFeeBumpTxHash) ||
+    (transactionStatus.isFeeBump !== undefined &&
+      transactionStatus.isFeeBump !== booking.sorobanIsFeeBump);
+
+  if (decision.changed || metadataChanged) {
     booking.status = decision.toStatus;
     if (decision.outcome === "confirmed" && decision.onChainBookingId) {
       booking.sorobanBookingId = decision.onChainBookingId;
@@ -244,18 +258,28 @@ async function performConfirmBookingTx(
     if (decision.outcome === "failed" && decision.reason) {
       booking.lastError = decision.reason;
     }
+    if (transactionStatus.innerTxHash !== undefined) {
+      booking.sorobanInnerTxHash = transactionStatus.innerTxHash;
+    }
+    if (transactionStatus.feeBumpTxHash !== undefined) {
+      booking.sorobanFeeBumpTxHash = transactionStatus.feeBumpTxHash;
+    }
+    if (transactionStatus.isFeeBump !== undefined) {
+      booking.sorobanIsFeeBump = transactionStatus.isFeeBump;
+    }
     await bookingRepo.save(booking);
     logger.info("Booking confirm transition applied (#784)", {
       bookingId,
       fromStatus: decision.fromStatus,
       toStatus: decision.toStatus,
       outcome: decision.outcome,
+      metadataChanged,
     });
   }
 
   return {
     outcome: decision.outcome,
-    changed: decision.changed,
+    changed: decision.changed || metadataChanged,
     booking,
     transactionStatus,
   };

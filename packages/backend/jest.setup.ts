@@ -1,2 +1,1 @@
-// @ts-ignore
-import '@types/jest';
+/// <reference types="jest" />

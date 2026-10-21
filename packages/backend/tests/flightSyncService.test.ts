@@ -3,19 +3,19 @@
  * Comprehensive test suite for flight sync service with circuit breaker, caching, and conflict resolution
  */
 
-import { FlightSynchronizationService, CircuitBreaker, FlightCacheManager } from '../../../src/services/amadeus/flightSyncService';
-import { LufthansaAdapter, AirFranceAdapter, BritishAirwaysAdapter, AirlineAdapterRegistry } from '../../../src/services/amadeus/airlineAdapters';
+import { FlightSynchronizationService, CircuitBreaker, FlightCacheManager } from '../src/services/amadeus/flightSyncService';
+import { LufthansaAdapter, AirFranceAdapter, BritishAirwaysAdapter, AirlineAdapterRegistry } from '../src/services/amadeus/airlineAdapters';
 import {
   InitSync,
   SyncFlightRequest,
   SyncFlightResponse,
   FlightDataConflict,
   ConflictResolutionMode,
-} from '../../../src/types/flightSync';
-import { logger } from '../../../src/utils/logger';
+} from '../src/types/flightSync';
+import { logger } from '../src/utils/logger';
 
 // Mock logger
-jest.mock('../../../src/utils/logger', () => ({
+jest.mock('../src/utils/logger', () => ({
   logger: {
     info: jest.fn(),
     error: jest.fn(),

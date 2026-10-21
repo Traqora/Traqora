@@ -215,6 +215,11 @@ fn test_full_booking_lifecycle() {
     // 3. Fund the passenger and pay for the booking (escrows the price).
     contracts.token.mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id);
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.status, soroban_sdk::Symbol::new(&env, "confirmed"));
+    assert_eq!(booking.amount_escrowed, price);
+    assert_eq!(contracts.token.balance_of(&actors.passenger), 0);
+    assert_eq!(contracts.token.balance_of(&contracts.booking.address), price);
     assert_eq!(
         contracts.token.balance_of(&actors.airline),
         0,
@@ -223,6 +228,10 @@ fn test_full_booking_lifecycle() {
 
     // 4. Release payment to the airline once the trip is fulfilled.
     contracts.booking.release_payment_to_airline(&booking_id);
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.status, soroban_sdk::Symbol::new(&env, "completed"));
+    assert_eq!(booking.amount_escrowed, 0);
+    assert_eq!(contracts.token.balance_of(&contracts.booking.address), 0);
     assert_eq!(contracts.token.balance_of(&actors.airline), price);
 }
 ```
@@ -240,14 +249,39 @@ Expected output ends with something like `test test_full_booking_lifecycle ... o
 
 - `new_env()` + `generate_actors()` + `register_contracts()` + `initialize_token()` set up a clean, self-contained ledger with a funded admin.
 - `create_booking(...)` returns a `u64` booking id; state is read back with `get_booking(...)`, which returns `Option<Booking>`.
-- `mint(...)` funds the passenger from the admin; `pay_for_booking(...)` triggers the escrow transfer to the booking contract, so the airline balance stays `0`.
-- `release_payment_to_airline(...)` settles the escrow; the assertions verify the resulting state.
+- `mint(...)` funds the passenger from the admin; `pay_for_booking(...)` transfers the price into the booking contract and changes the booking to `confirmed`.
+- `release_payment_to_airline(...)` transfers the full escrow to the airline and changes the booking to `completed`; the assertions verify both balances and booking state at each transition.
 
 > When you add a new contract, define an analogous helper in `packages/integration-tests/src/lib.rs` (e.g. `register_<name>(&env) -> <Name>ContractClient`) so all test files share it. A test file should only ever call `integration_tests::...` helpers and the contract clients.
 
 ---
 
 ## Testing different behaviors
+
+### Automated cross-contract refunds
+
+`RefundAutomationContract::automate_refund(caller, booking_id, cancellation_reason)` accepts the
+registered booking symbol, an authenticated caller authorized by the booking contract, and a
+reason. It loads the booking from the configured booking contract, asks the configured refund
+contract for the airline's policy-based refund percentage, settles the escrow through the booking
+contract, and creates a refund request for the passenger when the settled refund is greater than
+zero. Because the refund contract requires passenger authorization for that request, a
+positive-refund call must be authorized by the passenger; an airline caller can complete a
+no-refund cancellation, but cannot create a positive-refund request alone. The result contains the
+`full`, `partial`, or `no_refund` tier plus passenger and airline amounts;
+`full` means the policy returns 10,000 basis points, while any positive lower percentage is
+`partial`.
+
+The call fails if the automation contract is not initialized, the booking symbol is unregistered,
+the booking or airline policy is missing, the caller cannot cancel that booking, the refund
+percentage is invalid for booking settlement, or a positive-refund call lacks passenger
+authorization at the refund contract. A failed cross-contract call rolls back the escrow
+settlement. Tests for the configured-policy happy path
+and missing-policy rollback are in `tests/refund_automation_integration_test.rs`; run them with:
+
+```bash
+cargo test -p integration-tests --test refund_automation_integration_test
+```
 
 ### Recording and asserting events
 
