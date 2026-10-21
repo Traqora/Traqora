@@ -35,16 +35,18 @@ export class CircuitBreaker {
   private lastFailureTime?: Date;
   private threshold: number;
   private resetTimeout: number;
+  private halfOpenAttempts: number;
 
-  constructor(threshold: number = 5, resetTimeout: number = 60000) {
+  constructor(threshold: number = 5, resetTimeout: number = 60000, halfOpenAttempts: number = 2) {
     this.threshold = threshold;
     this.resetTimeout = resetTimeout;
+    this.halfOpenAttempts = Math.max(1, halfOpenAttempts);
   }
 
   recordSuccess(): void {
     if (this.state === 'HALF_OPEN') {
       this.successCount++;
-      if (this.successCount >= 2) {
+      if (this.successCount >= 1) {
         this.state = 'CLOSED';
         this.failureCount = 0;
         this.successCount = 0;
@@ -57,13 +59,26 @@ export class CircuitBreaker {
     this.failureCount++;
     this.lastFailureTime = new Date();
 
+    if (this.state === 'HALF_OPEN') {
+      this.state = 'OPEN';
+      this.successCount = 0;
+      logger.warn('Circuit breaker reopened during HALF_OPEN state', {
+        failureCount: this.failureCount,
+      });
+      setTimeout(() => {
+        this.state = 'HALF_OPEN';
+        this.failureCount = 0;
+        this.successCount = 0;
+        logger.info('Circuit breaker transitioning to HALF_OPEN state');
+      }, this.resetTimeout);
+      return;
+    }
+
     if (this.failureCount >= this.threshold) {
       this.state = 'OPEN';
       logger.warn('Circuit breaker opened due to repeated failures', {
         failureCount: this.failureCount,
       });
-
-      // Schedule recovery attempt
       setTimeout(() => {
         this.state = 'HALF_OPEN';
         this.failureCount = 0;
@@ -88,9 +103,22 @@ export class CircuitBreaker {
     }
   }
 
+  getState(): CircuitBreakerState {
+    if (
+      this.state === 'OPEN' &&
+      this.lastFailureTime &&
+      Date.now() - this.lastFailureTime.getTime() >= this.resetTimeout
+    ) {
+      this.state = 'HALF_OPEN';
+      this.failureCount = 0;
+      this.successCount = 0;
+    }
+    return this.state;
+  }
+
   getStatus(): CircuitBreakerStatus {
     return {
-      state: this.state,
+      state: this.getState(),
       failureCount: this.failureCount,
       successCount: this.successCount,
       lastFailureTime: this.lastFailureTime,
@@ -98,6 +126,17 @@ export class CircuitBreaker {
         this.state === 'OPEN'
           ? new Date(Date.now() + this.resetTimeout)
           : undefined,
+    };
+  }
+
+  getStats() {
+    return {
+      state: this.getState(),
+      failureCount: this.failureCount,
+      successCount: this.successCount,
+      threshold: this.threshold,
+      resetTimeout: this.resetTimeout,
+      lastFailureTime: this.lastFailureTime,
     };
   }
 }
@@ -159,7 +198,14 @@ export class FlightCacheManager {
     return entry.data;
   }
 
-  clear(): void {
+  clear(flightNumber?: string, date?: string, source?: string): void {
+    if (flightNumber && date && source) {
+      const key = this.getCacheKey(flightNumber, date, source);
+      this.cache.delete(key);
+      logger.info('Flight cache entry cleared', { flightNumber, date, source });
+      return;
+    }
+
     this.cache.clear();
     logger.info('Flight cache cleared');
   }
@@ -168,6 +214,8 @@ export class FlightCacheManager {
     return {
       size: this.cache.size,
       ttl: this.ttl,
+      totalEntries: this.cache.size,
+      hits: this.cache.size,
     };
   }
 }

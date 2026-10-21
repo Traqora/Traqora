@@ -1,4 +1,5 @@
 import { AppDataSource } from '../db/dataSource';
+import { sloMeasure } from '../monitoring/slo';
 import { Refund, RefundReason, RefundStatus } from '../db/entities/Refund';
 import { Booking } from '../db/entities/Booking';
 import { executeStripeOperation, getStripe } from './stripe';
@@ -347,6 +348,10 @@ export class RefundService {
    * Process an approved refund (Stripe + Soroban)
    */
   public async processRefund(refundId: string): Promise<Refund> {
+    return sloMeasure('refund', () => this.processRefundOperation(refundId));
+  }
+
+  private async processRefundOperation(refundId: string): Promise<Refund> {
     const refundRepo = AppDataSource.getRepository(Refund);
     const refund = await refundRepo.findOne({
       where: { id: refundId },

@@ -29,6 +29,19 @@ pub struct RefundPolicy {
 
 pub struct RefundStorageKey;
 
+fn refund_bps(env: &Env, airline: &Address, departure_time: u64) -> u32 {
+    let policy = RefundStorageKey::get_policy(env, airline).expect("No refund policy found");
+    let time_until_departure = departure_time.saturating_sub(env.ledger().timestamp());
+
+    if time_until_departure >= policy.cancellation_window {
+        policy.full_refund_percentage
+    } else if time_until_departure >= policy.no_refund_window {
+        policy.partial_refund_percentage
+    } else {
+        0
+    }
+}
+
 impl RefundStorageKey {
     pub fn get_request(env: &Env, request_id: u64) -> Option<RefundRequest> {
         env.storage()
@@ -110,6 +123,7 @@ pub trait RefundContractTrait {
         original_price: i128,
         departure_time: u64,
     ) -> i128;
+    fn calculate_refund_bps(env: Env, airline: Address, departure_time: u64) -> u32;
     fn approve_refund(env: Env, admin: Address, request_id: u64, approved_amount: i128);
     fn reject_refund(env: Env, admin: Address, request_id: u64, reason: Symbol);
     fn set_refund_policy(
@@ -337,18 +351,11 @@ impl RefundContract {
         original_price: i128,
         departure_time: u64,
     ) -> i128 {
-        let policy = RefundStorageKey::get_policy(&env, &airline).expect("No refund policy found");
+        original_price * refund_bps(&env, &airline, departure_time) as i128 / 10_000
+    }
 
-        let current_time = env.ledger().timestamp();
-        let time_until_departure = departure_time.saturating_sub(current_time);
-
-        if time_until_departure >= policy.cancellation_window {
-            original_price * policy.full_refund_percentage as i128 / 10000
-        } else if time_until_departure >= policy.no_refund_window {
-            original_price * policy.partial_refund_percentage as i128 / 10000
-        } else {
-            0
-        }
+    pub fn calculate_refund_bps(env: Env, airline: Address, departure_time: u64) -> u32 {
+        refund_bps(&env, &airline, departure_time)
     }
 
     pub fn calculate_refund_amount(env: Env, request_id: u64) -> i128 {

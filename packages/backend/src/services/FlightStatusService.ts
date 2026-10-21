@@ -165,26 +165,29 @@ export class FlightStatusService {
     // Fetch fresh statuses for stale and missing flights
     const toFetch = [...staleFlightIds, ...missingFlightIds];
     if (toFetch.length > 0) {
+      let freshStatuses: FlightStatusUpdate[] = [];
       try {
-        const freshStatuses = await this.fetchStatuses(toFetch);
-        for (const fresh of freshStatuses) {
-          this.recordStatus(fresh);
-          results.push(fresh);
-        }
+        freshStatuses = await this.fetchStatuses(toFetch);
       } catch (error) {
         logger.warn('Failed to fetch fresh statuses, using fallbacks', {
           flightIds: toFetch,
           error: error instanceof Error ? error.message : String(error),
         });
+      }
 
-        // For stale flights, use cached status
-        for (const flightId of staleFlightIds) {
-          const cached = this.lastKnownStatus.get(flightId);
-          if (cached) results.push(cached);
+      const freshByFlightId = new Map(freshStatuses.map((status) => [status.flightId, status]));
+      for (const flightId of toFetch) {
+        const fresh = freshByFlightId.get(flightId);
+        if (fresh) {
+          this.recordStatus(fresh);
+          results.push(fresh);
+          continue;
         }
 
-        // For missing flights, use offline fallback
-        for (const flightId of missingFlightIds) {
+        const cached = this.lastKnownStatus.get(flightId);
+        if (cached) {
+          results.push(cached);
+        } else {
           const offline: FlightStatusUpdate = {
             flightId,
             status: OFFLINE_STATUS,
@@ -698,8 +701,11 @@ export class FlightStatusService {
         const statuses = await this.mockApiCall(flightIds);
         // Update last fetch time for successful fetches
         const now = Date.now();
-        for (const flightId of flightIds) {
-          this.lastFetchTime.set(flightId, now);
+        const requestedFlightIds = new Set(flightIds);
+        for (const status of statuses) {
+          if (requestedFlightIds.has(status.flightId)) {
+            this.lastFetchTime.set(status.flightId, now);
+          }
         }
         return statuses;
       } catch (error) {

@@ -19,6 +19,25 @@ pub struct ReceiptMetadata {
     pub price: i128,
 }
 
+fn is_valid_airport_code(env: &Env, airport: &Symbol) -> bool {
+    let bytes = airport.to_string(env).to_bytes();
+    let length = bytes.len();
+    if !(3..=4).contains(&length) {
+        return false;
+    }
+
+    for index in 0..length {
+        let Some(character) = bytes.get(index) else {
+            return false;
+        };
+        if !(b'A'..=b'Z').contains(&character) {
+            return false;
+        }
+    }
+
+    true
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct TokenMetadata {
@@ -163,6 +182,18 @@ impl BookingReceiptContract {
     ) -> u64 {
         let admin = ReceiptStorage::get_admin(&env).expect("Not initialized");
         admin.require_auth();
+
+        assert!(booking_id > 0, "Invalid booking id");
+        let flight_number_length = flight_number.to_string(&env).len();
+        assert!(
+            (1..=16).contains(&flight_number_length),
+            "Invalid flight number"
+        );
+        assert!(is_valid_airport_code(&env, &from_airport), "Invalid airport code");
+        assert!(is_valid_airport_code(&env, &to_airport), "Invalid airport code");
+        assert!(from_airport != to_airport, "Invalid route");
+        assert!((1..=8).contains(&seat.len()), "Invalid seat");
+        assert!(price > 0, "Invalid price");
 
         let receipt_id = ReceiptStorage::next_id(&env);
 
