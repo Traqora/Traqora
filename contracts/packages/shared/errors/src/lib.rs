@@ -27,6 +27,7 @@
 //! | 800–899  | Upgrade / Timelock  |
 //! | 900–999  | Token / Receipt     |
 //! | 1000–…   | Arithmetic / misc   |
+//! | 1200–1204| Simulation failure mapping |
 
 #![no_std]
 
@@ -128,6 +129,63 @@ pub enum ContractError {
     InvalidMigrationDirection = 1100,
     /// The stored version does not match the expected from_version.
     VersionMismatch = 1101,
+
+    // ── Simulation / Client Mapping  (1200 –) ───────────────────────────
+    /// Simulation failed due to insufficient balance.
+    SimulationInsufficientBalance = 1200,
+    /// Simulation failed due to authorization failure.
+    SimulationAuthFailure = 1201,
+    /// Simulation failed due to footprint error (e.g. TTL or missing entry).
+    SimulationFootprintError = 1202,
+    /// Simulation failed due to explicit contract rejection or panic.
+    SimulationContractRejection = 1203,
+    /// General or unknown simulation failure with diagnostic context.
+    SimulationUnknownError = 1204,
+}
+
+/// Structured representation of a Soroban simulation failure mapped to actionable client errors.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SimulationError {
+    pub code: ContractError,
+    pub message: soroban_sdk::String,
+    pub diagnostic: soroban_sdk::String,
+}
+
+/// Simulation error translation utilities.
+///
+/// Translates raw Soroban simulation failures into stable typed errors for client applications
+/// while preserving safe diagnostic context. Expected failure cases include:
+/// - Insufficient balance (`SimulationInsufficientBalance`)
+/// - Authorization failures (`SimulationAuthFailure`)
+/// - Footprint and TTL issues (`SimulationFootprintError`)
+/// - Explicit contract rejections or panics (`SimulationContractRejection`)
+/// - Unknown or unexpected simulation errors (`SimulationUnknownError`)
+impl SimulationError {
+    /// Map a raw simulation error string or diagnostic info into a typed, actionable client error.
+    pub fn map_simulation_failure(env: &Env, raw_message: &str, diagnostic_context: &str) -> Self {
+        let (code, prefix) = if raw_message.contains("InsufficientBalance") || raw_message.contains("insufficient balance") {
+            (ContractError::SimulationInsufficientBalance, "Insufficient balance during simulation: ")
+        } else if raw_message.contains("Auth") || raw_message.contains("unauthorized") || raw_message.contains("sign") {
+            (ContractError::SimulationAuthFailure, "Authorization failure during simulation: ")
+        } else if raw_message.contains("Footprint") || raw_message.contains("ttl") || raw_message.contains("storage") {
+            (ContractError::SimulationFootprintError, "Footprint or storage error during simulation: ")
+        } else if raw_message.contains("Contract") || raw_message.contains("panic") || raw_message.contains("revert") {
+            (ContractError::SimulationContractRejection, "Contract rejection during simulation: ")
+        } else {
+            (ContractError::SimulationUnknownError, "Unknown simulation failure: ")
+        };
+
+        let mut msg_buf = soroban_sdk::String::from_str(env, prefix);
+        msg_buf.push_str(&soroban_sdk::String::from_str(env, raw_message));
+
+        let diag = soroban_sdk::String::from_str(env, diagnostic_context);
+
+        SimulationError {
+            code,
+            message: msg_buf,
+            diagnostic: diag,
+        }
+    }
 }
 
 /// Abort contract execution with a [`ContractError`] discriminant.

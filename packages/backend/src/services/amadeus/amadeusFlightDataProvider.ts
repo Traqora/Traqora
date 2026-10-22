@@ -33,6 +33,7 @@ import {
   Flight,
   FlightPagination,
   FlightSearchCriteria,
+  FlightProvenance,
 } from '../../types/flight';
 import type {
   AmadeusFlightData,
@@ -93,6 +94,13 @@ export function mapAmadeusOfferToFlight(offer: AmadeusFlightData): Flight | null
 
   const carrier = firstSegment.operatingAirline?.carrierCode || offer.validatingAirlineCodes?.[0] || 'XX';
   const number = firstSegment.number || '';
+  const provenance: FlightProvenance = {
+    source: 'AMADEUS',
+    imported_at: new Date().toISOString(),
+    // The flight-offers response has no authoritative last-modified field.
+    // Keep this explicit rather than claiming a false freshness timestamp.
+    freshness: 'unknown',
+  };
 
   return {
     id: `amadeus-${carrier}${number}-${departureIso}`,
@@ -114,6 +122,7 @@ export function mapAmadeusOfferToFlight(offer: AmadeusFlightData): Flight | null
     rating: 0,
     available_seats: offer.numberOfBookableSeats ?? 0,
     class: firstCabinClass(offer.travelerPricings),
+    provenance,
   };
 }
 

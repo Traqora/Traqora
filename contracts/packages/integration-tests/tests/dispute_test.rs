@@ -1,10 +1,7 @@
 #![cfg(test)]
 
 use dispute::{DisputeContract, DisputeContractClient};
-use soroban_sdk::{
-    testutils::Address as _,
-    Address, Bytes, BytesN, Env, Symbol,
-};
+use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env, Symbol};
 
 fn compute_commit_hash(env: &Env, vote_for_passenger: bool, salt: &BytesN<32>) -> BytesN<32> {
     let mut hash_bytes = Bytes::new(env);

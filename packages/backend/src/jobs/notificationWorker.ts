@@ -8,6 +8,7 @@ import { pushNotificationService } from "../services/PushNotificationService";
 import { logger } from "../utils/logger";
 import { createJobLogger } from "./jobLogger";
 import { deadLetterQueue } from "./deadLetterQueue";
+import { purgePushToken } from "../services/pushTokenLifecycle";
 
 /**
  * Check whether a "sent" log entry already exists for this idempotency key +
@@ -138,6 +139,10 @@ export const setupNotificationWorker = () => {
     }
 
     // Push
+    if (
+      targetChannels.includes("push") &&
+      userPref.pushEnabled &&
+      userPref.fcmToken
     const pushPreferenceEnabled =
       type === "booking"
         ? userPref.pushBookingEnabled
@@ -159,6 +164,19 @@ export const setupNotificationWorker = () => {
         results.push({ channel: "push", status: "skipped_duplicate" });
       } else {
         try {
+          const delivery = await pushNotificationService.sendPush(userId, type, {
+            data: data as Record<string, string> | undefined,
+          });
+
+          if (delivery.transientlyFailed > 0) {
+            throw new Error(`Push provider transiently rejected ${delivery.transientlyFailed} delivery(ies)`);
+          }
+
+          if (delivery.permanentlyFailed > 0) {
+            purgePushToken(userPref, userPref.fcmToken);
+            await userPrefRepo.save(userPref);
+          }
+
           const pushType =
             type === "promotional"
               ? "marketing"
