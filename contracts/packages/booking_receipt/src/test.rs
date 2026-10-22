@@ -15,6 +15,29 @@ fn create_receipt_contract<'a>(env: &Env, admin: &Address) -> BookingReceiptCont
     client
 }
 
+fn assert_receipt_rejected(
+    client: &BookingReceiptContractClient<'_>,
+    passenger: &Address,
+    booking_id: u64,
+    flight_number: &Symbol,
+    from_airport: &Symbol,
+    to_airport: &Symbol,
+    seat: &String,
+    price: i128,
+) {
+    assert!(client
+        .try_mint_receipt(
+            passenger,
+            &booking_id,
+            flight_number,
+            from_airport,
+            to_airport,
+            seat,
+            &price,
+        )
+        .is_err());
+}
+
 #[test]
 fn test_mint_receipt() {
     let env = Env::default();
@@ -159,13 +182,121 @@ fn test_booking_receipt_schema_validation_and_consistency() {
 
     assert!(client.verify_receipt(&passenger, &receipt_id));
 
-    // Verify non-existent receipt metadata panics or returns default/fails validation gracefully
-    // (Soroban storage get on missing key returns uninitialized/panic depending on contract implementation)
 }
 
 #[test]
-#[should_panic]
-fn test_booking_receipt_missing_or_inconsistent_fields_guard() {
+fn test_mint_receipt_rejects_invalid_schema() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let passenger = Address::generate(&env);
+    let client = create_receipt_contract(&env, &admin);
+    let flight_number = Symbol::new(&env, "TRQ101");
+    let from_airport = Symbol::new(&env, "JFK");
+    let to_airport = Symbol::new(&env, "LHR");
+    let seat = String::from_str(&env, "12A");
+    let price = 500_0000000i128;
+
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        0,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &seat,
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &Symbol::new(&env, "TRQFLIGHT123456789"),
+        &from_airport,
+        &to_airport,
+        &seat,
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &Symbol::new(&env, "JF"),
+        &to_airport,
+        &seat,
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &Symbol::new(&env, "JfK"),
+        &to_airport,
+        &seat,
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &from_airport,
+        &from_airport,
+        &seat,
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &String::from_str(&env, ""),
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &String::from_str(&env, "SEATNUMBER"),
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &seat,
+        0,
+    );
+
+    assert_eq!(client.sbt_balance(&passenger), 0);
+    assert_eq!(client.get_passenger_receipts(&passenger).len(), 0);
+
+    let receipt_id = client.mint_receipt(
+        &passenger,
+        &1001,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &seat,
+        &price,
+    );
+    assert_eq!(receipt_id, 1);
+}
+
+#[test]
+#[should_panic(expected = "Receipt not found")]
+fn test_missing_receipt_metadata_panics() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -173,6 +304,5 @@ fn test_booking_receipt_missing_or_inconsistent_fields_guard() {
     let passenger = Address::generate(&env);
     let client = create_receipt_contract(&env, &admin);
 
-    // Attempting to query non-existent receipt metadata should cause a panic or assertion failure
     let _metadata = client.get_receipt_metadata(&9999);
 }

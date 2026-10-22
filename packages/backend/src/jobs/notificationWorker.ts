@@ -65,7 +65,7 @@ export const setupNotificationWorker = () => {
         results.push({ channel: "email", status: "skipped_duplicate" });
       } else {
         try {
-          await emailService.sendTemplate(userPref.email, type, data);
+          await emailService.send(userPref.email, type, data);
           const entry = logRepo.create({
             userId,
             channel: "email",
@@ -109,7 +109,7 @@ export const setupNotificationWorker = () => {
         results.push({ channel: "sms", status: "skipped_duplicate" });
       } else {
         try {
-          await smsService.sendSMS(userPref.phoneNumber, `${type}: ${JSON.stringify(data)}`, userId);
+          await smsService.send(userPref.phoneNumber, type, data);
           const entry = logRepo.create({
             userId,
             channel: "sms",
@@ -143,6 +143,21 @@ export const setupNotificationWorker = () => {
       targetChannels.includes("push") &&
       userPref.pushEnabled &&
       userPref.fcmToken
+    const pushPreferenceEnabled =
+      type === "booking"
+        ? userPref.pushBookingEnabled
+        : type === "reminder"
+          ? userPref.pushReminderEnabled
+          : type === "refund" || type === "refund_initiated"
+            ? userPref.pushRefundEnabled
+            : type === "promotional"
+              ? userPref.pushPromoEnabled
+              : true;
+    if (
+      targetChannels.includes("push") &&
+      userPref.pushEnabled &&
+      userPref.pushOptedIn &&
+      pushPreferenceEnabled
     ) {
       if (await isDuplicateDelivery(logRepo, userId, type, "push", idempotencyKey)) {
         logger.info("notification-worker: skipping duplicate push delivery", { userId, type, idempotencyKey });
@@ -162,6 +177,16 @@ export const setupNotificationWorker = () => {
             await userPrefRepo.save(userPref);
           }
 
+          const pushType =
+            type === "promotional"
+              ? "marketing"
+              : type === "flight_status_shared"
+                ? "flight_status"
+                : type;
+          const delivery = await pushNotificationService.sendTypedPush(userId, pushType, data);
+          if (delivery.failed > 0) {
+            throw new Error(`Push delivery failed for ${delivery.failed} device(s)`);
+          }
           const entry = logRepo.create({
             userId,
             channel: "push",
@@ -172,12 +197,7 @@ export const setupNotificationWorker = () => {
             idempotencyKey,
           });
           await logRepo.save(entry);
-          results.push({
-            channel: "push",
-            status: delivery.permanentlyFailed > 0 && delivery.successful === 0
-              ? "skipped_invalid_token"
-              : "success",
-          });
+          results.push({ channel: "push", status: "success" });
         } catch (error: any) {
           const entry = logRepo.create({
             userId,
@@ -190,12 +210,7 @@ export const setupNotificationWorker = () => {
             idempotencyKey,
           });
           await logRepo.save(entry);
-          results.push({
-            channel: "push",
-            status: "error",
-            error: error.message,
-          });
-          throw error;
+          results.push({ channel: "push", status: "error", error: error.message });
         }
       }
     }
@@ -204,7 +219,9 @@ export const setupNotificationWorker = () => {
     // re-sent, so only genuinely failed channels drive a Bull retry.
     const failures = results.filter((r) => r.status === "error");
     if (failures.length > 0) {
-      log.step("deliver", { outcome: "failure", channels: results });
+      const error = new Error(`Failed to send notification via ${failures.map((failure) => failure.channel).join(", ")}`);
+      log.fail({ step: "deliver", error: error.message, channels: results });
+      throw error;
     }
     log.complete({ channels: results });
     return results;

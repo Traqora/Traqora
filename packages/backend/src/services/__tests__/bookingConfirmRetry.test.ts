@@ -202,6 +202,32 @@ describe('confirmBookingTx (#784 orchestration)', () => {
     expect(mockSave).not.toHaveBeenCalled();
   });
 
+  it('serializes concurrent polls and persists the confirmation transition once', async () => {
+    const booking = {
+      id: 'booking-concurrent',
+      status: 'onchain_submitted',
+      sorobanTxHash: 'tx-concurrent',
+      sorobanBookingId: null,
+      lastError: null,
+    };
+    mockFindOne.mockImplementation(async () => booking);
+    mockGetTransactionStatus.mockResolvedValue(SUCCESS_TX);
+    mockSave.mockImplementation(async (saved: any) => {
+      Object.assign(booking, saved);
+      return booking;
+    });
+
+    const [first, second] = await Promise.all([
+      confirmBookingTx('booking-concurrent'),
+      confirmBookingTx('booking-concurrent'),
+    ]);
+
+    expect(first.changed).toBe(true);
+    expect(second.changed).toBe(false);
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    expect(mockGetTransactionStatus).toHaveBeenCalledTimes(2);
+  });
+
   it('FAILURE MODE: persists lastError exactly once for a failed transaction', async () => {
     const booking = {
       id: 'booking-1',
@@ -229,6 +255,42 @@ describe('confirmBookingTx (#784 orchestration)', () => {
     expect(second.outcome).toBe('failed');
     expect(second.changed).toBe(false);
     expect(mockSave).not.toHaveBeenCalled();
+  });
+
+  it('passes stored fee-bump hashes to the status lookup and persists the metadata', async () => {
+    const booking = {
+      id: 'booking-fee-bump',
+      status: 'onchain_submitted',
+      sorobanTxHash: 'outer-hash',
+      sorobanInnerTxHash: 'inner-hash',
+      sorobanFeeBumpTxHash: 'outer-hash',
+      sorobanIsFeeBump: true,
+      sorobanBookingId: null,
+      lastError: null,
+    };
+    mockFindOne.mockResolvedValue(booking);
+    mockGetTransactionStatus.mockResolvedValue({
+      status: 'success',
+      txHash: 'outer-hash',
+      result: '42',
+      isFeeBump: true,
+      innerTxHash: 'inner-hash',
+      feeBumpTxHash: 'outer-hash',
+    });
+
+    const result = await confirmBookingTx('booking-fee-bump');
+
+    expect(mockGetTransactionStatus).toHaveBeenCalledWith('outer-hash', {
+      innerTxHash: 'inner-hash',
+      feeBumpTxHash: 'outer-hash',
+    });
+    expect(result.outcome).toBe('confirmed');
+    expect(result.changed).toBe(true);
+    expect(booking.status).toBe('confirmed');
+    expect(booking.sorobanInnerTxHash).toBe('inner-hash');
+    expect(booking.sorobanFeeBumpTxHash).toBe('outer-hash');
+    expect(booking.sorobanIsFeeBump).toBe(true);
+    expect(mockSave).toHaveBeenCalledTimes(1);
   });
 
   it('returns BadRequestError for an unknown booking', async () => {

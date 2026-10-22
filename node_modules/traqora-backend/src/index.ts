@@ -15,6 +15,7 @@ async function startServer() {
       { initDataSource },
       { initWebSocket },
       { initPriceMonitorCron },
+      { initSeatHoldExpiryCron },
       { verifyConnectivity },
       contractMonitorModule,
     ] = await Promise.all([
@@ -22,6 +23,7 @@ async function startServer() {
       import('./db/dataSource'),
       import('./websockets/server'),
       import('./jobs/priceMonitor'),
+      import('./jobs/seatHoldExpiryJob'),
       import('./utils/health-check'),
       import('./services/contractMonitor'),
     ]);
@@ -33,6 +35,7 @@ async function startServer() {
 
     initWebSocket(server);
     initPriceMonitorCron();
+    initSeatHoldExpiryCron();
 
     const PORT = config.port || 3001;
 

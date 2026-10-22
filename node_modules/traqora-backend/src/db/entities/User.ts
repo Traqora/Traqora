@@ -7,7 +7,7 @@ export class User {
   walletAddress: string;
 
   @Column({
-    type: 'enum',
+    type: process.env.NODE_ENV === 'test' ? 'varchar' : 'enum',
     enum: ['freighter', 'albedo', 'rabet'],
   })
   walletType: 'freighter' | 'albedo' | 'rabet';
@@ -15,12 +15,8 @@ export class User {
   @CreateDateColumn()
   createdAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamp', nullable: true })
   lastLoginAt: Date;
 
-  @Column({ type: 'int', default: 0 })
-  totalBookings: number;
 
-  @Column({ type: 'int', default: 0 })
-  totalSpentCents: number;
 }

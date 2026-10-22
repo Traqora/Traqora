@@ -317,6 +317,21 @@ impl BookingContract {
         );
     }
 
+    // Renew the TTL (Time To Live) for a booking entry to prevent pruning
+    // of long-lived persistent storage. This must be called before the entry's
+    // TTL expires to keep the booking record readable for the booking and
+    // dispute lifecycle.
+    //
+    // # Arguments
+    // * `booking_id` - The booking ID whose TTL should be renewed
+    pub fn renew_booking_ttl(env: Env, booking_id: u64) {
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        booking.passenger.require_auth();
+        env.storage()
+            .persistent()
+            .extend_ttl(&booking_id, /* delta = */ 0);
+    }
+
     // Helper to get booking details
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
         BookingStorage::get(&env, booking_id)

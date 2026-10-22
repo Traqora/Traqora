@@ -284,3 +284,6 @@ impl GovernanceContract {
         GovernanceStorageKey::get_proposal_count(&env)
     }
 }
+
+#[cfg(test)]
+mod test;

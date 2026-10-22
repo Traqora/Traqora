@@ -175,7 +175,33 @@ export interface ConfirmBookingTxResult {
  * Read the Soroban transaction status for a booking and apply the idempotent
  * confirm transition, persisting only when something actually changed.
  */
+const confirmationQueues = new Map<string, Promise<void>>();
+
+/** Serialize concurrent confirmation polls per booking so only the first
+ * observed state transition persists and broadcasts as a change. */
 export async function confirmBookingTx(
+  bookingId: string,
+): Promise<ConfirmBookingTxResult> {
+  const previous = confirmationQueues.get(bookingId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  confirmationQueues.set(bookingId, queued);
+
+  await previous;
+  try {
+    return await performConfirmBookingTx(bookingId);
+  } finally {
+    release();
+    if (confirmationQueues.get(bookingId) === queued) {
+      confirmationQueues.delete(bookingId);
+    }
+  }
+}
+
+async function performConfirmBookingTx(
   bookingId: string,
 ): Promise<ConfirmBookingTxResult> {
   const bookingRepo = AppDataSource.getRepository(Booking);
@@ -197,7 +223,11 @@ export async function confirmBookingTx(
   }
 
   const transactionStatus = await withRetries(
-    () => getTransactionStatus(booking.sorobanTxHash as string),
+    () =>
+      getTransactionStatus(booking.sorobanTxHash as string, {
+        innerTxHash: booking.sorobanInnerTxHash ?? undefined,
+        feeBumpTxHash: booking.sorobanFeeBumpTxHash ?? undefined,
+      }),
     { maxAttempts: 3, delayMs: 200, operationName: "confirmBookingTx:getTransactionStatus" },
   );
 
@@ -210,7 +240,17 @@ export async function confirmBookingTx(
     transactionStatus,
   });
 
-  if (decision.changed) {
+  // Fee-bump/inner-hash metadata may arrive after the status itself settled
+  // (for example when an older booking is first polled with the new code).
+  const metadataChanged =
+    (transactionStatus.innerTxHash !== undefined &&
+      transactionStatus.innerTxHash !== booking.sorobanInnerTxHash) ||
+    (transactionStatus.feeBumpTxHash !== undefined &&
+      transactionStatus.feeBumpTxHash !== booking.sorobanFeeBumpTxHash) ||
+    (transactionStatus.isFeeBump !== undefined &&
+      transactionStatus.isFeeBump !== booking.sorobanIsFeeBump);
+
+  if (decision.changed || metadataChanged) {
     booking.status = decision.toStatus;
     if (decision.outcome === "confirmed" && decision.onChainBookingId) {
       booking.sorobanBookingId = decision.onChainBookingId;
@@ -218,18 +258,28 @@ export async function confirmBookingTx(
     if (decision.outcome === "failed" && decision.reason) {
       booking.lastError = decision.reason;
     }
+    if (transactionStatus.innerTxHash !== undefined) {
+      booking.sorobanInnerTxHash = transactionStatus.innerTxHash;
+    }
+    if (transactionStatus.feeBumpTxHash !== undefined) {
+      booking.sorobanFeeBumpTxHash = transactionStatus.feeBumpTxHash;
+    }
+    if (transactionStatus.isFeeBump !== undefined) {
+      booking.sorobanIsFeeBump = transactionStatus.isFeeBump;
+    }
     await bookingRepo.save(booking);
     logger.info("Booking confirm transition applied (#784)", {
       bookingId,
       fromStatus: decision.fromStatus,
       toStatus: decision.toStatus,
       outcome: decision.outcome,
+      metadataChanged,
     });
   }
 
   return {
     outcome: decision.outcome,
-    changed: decision.changed,
+    changed: decision.changed || metadataChanged,
     booking,
     transactionStatus,
   };
