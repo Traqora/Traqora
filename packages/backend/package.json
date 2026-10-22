@@ -41,7 +41,7 @@
     "bcryptjs": "^2.4.3",
     "bull": "^4.16.5",
     "cors": "^2.8.6",
-    "dotenv": "^16.4.5",
+    "dotenv": "^18.0.8",
     "express": "^4.22.1",
     "firebase-admin": "^13.6.1",
     "helmet": "^7.1.0",
