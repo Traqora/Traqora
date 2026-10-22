@@ -12,6 +12,9 @@ import { AdminUser } from "./entities/AdminUser";
 import { AdminAuditLog } from "./entities/AdminAuditLog";
 import { Refund } from "./entities/Refund";
 import { User } from "./entities/User";
+import { ContractEventLog } from "./entities/ContractEventLog";
+import { ContractEventCursor } from "./entities/ContractEventCursor";
+import { ContractReconciliationAttempt } from "./entities/ContractReconciliationAttempt";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -33,7 +36,9 @@ export const AppDataSource = new DataSource(
         AdminAuditLog,
         Refund,
         User,
-
+        ContractEventLog,
+        ContractEventCursor,
+        ContractReconciliationAttempt,
       ],
       logging: false,
     }
@@ -53,7 +58,9 @@ export const AppDataSource = new DataSource(
         AdminAuditLog,
         Refund,
         User,
-
+        ContractEventLog,
+        ContractEventCursor,
+        ContractReconciliationAttempt,
       ],
       migrations: [__dirname + "/migrations/*.{js,ts}"],
       ssl:
