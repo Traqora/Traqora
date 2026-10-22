@@ -424,6 +424,7 @@ cargo llvm-cov --summary-only --fail-under-lines 90
 | `admin_multisig_test.rs` | Admin multisig operations. |
 | `event_assertions_test.rs` | Event schema validation across contracts. |
 | `advanced_property_tests.rs` | Critical invariant checks (supply, refund bounds, id sequencing, points scaling). |
+| `proptest_invariant_test.rs` | Scoped proptest invariant test for token supply conservation. |
 | `time_helpers_test.rs`, `upgrade_quickref_test.rs` | Ledger-time helper regressions and upgrade quick-reference coverage. |
 
 `packages/integration-tests/test_snapshots/` and `contracts/test_snapshots/` hold stored ledger snapshots (`Env`-serialized JSON). They are written by `soroban-sdk` relative to the current working directory, so **run the suite from `contracts/`** (`cargo test --locked`) to keep them in one place. They are diagnostic artifacts, not golden assertions — nothing reads them back.
