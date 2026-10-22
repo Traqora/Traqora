@@ -286,6 +286,9 @@ fn test_cancel_booking_prevents_double_cancellation() {
 }
 
 #[test]
+fn test_automate_refund_marks_booking_cancelled() {
+    let env = new_env();
+    env.ledger().set_timestamp(1_700_400_000);
 fn test_automate_refund_uses_configured_refund_policy() {
     let env = new_env();
     env.ledger().set_timestamp(1_701_000_000);
@@ -293,6 +296,7 @@ fn test_automate_refund_uses_configured_refund_policy() {
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
+
     contracts.refund.initialize(&actors.admin);
     contracts.refund.set_refund_policy(
         &actors.airline,
@@ -308,6 +312,19 @@ fn test_automate_refund_uses_configured_refund_policy() {
     );
 
     let price = 100_0000000i128;
+    let departure = env.ledger().timestamp() + (80 * 60 * 60);
+
+    let booking_numeric_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FLAUTO"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &departure,
+        &price,
+        &contracts.token.address,
+    );
+
     let booking_numeric_id = contracts.booking.create_booking(
         &actors.passenger,
         &actors.airline,
@@ -323,12 +340,41 @@ fn test_automate_refund_uses_configured_refund_policy() {
         .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_numeric_id);
 
+    let booking_symbol = Symbol::new(&env, "BKAUTO1");
     let booking_symbol = Symbol::new(&env, "BKPOL1");
     contracts.refund_automation.register_booking(
         &actors.admin,
         &booking_symbol,
         &booking_numeric_id,
     );
+
+    let result = contracts.refund_automation.automate_refund(
+        &actors.passenger,
+        &booking_symbol,
+        &Symbol::new(&env, "weather"),
+    );
+
+    assert_eq!(result.tier, Symbol::new(&env, "full"));
+    assert_eq!(result.passenger_refund, price);
+    assert_eq!(result.airline_amount, 0);
+
+    assert!(contracts.refund_automation.is_cancelled(&booking_symbol));
+
+    assert_eq!(contracts.token.balance_of(&actors.passenger), price);
+    assert_eq!(contracts.token.balance_of(&actors.airline), 0);
+    assert_eq!(contracts.token.balance_of(&contracts.booking.address), 0);
+}
+
+#[test]
+#[should_panic(expected = "Booking already cancelled")]
+fn test_automate_refund_is_idempotent() {
+    let env = new_env();
+    env.ledger().set_timestamp(1_700_500_000);
+
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
     let result = contracts.refund_automation.automate_refund(
         &actors.passenger,
         &booking_symbol,
@@ -362,6 +408,20 @@ fn test_automate_refund_without_policy_keeps_booking_escrowed() {
         &contracts.refund.address,
     );
 
+    let price = 100_0000000i128;
+    let departure = env.ledger().timestamp() + (80 * 60 * 60);
+
+    let booking_numeric_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FLIDEM"),
+        &Symbol::new(&env, "BOS"),
+        &Symbol::new(&env, "MIA"),
+        &departure,
+        &price,
+        &contracts.token.address,
+    );
+
     let price = 50_0000000i128;
     let booking_numeric_id = contracts.booking.create_booking(
         &actors.passenger,
@@ -378,6 +438,7 @@ fn test_automate_refund_without_policy_keeps_booking_escrowed() {
         .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_numeric_id);
 
+    let booking_symbol = Symbol::new(&env, "BKIDEM1");
     let booking_symbol = Symbol::new(&env, "BKNOPOL");
     contracts.refund_automation.register_booking(
         &actors.admin,
@@ -385,6 +446,17 @@ fn test_automate_refund_without_policy_keeps_booking_escrowed() {
         &booking_numeric_id,
     );
 
+    contracts.refund_automation.automate_refund(
+        &actors.passenger,
+        &booking_symbol,
+        &Symbol::new(&env, "weather"),
+    );
+
+    contracts.refund_automation.automate_refund(
+        &actors.passenger,
+        &booking_symbol,
+        &Symbol::new(&env, "weather"),
+    );
     let result = contracts.refund_automation.try_automate_refund(
         &actors.passenger,
         &booking_symbol,

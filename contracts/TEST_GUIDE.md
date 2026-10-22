@@ -6,6 +6,92 @@ This guide explains how the Traqora Soroban contracts are tested, and how to add
 
 ## Overview
 
+The Traqora smart contract test suite provides comprehensive coverage of all contract modules with:
+- **90%+ line coverage target** via cargo-llvm-cov
+- **Property-based tests** using proptest for invariant verification
+- **Integration tests** for multi-contract workflows
+- **Edge case handling** for critical operations
+- **Automated CI validation** on every PR
+
+## Test Organization
+
+### Test Files and Responsibilities
+
+#### Core Integration Tests
+- **`integration_test.rs`**: Full booking → loyalty → refund workflow
+- **`comprehensive_integration_test.rs`**: Extended workflows including:
+  - Booking creation → payment → refund policy application → cancellation
+  - Booking with dispute resolution → settlement
+  - Multi-airline loyalty point accumulation
+  - Refund policy changes and reapplication
+  - Governance proposal references
+
+#### Property-Based Tests
+- **`fuzz_property_test.rs`**: Token invariant testing
+  - Total supply conservation across transfers
+  - Allowance and transfer_from compliance
+- **`advanced_property_tests.rs`**: Critical invariant tests
+  - Token total supply invariants
+  - Refund amount bounds (never exceeds price)
+  - Booking ID sequencing and uniqueness
+  - Loyalty points scaling with price
+
+#### Contract-Specific Tests
+- **`admin_multisig_test.rs`**: Admin multisig contract (149 tests, from PR #81)
+- **`booking_test.rs`**: Booking contract operations
+- **`refund_automation_integration_test.rs`**: Automated refund flow
+  - Refund tier boundaries (full/partial/no-refund) and settlement balances
+  - Policy automation idempotency: repeated `cancel_booking` / `automate_refund` panics with `Booking already cancelled` (no double settlement)
+- **`dispute_resolution_test.rs`**: Basic dispute resolution
+- **`dispute_resolution_advanced_test.rs`**: Enhanced dispute handling
+  - Multiple arbiter scenarios
+  - Jury rotation fairness
+  - Escrow security verification
+  - Independent dispute resolution
+- **`loyalty_test.rs`**: Loyalty points system
+- **`airline_test.rs`**: Airline registration and verification
+- **`governance_test.rs`**: Governance proposal system
+- **`oracle_test.rs`**: Price/data oracle integration
+
+#### Security & Edge Cases
+- **`access_test.rs`**: Authorization and access control
+- **`proxy_access_test.rs`**: Proxy contract access patterns
+- **`storage_version_test.rs`**: Contract versioning and upgrades
+- **`proxy_test.rs`**: Proxy contract behavior
+- **`token_test.rs`**: Token contract comprehensive tests
+- **`flight_registry_test.rs`**: Flight data registry
+- **`event_assertions_test.rs`**: Event emission validation
+
+#### Common Utilities
+- **`common.rs`**: Shared test fixtures and helper functions
+  - Environment setup with mock auth
+  - Actor (admin, passenger, airline) generation
+  - Contract registration and initialization
+  - Token initialization
+  - Airline registration and verification
+
+## Coverage Targets by Module
+
+| Module | Target | Priority |
+|--------|--------|----------|
+| Token (TRQ) | 95%+ | Critical |
+| Booking | 90%+ | Critical |
+| Refund | 90%+ | Critical |
+| Refund Automation | 90%+ | Critical |
+| Dispute Resolution | 92%+ | High |
+| Loyalty | 88%+ | High |
+| Airline | 85%+ | Medium |
+| Governance | 85%+ | Medium |
+| Oracle | 85%+ | Medium |
+| Admin/Multisig | 93%+ | Critical |
+
+## Running Tests
+
+### Run All Tests
+```bash
+cd contracts
+cargo test
+```
 The contracts in this repository are Soroban smart contracts written in Rust. They are tested with the **soroban-sdk testutils** environment (`soroban-sdk` built with the `testutils` feature), which provides an in-memory ledger that lets tests exercise contract calls without a network, Stellar RPC, or real wallet signatures.
 
 Tests live in the dedicated crates:

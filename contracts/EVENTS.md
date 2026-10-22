@@ -81,6 +81,14 @@ const events = await server.getEvents({
 `flight_id` and `seat` are `Symbol`s here, so the payload keeps its
 domain-specific order instead of the numeric `(actor, timestamp, id)` prefix.
 
+### Idempotency guarantees
+
+The automated cancel/refund entry points are idempotent per booking. A booking is marked cancelled
+on the first successful `cancel_booking` or `automate_refund`, and any subsequent call for the same
+booking panics with `Booking already cancelled`. This prevents double settlement (paying the
+passenger/airline twice) and duplicate refund requests if an operator or automation retries a
+policy action.
+
 ---
 
 ## FlightRegistry Contract (`flight_registry`)
