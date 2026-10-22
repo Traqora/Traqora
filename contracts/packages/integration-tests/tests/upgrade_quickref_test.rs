@@ -112,9 +112,14 @@ fn test_quickref_schedule_stores_wasm_hash() {
 
     client.schedule_upgrade(&admin, &new_hash);
 
-    let stored = client.get_scheduled_upgrade().expect("should be Some after schedule");
+    let stored = client
+        .get_scheduled_upgrade()
+        .expect("should be Some after schedule");
     assert_eq!(stored.new_wasm_hash, new_hash);
-    assert!(!stored.executed, "executed flag must be false right after scheduling");
+    assert!(
+        !stored.executed,
+        "executed flag must be false right after scheduling"
+    );
 }
 
 /// The scheduling timestamp recorded in the struct equals the ledger timestamp
@@ -193,7 +198,10 @@ fn test_quickref_execute_succeeds_at_exact_48h_boundary() {
     client.execute_upgrade(&admin);
 
     let stored = client.get_scheduled_upgrade().unwrap();
-    assert!(stored.executed, "executed flag must be true after execute_upgrade");
+    assert!(
+        stored.executed,
+        "executed flag must be true after execute_upgrade"
+    );
 }
 
 /// After a successful execution get_upgrade_timelock_remaining returns 0.
@@ -233,7 +241,10 @@ fn test_quickref_can_schedule_after_previous_executed() {
 
     let stored = client.get_scheduled_upgrade().unwrap();
     assert_eq!(stored.new_wasm_hash, hash_v3);
-    assert!(!stored.executed, "second upgrade must start in pending state");
+    assert!(
+        !stored.executed,
+        "second upgrade must start in pending state"
+    );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -340,7 +351,10 @@ fn test_quickref_schedule_rejects_non_admin() {
     let stranger = Address::generate(&env);
 
     let result = client.try_schedule_upgrade(&stranger, &hash(&env, 0x0A));
-    assert!(result.is_err(), "schedule_upgrade must reject a non-admin caller");
+    assert!(
+        result.is_err(),
+        "schedule_upgrade must reject a non-admin caller"
+    );
 }
 
 /// execute_upgrade called by a non-admin must return a ContractError (NotAdmin = #2).
@@ -354,7 +368,10 @@ fn test_quickref_execute_rejects_non_admin() {
     env.ledger().set_timestamp(200_000);
 
     let result = client.try_execute_upgrade(&stranger);
-    assert!(result.is_err(), "execute_upgrade must reject a non-admin caller");
+    assert!(
+        result.is_err(),
+        "execute_upgrade must reject a non-admin caller"
+    );
 }
 
 /// set_timelock_duration called by a non-owner must return a ContractError (NotOwner = #1).
@@ -364,7 +381,10 @@ fn test_quickref_set_timelock_rejects_non_owner() {
     let stranger = Address::generate(&env);
 
     let result = client.try_set_timelock_duration(&stranger, &3_600_u64);
-    assert!(result.is_err(), "set_timelock_duration must reject a non-owner caller");
+    assert!(
+        result.is_err(),
+        "set_timelock_duration must reject a non-owner caller"
+    );
 }
 
 /// cancel_upgrade called by a non-owner must return a ContractError (NotOwner = #1).
@@ -376,7 +396,10 @@ fn test_quickref_cancel_rejects_non_owner() {
     client.schedule_upgrade(&admin, &hash(&env, 0x0C));
 
     let result = client.try_cancel_upgrade(&stranger);
-    assert!(result.is_err(), "cancel_upgrade must reject a non-owner caller");
+    assert!(
+        result.is_err(),
+        "cancel_upgrade must reject a non-owner caller"
+    );
 }
 
 /// Scheduling a second upgrade while one is already pending must panic with

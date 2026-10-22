@@ -1,8 +1,8 @@
 #[cfg(test)]
 use booking::{BookingContract, BookingContractClient};
+use integration_tests::{generate_actors, initialize_token, new_env, register_contracts};
 use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
 use token::{TRQTokenContract, TRQTokenContractClient};
-use integration_tests::{generate_actors, initialize_token, new_env, register_contracts};
 
 #[test]
 fn test_architecture_happy_path_and_failure_mode() {
@@ -23,7 +23,9 @@ fn test_architecture_happy_path_and_failure_mode() {
         &contracts.token.address,
     );
 
-    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id);
 
     let booking = contracts.booking.get_booking(&booking_id).unwrap();

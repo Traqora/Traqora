@@ -2,7 +2,7 @@
  * Unit tests for Push Notification Service
  */
 
-import { describe, it, expect, beforeEach } from "@jest/globals";
+import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 import {
   PushNotificationService,
   type PushNotificationType,
@@ -110,6 +110,30 @@ describe("PushNotificationService", () => {
         actions: [{ action: "view", title: "View Booking" }],
       });
       expect(result).toBeDefined();
+    });
+
+    it("marks permanent invalid-token responses separately from transient failures", async () => {
+      await service.subscribe("user-1", makeSub());
+      (service as any).deliverToSubscription = jest.fn().mockRejectedValue(
+        new Error("410 Gone - registration token is unregistered"),
+      );
+
+      const result = await service.sendPush("user-1", "Title", { body: "Body" });
+
+      expect(result).toMatchObject({ successful: 0, failed: 1, permanentlyFailed: 1, transientlyFailed: 0 });
+      await expect(service.getSubscriptions("user-1")).resolves.toHaveLength(0);
+    });
+
+    it("keeps transient delivery failures retryable", async () => {
+      await service.subscribe("user-1", makeSub());
+      (service as any).deliverToSubscription = jest.fn().mockRejectedValue(
+        new Error("503 provider unavailable"),
+      );
+
+      const result = await service.sendPush("user-1", "Title", { body: "Body" });
+
+      expect(result).toMatchObject({ successful: 0, failed: 1, permanentlyFailed: 0, transientlyFailed: 1 });
+      await expect(service.getSubscriptions("user-1")).resolves.toHaveLength(1);
     });
   });
 
