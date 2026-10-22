@@ -28,6 +28,8 @@ pub struct FlightRecord {
     pub arrival_time: u64,
     pub total_seats: u32,
     pub available_seats: u32,
+    pub source_timestamp: u64,
+    pub revision: u32,
 }
 
 // Legacy record for backward compatibility with pre-upgrade storage
@@ -171,6 +173,18 @@ impl FlightRegistryContract {
                 (Symbol::new(&env, "active"), 0, 0, 0, 0)
             };
 
+        let source_timestamp = env.ledger().timestamp();
+        let revision = if let Some(ref existing) = FlightRegistryStorage::get_flight(&env, &flight_id) {
+            existing.revision + 1
+        } else {
+            1
+        };
+
+        if let Some(existing) = FlightRegistryStorage::get_flight(&env, &flight_id) {
+            assert!(source_timestamp >= existing.source_timestamp, "Out-of-order provider snapshot: timestamp older than existing record");
+            assert!(revision > existing.revision, "Out-of-order provider snapshot: revision not newer than existing record");
+        }
+
         let flight = FlightRecord {
             flight_id: flight_id.clone(),
             airline_id: airline_id.clone(),
@@ -181,6 +195,8 @@ impl FlightRegistryContract {
             arrival_time,
             total_seats,
             available_seats,
+            source_timestamp,
+            revision,
         };
 
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
@@ -236,6 +252,18 @@ impl FlightRegistryContract {
 
         let is_update = FlightRegistryStorage::get_flight(&env, &flight_id).is_some();
 
+        let source_timestamp = env.ledger().timestamp();
+        let revision = if let Some(ref existing) = FlightRegistryStorage::get_flight(&env, &flight_id) {
+            existing.revision + 1
+        } else {
+            1
+        };
+
+        if let Some(existing) = FlightRegistryStorage::get_flight(&env, &flight_id) {
+            assert!(source_timestamp >= existing.source_timestamp, "Out-of-order provider snapshot: timestamp older than existing record");
+            assert!(revision > existing.revision, "Out-of-order provider snapshot: revision not newer than existing record");
+        }
+
         let flight = FlightRecord {
             flight_id: flight_id.clone(),
             airline_id: airline_id.clone(),
@@ -246,6 +274,8 @@ impl FlightRegistryContract {
             arrival_time,
             total_seats,
             available_seats,
+            source_timestamp,
+            revision,
         };
 
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
@@ -296,6 +326,10 @@ impl FlightRegistryContract {
             FlightRegistryStorage::is_valid_status(&env, &status),
             "Invalid status"
         );
+        let source_timestamp = env.ledger().timestamp();
+        assert!(source_timestamp >= flight.source_timestamp, "Out-of-order provider snapshot: timestamp older than existing record");
+        flight.source_timestamp = source_timestamp;
+        flight.revision += 1;
         flight.status = status.clone();
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
         contract_events::emit_indexed(
@@ -327,6 +361,10 @@ impl FlightRegistryContract {
         assert!(flight.airline_admin == airline_admin, "Unauthorized");
         assert!(departure_time < arrival_time, "Invalid schedule");
         assert!(departure_time > 0 && arrival_time > 0, "Invalid schedule");
+        let source_timestamp = env.ledger().timestamp();
+        assert!(source_timestamp >= flight.source_timestamp, "Out-of-order provider snapshot: timestamp older than existing record");
+        flight.source_timestamp = source_timestamp;
+        flight.revision += 1;
         flight.departure_time = departure_time;
         flight.arrival_time = arrival_time;
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
@@ -359,6 +397,10 @@ impl FlightRegistryContract {
         assert!(flight.airline_admin == airline_admin, "Unauthorized");
         assert!(total_seats > 0, "Invalid seats");
         assert!(available_seats <= total_seats, "Invalid available seats");
+        let source_timestamp = env.ledger().timestamp();
+        assert!(source_timestamp >= flight.source_timestamp, "Out-of-order provider snapshot: timestamp older than existing record");
+        flight.source_timestamp = source_timestamp;
+        flight.revision += 1;
         flight.total_seats = total_seats;
         flight.available_seats = available_seats;
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
@@ -652,6 +694,32 @@ mod test {
         let route_sym = Symbol::try_from_val(&env, &route_val).unwrap();
         assert_eq!(route_sym, Symbol::new(&env, "LOS_JFK"));
         assert_eq!(after.status, before.status);
+    }
+
+    #[test]
+    #[should_panic(expected = "Out-of-order provider snapshot")]
+    fn test_delayed_sync_response_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let owner = Address::generate(&env);
+        let (_, client) = setup_registry(&env, &owner);
+        let airline_admin = Address::generate(&env);
+        let airline_id = Symbol::new(&env, "SYNC");
+        let flight_id = Symbol::new(&env, "SYNC100");
+        client.register_airline(
+            &owner,
+            &airline_admin,
+            &airline_id,
+            &Symbol::new(&env, "SyncAir"),
+        );
+        
+        // Advance ledger timestamp
+        env.ledger().set_timestamp(5000);
+        client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
+
+        // Simulate a delayed sync response arriving with an older ledger timestamp
+        env.ledger().set_timestamp(4000);
+        client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
     }
 }
 
