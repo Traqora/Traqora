@@ -312,6 +312,31 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+  # ── Docs: EVENTS.md drift ─────────────────────────────────────────────────
+  check-events-docs:
+    name: Docs - Events drift
+    needs: [detect]
+    if: needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Restore Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Check EVENTS.md is in sync with emitted events
+        run: ./scripts/check-events-docs.sh
+
   # ── Integration: Backend ──────────────────────────────────────────────────
   integration-backend:
     name: Integration - Backend
