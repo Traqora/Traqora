@@ -663,3 +663,92 @@ fn test_complete_dispute_lifecycle() {
         }
     }
 }
+
+#[test]
+fn test_advance_to_voting_after_evidence_timeout() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = create_dispute_contract(&env);
+    let client = DisputeContractClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    client.initialize(
+        &owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000,
+    );
+
+    let passenger = Address::generate(&env);
+    let airline = Address::generate(&env);
+
+    let dispute_id = client.file_dispute(&passenger, &airline, &1, &10000, &2000);
+    client.airline_respond(&airline, &dispute_id, &2000);
+
+    // Still within the evidence window: the dispute stays in Evidence.
+    let dispute = client.get_dispute(&dispute_id).unwrap();
+    assert_eq!(dispute.phase, dispute::DisputePhase::Evidence);
+
+    advance_ledger(&env, 86401);
+    client.advance_to_voting(&dispute_id);
+
+    let dispute = client.get_dispute(&dispute_id).unwrap();
+    assert_eq!(dispute.phase, dispute::DisputePhase::JurySelection);
+
+    // Jury selection can now proceed and fill the jury -> commit voting.
+    let juror1 = Address::generate(&env);
+    let juror2 = Address::generate(&env);
+    let juror3 = Address::generate(&env);
+    client.select_as_juror(&juror1, &dispute_id, &1000);
+    client.select_as_juror(&juror2, &dispute_id, &1500);
+    client.select_as_juror(&juror3, &dispute_id, &2000);
+
+    let dispute = client.get_dispute(&dispute_id).unwrap();
+    assert_eq!(dispute.phase, dispute::DisputePhase::CommitVote);
+}
+
+#[test]
+#[should_panic(expected = "Evidence period not ended")]
+fn test_advance_to_voting_before_timeout_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = create_dispute_contract(&env);
+    let client = DisputeContractClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    client.initialize(
+        &owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000,
+    );
+
+    let passenger = Address::generate(&env);
+    let airline = Address::generate(&env);
+
+    let dispute_id = client.file_dispute(&passenger, &airline, &1, &10000, &2000);
+    client.airline_respond(&airline, &dispute_id, &2000);
+
+    // Evidence period has not elapsed yet.
+    client.advance_to_voting(&dispute_id);
+}
+
+#[test]
+#[should_panic(expected = "Not in evidence phase")]
+fn test_advance_to_voting_wrong_phase_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = create_dispute_contract(&env);
+    let client = DisputeContractClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    client.initialize(
+        &owner, &2000, &3, &86400, &86400, &86400, &86400, &5000, &2000,
+    );
+
+    let passenger = Address::generate(&env);
+    let airline = Address::generate(&env);
+
+    let dispute_id = client.file_dispute(&passenger, &airline, &1, &10000, &2000);
+    client.airline_respond(&airline, &dispute_id, &2000);
+
+    advance_ledger(&env, 86401);
+    client.advance_to_voting(&dispute_id);
+
+    // Second call: already advanced to jury selection.
+    client.advance_to_voting(&dispute_id);
+}

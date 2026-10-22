@@ -111,6 +111,22 @@ Three-topic events: `topic[2]` is the entity id, published via
 
 ---
 
+## DisputeResolution Contract (`dispute` / `evidence` / `vote` / `juror`)
+
+| topics                      | data fields                                                              | description                              |
+|-----------------------------|--------------------------------------------------------------------------|------------------------------------------|
+| `(dispute, init)`           | `jury_size`                                                              | Contract initialized                     |
+| `(dispute, filed)`          | `(dispute_id, passenger, airline, amount)`                               | New dispute filed                        |
+| `(dispute, responded)`      | `(dispute_id, airline, stake)`                                           | Airline responded to dispute             |
+| `(evidence, submitted)`     | `(dispute_id, submitter, evidence_hash)`                                 | Evidence submitted                       |
+| `(juror, selected)`         | `(dispute_id, juror)`                                                    | Juror selected for dispute               |
+| `(vote, committed)`         | `(dispute_id, juror)`                                                    | Vote committed (hash)                    |
+| `(vote, revealed)`          | `(dispute_id, juror, vote_for_passenger)`                                | Vote revealed                            |
+| `(phase, voting)`           | `dispute_id`                                                             | Advanced to voting after evidence timeout|
+| `(dispute, finalized)`      | `(dispute_id, verdict)`                                                  | Dispute finalized with verdict           |
+| `(dispute, appealed)`       | `(dispute_id, appellant)`                                                | Dispute appealed                         |
+| `(verdict, executed)`       | `(dispute_id, verdict)`                                                  | Verdict executed and funds distributed   |
+| `(reward, claimed)`         | `(dispute_id, juror, amount)`                                            | Juror reward claimed                     |
 ## Airline Contract (`airline`)
 
 | topics                 | data fields                                            | description                        |
