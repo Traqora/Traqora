@@ -40,3 +40,16 @@ Traqora uses automated security scanning tools to identify vulnerabilities:
 - **Dependabot**: Automated dependency updates.
 
 We recommend all contributors to run local security checks before submitting pull requests.
+
+## Contract Audit Checklist
+
+Smart-contract changes must be reviewed against this checklist and the [penetration testing plan](PENTEST_PLAN.md) before merge.
+
+- [ ] **Access control** — owner/admin/operator roles cannot be assumed by an unauthenticated caller
+- [ ] **Upgrade timelock** — WASM upgrades wait at least 48 hours and cannot skip the delay
+- [ ] **Integer / overflow safety** — checked arithmetic on balances, shares, and timestamps
+- [ ] **Authorization** — every mutating entrypoint requires the expected Soroban auth
+- [ ] **Event completeness** — schedule, execute, cancel, and timelock changes emit events
+- [ ] **Coverage gate** — `cargo llvm-cov --fail-under-lines 90` stays green
+
+Operators should also follow `PENTEST_PLAN.md` for API, frontend, and infrastructure scope.
