@@ -41,6 +41,7 @@ import type {
 } from '../../types/flightSync';
 import { OffchainFlightDataProvider } from '../offchainFlightDataProvider';
 import { AmadeusAnalyticsClient } from './amadeusClient';
+import { retainSegmentFareAndCabin } from '../flightOfferSegments';
 
 /** Minimal config surface — keeps the provider testable without env vars. */
 export interface AmadeusConfigSource {
@@ -122,6 +123,7 @@ export function mapAmadeusOfferToFlight(offer: AmadeusFlightData): Flight | null
     rating: 0,
     available_seats: offer.numberOfBookableSeats ?? 0,
     class: firstCabinClass(offer.travelerPricings),
+    segments: retainSegmentFareAndCabin(offer),
     provenance,
   };
 }

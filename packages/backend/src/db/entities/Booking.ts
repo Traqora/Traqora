@@ -72,6 +72,14 @@ export class Booking {
   @Column({ type: 'varchar', length: 64, nullable: true })
   bookingReference?: string | null;
 
+  /**
+   * Issued airline ticket numbers, stored separately from the PNR / booking
+   * reference. A confirmed reservation is not ticketed until at least one
+   * number is present (#905).
+   */
+  @Column({ type: 'simple-json', nullable: true })
+  ticketNumbers?: string[] | null;
+
   @Column({ type: 'bigint', nullable: true })
   sorobanBookingId?: string | null;
 
