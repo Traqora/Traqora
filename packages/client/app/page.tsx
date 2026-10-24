@@ -6,49 +6,37 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Plane, Zap, Shield, Globe } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { HomeNav } from "@/components/home-nav"
+import { RecentSearches, saveRecentSearch } from "@/components/flight-search/recent-searches"
 
 export default function HomePage() {
   const router = useRouter()
 
   const handleSearch = (searchData: any) => {
+    // Save to recent searches
+    saveRecentSearch(searchData)
+
     const params = new URLSearchParams()
+    params.set('tripType', searchData.tripType)
     params.set('from', searchData.from)
     params.set('to', searchData.to)
     params.set('departure', searchData.departure)
     params.set('passengers', searchData.passengers)
     params.set('class', searchData.class)
-    if (searchData.return) {
+    if (searchData.tripType === 'roundtrip' && searchData.return) {
       params.set('return', searchData.return)
     }
-    
+
     router.push(`/search?${params.toString()}`)
   }
 
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation */}
-      <nav className="border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2">
-              <Plane className="h-8 w-8 text-primary" />
-              <span className="font-serif font-bold text-2xl text-foreground">Traqora</span>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              <Link href="/search">
-                <Button variant="outline">Browse Flights</Button>
-              </Link>
-              <Link href="/auth">
-                <Button>Sign In</Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <HomeNav />
 
       {/* Hero Section */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-28 pb-16">
         <div className="text-center mb-12">
           <h1 className="text-4xl md:text-6xl font-serif font-bold text-foreground mb-6">
             Decentralized Flight Booking
@@ -60,8 +48,13 @@ export default function HomePage() {
         </div>
 
         {/* Search Form */}
-        <div className="mb-16">
+        <div className="mb-8">
           <SearchForm onSearch={handleSearch} />
+        </div>
+
+        {/* Recent Searches */}
+        <div className="mb-16">
+          <RecentSearches onSelect={handleSearch} />
         </div>
 
         {/* Features */}
@@ -98,7 +91,7 @@ export default function HomePage() {
         </div>
 
         {/* Popular Routes */}
-        <div className="text-center">
+        <div className="text-center mb-16">
           <h2 className="text-2xl font-serif font-bold mb-8">Popular Routes</h2>
           <div className="flex flex-wrap justify-center gap-4">
             {[
@@ -115,6 +108,43 @@ export default function HomePage() {
                   {route.route}
                 </Button>
               </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* How It Works Section */}
+        <div id="how-it-works" className="py-16">
+          <h2 className="text-3xl font-serif font-bold text-center mb-12">How It Works</h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            {[
+              {
+                step: "1",
+                title: "Search Flights",
+                description: "Enter your travel details and find available flights from our extensive network of airlines."
+              },
+              {
+                step: "2",
+                title: "Connect Wallet",
+                description: "Connect your Stellar wallet to enable secure, blockchain-based transactions."
+              },
+              {
+                step: "3",
+                title: "Book & Pay",
+                description: "Complete your booking with cryptocurrency payment through smart contracts."
+              },
+              {
+                step: "4",
+                title: "Fly & Earn",
+                description: "Enjoy your flight and earn loyalty rewards on the blockchain."
+              }
+            ].map((item) => (
+              <div key={item.step} className="text-center">
+                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-2xl font-bold text-primary">{item.step}</span>
+                </div>
+                <h3 className="text-xl font-semibold mb-2">{item.title}</h3>
+                <p className="text-muted-foreground">{item.description}</p>
+              </div>
             ))}
           </div>
         </div>

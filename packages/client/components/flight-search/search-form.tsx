@@ -10,9 +10,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
-import { MapPin, Calendar, Users, Search, ArrowUpDown, Plane } from "lucide-react"
+import { MapPin, Calendar, Users, Search, ArrowUpDown, Plane, Repeat } from "lucide-react"
 
 const searchFormSchema = z.object({
+  tripType: z.enum(["roundtrip", "oneway"]),
   from: z.string().min(3, "Origin is required").max(3, "Use 3-letter airport code"),
   to: z.string().min(3, "Destination is required").max(3, "Use 3-letter airport code"),
   departure: z.string().min(1, "Departure date is required"),
@@ -47,6 +48,7 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
   const form = useForm<SearchFormData>({
     resolver: zodResolver(searchFormSchema),
     defaultValues: {
+      tripType: initialValues?.tripType || "roundtrip",
       from: initialValues?.from || "",
       to: initialValues?.to || "",
       departure: initialValues?.departure || "",
@@ -87,6 +89,46 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
       <CardContent className="p-6">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+            {/* Trip Type Selector */}
+            <div className="flex gap-2 mb-4">
+              <FormField
+                control={form.control}
+                name="tripType"
+                render={({ field }) => (
+                  <FormItem className="flex-1">
+                    <FormControl>
+                      <div className="flex gap-2 p-1 bg-muted rounded-lg">
+                        <button
+                          type="button"
+                          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                            field.value === "roundtrip"
+                              ? "bg-background shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                          onClick={() => form.setValue("tripType", "roundtrip")}
+                        >
+                          <Repeat className="h-4 w-4" />
+                          Round Trip
+                        </button>
+                        <button
+                          type="button"
+                          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                            field.value === "oneway"
+                              ? "bg-background shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                          onClick={() => form.setValue("tripType", "oneway")}
+                        >
+                          <Plane className="h-4 w-4" />
+                          One Way
+                        </button>
+                      </div>
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
               {/* From Field */}
               <FormField
@@ -223,30 +265,32 @@ export function SearchForm({ onSearch, isLoading = false, initialValues }: Searc
                 )}
               />
 
-              {/* Return Date */}
-              <FormField
-                control={form.control}
-                name="return"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-sm font-medium">Return (Optional)</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Calendar className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          {...field}
-                          type="date"
-                          id="return-date"
-                          min={form.watch("departure") || getTomorrowDate()}
-                          className="pl-10"
-                          aria-label="Return Date (Optional)"
-                        />
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Return Date - Only show for roundtrip */}
+              {form.watch("tripType") === "roundtrip" && (
+                <FormField
+                  control={form.control}
+                  name="return"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm font-medium">Return</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Calendar className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            {...field}
+                            type="date"
+                            id="return-date"
+                            min={form.watch("departure") || getTomorrowDate()}
+                            className="pl-10"
+                            aria-label="Return Date"
+                          />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               {/* Passengers */}
               <FormField

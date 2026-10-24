@@ -11,6 +11,7 @@ import { NavWalletButton } from "@/components/nav-wallet-button"
 import { MobileNav } from "@/components/mobile-nav"
 // NEW: import wallet store to check connection status for the Dashboard link
 import { useWalletStore } from "@/lib/stellar-wallet-connect"
+import { QuickSearchModal } from "@/components/flight-search/quick-search-modal"
 
 export function HomeNav() {
   // NEW: read wallet connection state to conditionally show Dashboard link
@@ -29,11 +30,18 @@ export function HomeNav() {
           </div>
 
           <div className="hidden md:flex items-center space-x-8">
+            <QuickSearchModal
+              trigger={
+                <Button variant="ghost" className="text-muted-foreground hover:text-primary transition-all duration-300 font-medium hover:scale-105">
+                  Search Flights
+                </Button>
+              }
+            />
             <a
               href="/search"
               className="text-muted-foreground hover:text-primary transition-all duration-300 font-medium hover:scale-105"
             >
-              Search Flights
+              Browse Flights
             </a>
             <a
               href="#how-it-works"
