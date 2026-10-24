@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { getSearchUiState } from "./search-state"
 import { 
   Plane, 
   Search, 
@@ -27,6 +28,13 @@ interface ResultsListProps {
   sortBy?: string
   sortOrder?: string
   onSortChange?: (sortBy: string, sortOrder: string) => void
+  compareSelectable?: boolean
+  compareSelectedIds?: string[]
+  onToggleCompare?: (flightId: string) => void
+  /** Has a search been submitted in this session? Defaults to true for backwards compatibility; passing false renders the idle state instead of the empty state. */
+  hasSearched?: boolean
+  /** Retry the failed search. Defaults to a full page reload when not provided. */
+  onRetry?: () => void
 }
 
 export function ResultsList({
@@ -41,8 +49,23 @@ export function ResultsList({
   sortBy = "price",
   sortOrder = "asc",
   onSortChange,
+  compareSelectable = false,
+  compareSelectedIds = [],
+  onToggleCompare,
+  hasSearched = true,
+  onRetry,
 }: ResultsListProps) {
   const [showSortOptions, setShowSortOptions] = useState(false)
+
+  const uiState = getSearchUiState({
+    hasSearched,
+    isLoading,
+    error,
+    resultCount: flights.length,
+  })
+  const showErrorState = uiState === "error"
+  const showEmptyState = uiState === "empty"
+  const showIdleState = uiState === "idle"
 
   const sortOptions = [
     { value: "price", label: "Price", orders: ["asc", "desc"] },
@@ -110,14 +133,14 @@ export function ResultsList({
   }
 
   // Error state
-  if (error) {
+  if (showErrorState) {
     return (
       <Card className="border-destructive/50 bg-destructive/5">
         <CardContent className="p-6 text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-destructive mb-2">Search Error</h3>
           <p className="text-muted-foreground mb-4">{error}</p>
-          <Button variant="outline" onClick={() => window.location.reload()}>
+          <Button variant="outline" onClick={onRetry ?? (() => window.location.reload())}>
             Try Again
           </Button>
         </CardContent>
@@ -125,8 +148,23 @@ export function ResultsList({
     )
   }
 
+  // Idle state: no search submitted yet this session
+  if (showIdleState) {
+    return (
+      <Card className="border-0 bg-card/50 backdrop-blur-sm">
+        <CardContent className="p-12 text-center">
+          <Search className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+          <h3 className="text-xl font-semibold mb-2">Start a flight search</h3>
+          <p className="text-muted-foreground mb-4">
+            Enter your travel details above to see available flights.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
   // Empty state
-  if (!isLoading && flights.length === 0) {
+  if (showEmptyState) {
     return (
       <Card className="border-0 bg-card/50 backdrop-blur-sm">
         <CardContent className="p-12 text-center">
@@ -228,7 +266,13 @@ export function ResultsList({
       {/* Flight Cards */}
       <div className="space-y-4">
         {flights.map((flight) => (
-          <FlightCard key={flight.id} flight={flight} />
+          <FlightCard
+            key={flight.id}
+            flight={flight}
+            compareSelectable={compareSelectable}
+            compareSelected={compareSelectedIds.includes(flight.id)}
+            onToggleCompare={onToggleCompare}
+          />
         ))}
       </div>
 

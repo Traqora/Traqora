@@ -56,5 +56,4 @@ export const submitOnchainSchema = z.object({
   signedXdr: z.string().min(1),
 });
 
-// Additional schemas for other routes
-// TODO: Add schemas from airlines.ts, flights.ts, governance.ts, loyalty.ts, metrics.ts, security.ts, subscriptions.ts, users.ts, wallet.ts
+

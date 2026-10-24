@@ -1,0 +1,11 @@
+{
+  "contractVersion": "1.0.0",
+  "dedupWindowSeconds": 300,
+  "supportedChannels": [
+    "email",
+    "sms",
+    "push",
+    "webhook"
+  ],
+  "enforceGlobalFingerprint": true
+}

@@ -4,6 +4,23 @@ export type FlightSortBy = 'price' | 'duration' | 'departure_time' | 'rating';
 
 export type SortOrder = 'asc' | 'desc';
 
+export interface FlightSegmentCabin {
+  segmentIndex: number;
+  origin: string;
+  destination: string;
+  carrier: string;
+  flightNumber: string;
+  cabinClass: CabinClass;
+  fareBrand: string;
+export type FlightFreshness = 'fresh' | 'stale' | 'unknown';
+
+export interface FlightProvenance {
+  source: string;
+  imported_at: string;
+  source_updated_at?: string;
+  freshness: FlightFreshness;
+}
+
 export interface Flight {
   id: string;
   from: string;
@@ -17,6 +34,8 @@ export interface Flight {
   rating: number;
   available_seats: number;
   class: CabinClass;
+  segments?: FlightSegmentCabin[];
+  provenance?: FlightProvenance;
 }
 
 export interface EnrichedFlight extends Flight {
@@ -42,7 +61,7 @@ export interface FlightSearchCriteria {
   priceMin?: number;
   priceMax?: number;
   airlines?: string[];
-  stops?: number;
+  stops?: number[];
   durationMax?: number;
   sortBy: FlightSortBy;
   sortOrder?: SortOrder;
@@ -50,13 +69,11 @@ export interface FlightSearchCriteria {
   pageSize: number;
 }
 
+import { CursorPaginationMeta } from './pagination';
+
 export interface FlightSearchResponse {
   data: EnrichedFlight[];
-  pagination: {
-    next_cursor: string | null;
-    has_more: boolean;
-    page_size: number;
-  };
+  pagination: CursorPaginationMeta;
 }
 
 export interface FlightPagination {

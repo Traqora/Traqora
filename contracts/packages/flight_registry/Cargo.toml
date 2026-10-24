@@ -1,0 +1,17 @@
+[package]
+name = "flight-registry"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+contract-events = { workspace = true }
+access = { workspace = true }
+storage-version = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

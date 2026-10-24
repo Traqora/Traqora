@@ -424,4 +424,275 @@ describe('Refunds API Integration Tests', () => {
       });
     });
   });
+
+  describe('POST /api/v1/refunds/auto-eligible', () => {
+    it('should check automated eligibility for a booking', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/auto-eligible')
+        .send({
+          bookingId: testBooking.id,
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('isEligible');
+      expect(response.body.data).toHaveProperty('refundPercentage');
+    });
+
+    it('should return 400 for invalid booking ID', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/auto-eligible')
+        .send({
+          bookingId: 'invalid-id',
+        });
+
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/v1/refunds/batch', () => {
+    it('should process batch refunds with admin auth', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/batch')
+        .set('X-Admin-Api-Key', adminApiKey)
+        .send({
+          bookingIds: [testBooking.id],
+        });
+
+      expect([200, 202]).toContain(response.status);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('processed');
+      expect(response.body.data).toHaveProperty('results');
+    });
+
+    it('should return 401 without admin auth', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/batch')
+        .send({
+          bookingIds: [testBooking.id],
+        });
+
+      expect(response.status).toBe(401);
+    });
+  });
+
+  describe('POST /api/v1/refunds/:id/dispute', () => {
+    it('should submit a dispute for a refund', async () => {
+      const createResponse = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+        });
+
+      const refundId = createResponse.body.data.id;
+
+      const response = await request(app)
+        .post(`/api/v1/refunds/${refundId}/dispute`)
+        .send({
+          reason: 'Incorrect refund amount',
+          details: 'The refund amount does not match the booking total',
+          filedBy: 'customer@test.com',
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.status).toBe('dispute_filed');
+    });
+
+    it('should return 400 for missing reason', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/00000000-0000-0000-0000-000000000000/dispute')
+        .send({});
+
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/v1/refunds/:id/resolve-dispute', () => {
+    it('should resolve a dispute as admin', async () => {
+      const createResponse = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+        });
+
+      const refundId = createResponse.body.data.id;
+
+      const response = await request(app)
+        .post(`/api/v1/refunds/${refundId}/resolve-dispute`)
+        .set('X-Admin-Api-Key', adminApiKey)
+        .send({
+          resolution: 'approved',
+          resolvedBy: 'admin@test.com',
+          notes: 'Resolved in favor of customer',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.status).toBe('approved');
+    });
+
+    it('should return 401 without admin auth', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/00000000-0000-0000-0000-000000000000/resolve-dispute')
+        .send({
+          resolution: 'approved',
+          resolvedBy: 'admin@test.com',
+          notes: 'Test',
+        });
+
+      expect(response.status).toBe(401);
+    });
+  });
+
+  describe('GET /api/v1/refunds/stats', () => {
+    it('should return refund statistics', async () => {
+      await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+        });
+
+      const response = await request(app).get('/api/v1/refunds/stats');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('totalRefunds');
+      expect(response.body.data).toHaveProperty('byReason');
+      expect(response.body.data).toHaveProperty('byStatus');
+    });
+
+    it('should return stats even with no refunds', async () => {
+      await AppDataSource.query('DELETE FROM refunds WHERE 1=1');
+
+      const response = await request(app).get('/api/v1/refunds/stats');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.totalRefunds).toBe(0);
+    });
+  });
+
+  describe('POST /api/v1/refunds/partial-calculation', () => {
+    it('should calculate partial refund breakdown', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/partial-calculation')
+        .send({
+          bookingId: testBooking.id,
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('originalAmountCents');
+      expect(response.body.data).toHaveProperty('baseRefundPercentage');
+      expect(response.body.data).toHaveProperty('finalRefundAmountCents');
+      expect(response.body.data).toHaveProperty('appliedRules');
+      expect(Array.isArray(response.body.data.appliedRules)).toBe(true);
+    });
+
+    it('should return 404 for non-existent booking', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/partial-calculation')
+        .send({
+          bookingId: '00000000-0000-0000-0000-000000000000',
+        });
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('should return 400 for invalid booking ID', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/partial-calculation')
+        .send({
+          bookingId: 'invalid-id',
+        });
+
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe('Partial refund requests', () => {
+    it('should accept partial refund by percentage', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 50,
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.requestedAmountCents).toBe(Math.floor(testBooking.amountCents * 0.5));
+    });
+
+    it('should accept partial refund by amount', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundAmountCents: 10000,
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.requestedAmountCents).toBe(10000);
+    });
+
+    it('should reject both percentage and amount together', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 50,
+          requestedRefundAmountCents: 10000,
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('should reject percentage out of range', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 150,
+        });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('should reject negative amount', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundAmountCents: -1000,
+        });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('should handle 0% refund request', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 0,
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.requestedAmountCents).toBe(0);
+    });
+  });
 });

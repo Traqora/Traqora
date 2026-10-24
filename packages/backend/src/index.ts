@@ -15,15 +15,19 @@ async function startServer() {
       { initDataSource },
       { initWebSocket },
       { initPriceMonitorCron },
+      { initSeatHoldExpiryCron },
       { verifyConnectivity },
       contractMonitorModule,
+      contractBookingReconciliationModule,
     ] = await Promise.all([
       import('./app'),
       import('./db/dataSource'),
       import('./websockets/server'),
       import('./jobs/priceMonitor'),
+      import('./jobs/seatHoldExpiryJob'),
       import('./utils/health-check'),
       import('./services/contractMonitor'),
+      import('./jobs/contractBookingReconciliationJob'),
     ]);
 
     await verifyConnectivity();
@@ -33,6 +37,7 @@ async function startServer() {
 
     initWebSocket(server);
     initPriceMonitorCron();
+    initSeatHoldExpiryCron();
 
     const PORT = config.port || 3001;
 
@@ -48,6 +53,7 @@ async function startServer() {
 
         contractMonitorModule.setupDefaultEventListeners();
         contractMonitorModule.contractMonitor.startMonitoring(5000);
+        contractBookingReconciliationModule.initContractBookingReconciliationCron();
 
         const wallets = [
           { address: process.env.OPERATIONAL_WALLET_ADDRESS || '', type: 'operational' },

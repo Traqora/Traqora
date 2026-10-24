@@ -141,9 +141,18 @@ export interface AirlineFlightData {
   priceCurrency: string;
   delayMinutes?: number;
   cancellationReason?: string;
+  sourceUpdatedAt?: Date;
   equipment?: string;
   codeshare?: boolean;
   codeshareOperator?: string;
+  /**
+   * When the upstream provider last updated this offer. Adapters that receive
+   * a timestamp from the airline API should set it; the flight sync service
+   * publishes `now - providerUpdatedAt` as the ingestion-delay metric (#933).
+   * Adapters without a provider timestamp leave this undefined and no
+   * observation is emitted (missing freshness data is not reported as fresh).
+   */
+  providerUpdatedAt?: Date | string;
 }
 
 export type FlightStatus = 

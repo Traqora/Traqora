@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertCircle, CheckCircle2, Gavel } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { EvidenceUpload, UploadedFile } from "./EvidenceUpload";
+import { apiClient } from "@/lib/api";
 
 const disputeFormSchema = z.object({
   refundId: z.string().uuid("Invalid refund ID"),
@@ -37,6 +38,8 @@ interface DisputeFormProps {
   onCancel?: () => void;
 }
 
+const ipfsOrGatewayPattern = /^(ipfs:\/\/|https?:\/\/.*\/ipfs\/)/i;
+
 export function DisputeForm({ refundId: propRefundId, onSuccess, onCancel }: DisputeFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedDisputeId, setSubmittedDisputeId] = useState<string | null>(null);
@@ -56,26 +59,30 @@ export function DisputeForm({ refundId: propRefundId, onSuccess, onCancel }: Dis
   const onSubmit = async (data: DisputeFormValues) => {
     setIsSubmitting(true);
     try {
-      // Placeholder API call - replace with actual dispute API when available
-      // const response = await fetch("/api/v1/disputes/create", {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify({
-      //     ...data,
-      //     evidence: evidenceFiles.map(f => ({ name: f.name, type: f.type, url: f.url })),
-      //   }),
-      // });
+      const evidence = evidenceFiles
+        .filter((file) => file.status === "completed" && file.url && ipfsOrGatewayPattern.test(file.url))
+        .map((file) => ({
+          description: `Uploaded file: ${file.name}`,
+          fileUrl: file.url,
+        }));
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const response = await apiClient.createDispute({
+        refundId: data.refundId,
+        disputeType: data.disputeType,
+        description: data.description,
+        desiredOutcome: data.desiredOutcome,
+        evidence,
+      });
 
-      const disputeId = `DSP-${Math.random().toString(36).substring(7).toUpperCase()}`;
-      setSubmittedDisputeId(disputeId);
-      
+      if (!response.success) {
+        throw new Error(response.error.message || "Failed to file dispute");
+      }
+
+      setSubmittedDisputeId(response.data.id);
       toast({
         description: "Dispute filed successfully",
       });
-      onSuccess?.(disputeId);
+      onSuccess?.(response.data.id);
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -97,7 +104,7 @@ export function DisputeForm({ refundId: propRefundId, onSuccess, onCancel }: Dis
             <div>
               <h3 className="text-lg font-semibold">Dispute Filed Successfully</h3>
               <p className="text-sm text-muted-foreground mt-1">
-                Your dispute has been submitted and will be reviewed by our dispute resolution team.
+                Your dispute has been submitted and assigned for independent review.
               </p>
               <p className="text-xs text-muted-foreground mt-2">
                 Reference ID: {submittedDisputeId}
@@ -106,7 +113,7 @@ export function DisputeForm({ refundId: propRefundId, onSuccess, onCancel }: Dis
             <Alert>
               <Gavel className="h-4 w-4" />
               <AlertDescription>
-                A jury will be selected to review your case. You'll receive notifications when the jury is seated and voting begins.
+                You can track evidence submissions, arbitrator assignment, and final decision on the dispute timeline.
               </AlertDescription>
             </Alert>
             <Button
@@ -235,7 +242,7 @@ export function DisputeForm({ refundId: propRefundId, onSuccess, onCancel }: Dis
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Your dispute will be reviewed by an independent jury. This process typically takes 3-5 business days.
+                Evidence files should be uploaded to IPFS. Paste IPFS URLs in uploaded items to attach them on-chain.
               </AlertDescription>
             </Alert>
 

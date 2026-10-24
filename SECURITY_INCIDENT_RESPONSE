@@ -1,0 +1,27 @@
+Traqora Incident Response Drill Capability
+===========================================
+
+## Overview
+This document specifies the incident response drill capability for Traqora, designed for operational verification, containment validation, and disaster recovery simulation.
+
+## Contract
+
+### Inputs
+- `drillId`: Unique string identifier for the incident drill (e.g., `drill-sec-2023-01`).
+- `scenario`: Enum of supported drill scenarios (`UNAUTHORIZED_ACCESS`, `DATA_EXFILTRATION`, `KEY_COMPROMISE`).
+- `dryRun`: Boolean flag indicating whether actions should be simulated or enforced.
+
+### Outputs
+- `status`: Result status (`SUCCESS`, `PARTIAL`, `FAILED`).
+- `timestamp`: ISO-8601 execution timestamp.
+- `findings`: Array of log entries or simulated remediation steps executed.
+
+### Error Cases
+- `INVALID_SCENARIO`: Returned if an unsupported scenario string is provided.
+- `DRILL_ALREADY_ACTIVE`: Returned if a drill with the same `drillId` is currently running.
+
+## Implementation
+The capability is implemented via standard logging and validation helpers in `src/drill.rs` (or equivalent package module).
+
+## Testing
+Run tests to execute regression tests covering both happy path and failure modes.

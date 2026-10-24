@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Traqora Price Tracker</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        width: 340px;
+        font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+      }
+      header h1 { font-size: 14px; margin: 0; }
+      main { padding: 14px; }
+      .route { font-weight: 600; font-size: 15px; }
+      .muted { opacity: 0.7; }
+      .price { font-size: 22px; font-weight: 700; margin: 8px 0; }
+      .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+      input[type="number"] {
+        flex: 1; padding: 6px 8px; border-radius: 6px;
+        border: 1px solid rgba(128, 128, 128, 0.4); background: transparent;
+        color: inherit; font: inherit;
+      }
+      button {
+        padding: 7px 12px; border-radius: 6px; border: 0;
+        background: #2563eb; color: #fff; font: inherit; cursor: pointer;
+      }
+      button.secondary { background: transparent; border: 1px solid rgba(128,128,128,.4); color: inherit; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      ul { list-style: none; margin: 12px 0 0; padding: 0; }
+      li {
+        display: flex; justify-content: space-between; gap: 8px;
+        padding: 7px 0; border-top: 1px solid rgba(128, 128, 128, 0.2);
+      }
+      .status { margin-top: 10px; min-height: 16px; font-size: 12px; }
+      .error { color: #dc2626; }
+      a { color: #2563eb; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Traqora Price Tracker</h1>
+      <a id="open-options" href="#">Settings</a>
+    </header>
+    <main>
+      <section id="current">
+        <div class="muted">Detecting itinerary…</div>
+      </section>
+      <div class="status" id="status"></div>
+      <section>
+        <h2 style="font-size: 12px; text-transform: uppercase; letter-spacing: .04em;" class="muted">
+          Tracked routes
+        </h2>
+        <ul id="trackers"></ul>
+      </section>
+    </main>
+    <script type="module" src="dist/popup.js"></script>
+  </body>
+</html>

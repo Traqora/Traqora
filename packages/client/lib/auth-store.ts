@@ -4,12 +4,19 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { AuthTokens } from './auth'
 
+export interface BiometricSettings {
+  enabled: boolean
+  preferOverWallet: boolean
+  requireForPayments: boolean
+}
+
 interface AuthState {
   accessToken: string | null
   refreshToken: string | null
   isAuthenticated: boolean
   isLoading: boolean
   error: string | null
+  biometric: BiometricSettings
 }
 
 interface AuthActions {
@@ -18,21 +25,28 @@ interface AuthActions {
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
   refreshTokens: (tokens: AuthTokens) => void
+  setBiometric: (settings: Partial<BiometricSettings>) => void
+  resetBiometric: () => void
 }
 
 type AuthStore = AuthState & AuthActions
 
+const defaultBiometric: BiometricSettings = {
+  enabled: false,
+  preferOverWallet: false,
+  requireForPayments: false,
+}
+
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
-      // Initial state
       accessToken: null,
       refreshToken: null,
       isAuthenticated: false,
       isLoading: false,
       error: null,
+      biometric: { ...defaultBiometric },
 
-      // Actions
       setTokens: (tokens: AuthTokens) => {
         set({
           accessToken: tokens.accessToken,
@@ -67,6 +81,16 @@ export const useAuthStore = create<AuthStore>()(
           error: null,
         })
       },
+
+      setBiometric: (settings: Partial<BiometricSettings>) => {
+        set((state) => ({
+          biometric: { ...state.biometric, ...settings },
+        }))
+      },
+
+      resetBiometric: () => {
+        set({ biometric: { ...defaultBiometric } })
+      },
     }),
     {
       name: 'traqora-auth',
@@ -74,6 +98,7 @@ export const useAuthStore = create<AuthStore>()(
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
+        biometric: state.biometric,
       }),
     }
   )
