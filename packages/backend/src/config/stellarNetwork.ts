@@ -13,7 +13,7 @@
  * and unit tests.
  */
 
-import { Networks } from '@stellar/stellar-sdk';
+import { Networks, StrKey } from '@stellar/stellar-sdk';
 
 export type StellarNetwork = 'production' | 'mainnet' | 'testnet' | 'standalone';
 export type CanonicalStellarNetwork = 'mainnet' | 'testnet' | 'standalone';
@@ -51,7 +51,24 @@ export type StellarConfigIssueCode =
   | 'HORIZON_NETWORK_MISMATCH'
   | 'SOROBAN_RPC_NETWORK_MISMATCH'
   | 'CONTRACTS_NETWORK_MISMATCH'
-  | 'CONTRACTS_NETWORK_MISSING';
+  | 'CONTRACTS_NETWORK_MISSING'
+  | 'CONTRACT_ID_MISSING'
+  | 'CONTRACT_ID_INVALID';
+
+/**
+ * Environment variable that supplies each configured Soroban contract ID.
+ * Used only to name the offending entry in startup errors (#935); values are
+ * never echoed back because they can include operator-specific configuration.
+ */
+export const CONTRACT_ENV_NAMES: Record<string, string> = {
+  booking: 'BOOKING_CONTRACT_ID',
+  airline: 'AIRLINE_CONTRACT_ID',
+  refund: 'REFUND_CONTRACT_ID',
+  loyalty: 'LOYALTY_CONTRACT_ID',
+  governance: 'GOVERNANCE_CONTRACT_ID',
+  token: 'TOKEN_CONTRACT_ID',
+  flightRegistry: 'FLIGHT_REGISTRY_CONTRACT_ID',
+};
 
 export interface StellarConfigIssue {
   code: StellarConfigIssueCode;
@@ -134,6 +151,13 @@ export interface StellarConfigurationInput {
    * leave it false for backwards compatibility.
    */
   requireContractsNetwork?: boolean;
+  /**
+   * When true, every known contract ID must be present and non-placeholder.
+   * Production/staging startup sets this; local development may intentionally
+   * run without deployed contracts. Configured (non-placeholder) IDs are
+   * always validated for StrKey shape regardless of this flag (#935).
+   */
+  requireContractIds?: boolean;
 }
 
 export function validateStellarConfiguration(
@@ -186,6 +210,38 @@ export function validateStellarConfiguration(
       message:
         'CONTRACTS_NETWORK must be set when contract IDs are configured so the addresses are bound to a Stellar network.',
     });
+  }
+
+  // Validate every contract ID the operator supplied. A value that is present
+  // but malformed can never be used to build a Soroban invocation, so it is a
+  // startup error even in development. Missing/placeholder IDs are only an
+  // error when the environment requires a complete contract set.
+  const contractKeys = new Set([
+    ...Object.keys(CONTRACT_ENV_NAMES),
+    ...Object.keys(input.contractIds ?? {}),
+  ]);
+
+  for (const key of contractKeys) {
+    const envName =
+      CONTRACT_ENV_NAMES[key] ?? `${key.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase()}_CONTRACT_ID`;
+    const value = input.contractIds?.[key];
+
+    if (placeholderContractId(value)) {
+      if (input.requireContractIds) {
+        issues.push({
+          code: 'CONTRACT_ID_MISSING',
+          message: `${envName} is required but is missing or still set to the DEFAULT_ID placeholder.`,
+        });
+      }
+      continue;
+    }
+
+    if (!StrKey.isValidContract(value as string)) {
+      issues.push({
+        code: 'CONTRACT_ID_INVALID',
+        message: `${envName} is not a valid Soroban contract ID. Expected a 56-character StrKey beginning with "C".`,
+      });
+    }
   }
 
   return issues;

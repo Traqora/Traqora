@@ -87,3 +87,46 @@ pub fn register_and_verify_airline(
     );
     airline_client.verify_airline(owner, airline);
 }
+
+/// Soroban transaction envelope state and expiration helper for issue #766.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SorobanTransactionEnvelope {
+    pub sequence_number: u32,
+    pub time_bounds_min: u64,
+    pub time_bounds_max: u64,
+    pub footprint_valid: bool,
+    pub simulated: bool,
+}
+
+impl SorobanTransactionEnvelope {
+    pub fn new(sequence_number: u32, time_bounds_min: u64, time_bounds_max: u64) -> Self {
+        Self {
+            sequence_number,
+            time_bounds_min,
+            time_bounds_max,
+            footprint_valid: true,
+            simulated: false,
+        }
+    }
+
+    pub fn is_expired(&self, current_ledger_seq: u32, current_timestamp: u64) -> bool {
+        !self.footprint_valid
+            || current_ledger_seq > self.time_bounds_max as u32
+            || current_timestamp > self.time_bounds_max
+            || current_timestamp < self.time_bounds_min
+    }
+
+    pub fn simulate_and_rebuild(
+        &mut self,
+        new_ledger_seq: u32,
+        new_time_min: u64,
+        new_time_max: u64,
+    ) {
+        // Discard expired simulation state and rebuild envelope footprint and bounds
+        self.sequence_number = new_ledger_seq;
+        self.time_bounds_min = new_time_min;
+        self.time_bounds_max = new_time_max;
+        self.footprint_valid = true;
+        self.simulated = true;
+    }
+}

@@ -127,9 +127,18 @@ fn set_time_backwards_panics() {
 fn timestamp_overflow_is_reported_and_ledger_unchanged() {
     let env = env_at(u64::MAX - 10, 5);
 
-    assert_eq!(try_advance_time(&env, 11), Err(TimeError::TimestampOverflow));
-    assert_eq!(try_advance_ledgers(&env, 3), Err(TimeError::TimestampOverflow));
-    assert_eq!(try_advance_past(&env, u64::MAX), Err(TimeError::TimestampOverflow));
+    assert_eq!(
+        try_advance_time(&env, 11),
+        Err(TimeError::TimestampOverflow)
+    );
+    assert_eq!(
+        try_advance_ledgers(&env, 3),
+        Err(TimeError::TimestampOverflow)
+    );
+    assert_eq!(
+        try_advance_past(&env, u64::MAX),
+        Err(TimeError::TimestampOverflow)
+    );
     assert_eq!(now(&env), u64::MAX - 10);
     assert_eq!(env.ledger().sequence(), 5);
 }
@@ -145,7 +154,10 @@ fn advance_time_overflow_panics() {
 fn sequence_overflow_is_reported_and_ledger_unchanged() {
     let env = env_at(0, u32::MAX - 1);
 
-    assert_eq!(try_advance_ledgers(&env, 2), Err(TimeError::SequenceOverflow));
+    assert_eq!(
+        try_advance_ledgers(&env, 2),
+        Err(TimeError::SequenceOverflow)
+    );
     assert_eq!(
         try_advance_time(&env, 2 * SECONDS_PER_LEDGER),
         Err(TimeError::SequenceOverflow)

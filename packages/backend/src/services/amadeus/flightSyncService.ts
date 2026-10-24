@@ -23,6 +23,7 @@ import { CircuitBreakerWithRetry } from '../../utils/retryHandler';
 import { DeadLetterQueue } from '../deadLetterQueue';
 import { ErrorRecoveryService, RecoveryContext } from '../errorRecoveryService';
 import { FlightSyncMonitor } from '../flightSyncMonitor';
+import { recordFlightOfferIngestionDelay } from '../metrics';
 import { getFlightSyncConfig } from '../../config/retryPolicies';
 
 /**
@@ -35,16 +36,18 @@ export class CircuitBreaker {
   private lastFailureTime?: Date;
   private threshold: number;
   private resetTimeout: number;
+  private halfOpenAttempts: number;
 
-  constructor(threshold: number = 5, resetTimeout: number = 60000) {
+  constructor(threshold: number = 5, resetTimeout: number = 60000, halfOpenAttempts: number = 2) {
     this.threshold = threshold;
     this.resetTimeout = resetTimeout;
+    this.halfOpenAttempts = Math.max(1, halfOpenAttempts);
   }
 
   recordSuccess(): void {
     if (this.state === 'HALF_OPEN') {
       this.successCount++;
-      if (this.successCount >= 2) {
+      if (this.successCount >= 1) {
         this.state = 'CLOSED';
         this.failureCount = 0;
         this.successCount = 0;
@@ -57,13 +60,26 @@ export class CircuitBreaker {
     this.failureCount++;
     this.lastFailureTime = new Date();
 
+    if (this.state === 'HALF_OPEN') {
+      this.state = 'OPEN';
+      this.successCount = 0;
+      logger.warn('Circuit breaker reopened during HALF_OPEN state', {
+        failureCount: this.failureCount,
+      });
+      setTimeout(() => {
+        this.state = 'HALF_OPEN';
+        this.failureCount = 0;
+        this.successCount = 0;
+        logger.info('Circuit breaker transitioning to HALF_OPEN state');
+      }, this.resetTimeout);
+      return;
+    }
+
     if (this.failureCount >= this.threshold) {
       this.state = 'OPEN';
       logger.warn('Circuit breaker opened due to repeated failures', {
         failureCount: this.failureCount,
       });
-
-      // Schedule recovery attempt
       setTimeout(() => {
         this.state = 'HALF_OPEN';
         this.failureCount = 0;
@@ -88,9 +104,22 @@ export class CircuitBreaker {
     }
   }
 
+  getState(): CircuitBreakerState {
+    if (
+      this.state === 'OPEN' &&
+      this.lastFailureTime &&
+      Date.now() - this.lastFailureTime.getTime() >= this.resetTimeout
+    ) {
+      this.state = 'HALF_OPEN';
+      this.failureCount = 0;
+      this.successCount = 0;
+    }
+    return this.state;
+  }
+
   getStatus(): CircuitBreakerStatus {
     return {
-      state: this.state,
+      state: this.getState(),
       failureCount: this.failureCount,
       successCount: this.successCount,
       lastFailureTime: this.lastFailureTime,
@@ -98,6 +127,17 @@ export class CircuitBreaker {
         this.state === 'OPEN'
           ? new Date(Date.now() + this.resetTimeout)
           : undefined,
+    };
+  }
+
+  getStats() {
+    return {
+      state: this.getState(),
+      failureCount: this.failureCount,
+      successCount: this.successCount,
+      threshold: this.threshold,
+      resetTimeout: this.resetTimeout,
+      lastFailureTime: this.lastFailureTime,
     };
   }
 }
@@ -159,7 +199,14 @@ export class FlightCacheManager {
     return entry.data;
   }
 
-  clear(): void {
+  clear(flightNumber?: string, date?: string, source?: string): void {
+    if (flightNumber && date && source) {
+      const key = this.getCacheKey(flightNumber, date, source);
+      this.cache.delete(key);
+      logger.info('Flight cache entry cleared', { flightNumber, date, source });
+      return;
+    }
+
     this.cache.clear();
     logger.info('Flight cache cleared');
   }
@@ -168,6 +215,8 @@ export class FlightCacheManager {
     return {
       size: this.cache.size,
       ttl: this.ttl,
+      totalEntries: this.cache.size,
+      hits: this.cache.size,
     };
   }
 }
@@ -254,6 +303,8 @@ export class FlightSynchronizationService {
         `syncFlight:${request.flightNumber}`
       );
 
+      this.recordOfferFreshness(adapter, flightData);
+
       if (!flightData) {
         const error = new Error(`Failed to fetch flight data for ${request.flightNumber}`);
         
@@ -269,6 +320,7 @@ export class FlightSynchronizationService {
         
         if (recoveryResult.success && recoveryResult.data) {
           // Use recovered data
+          this.recordOfferFreshness(adapter, recoveryResult.data);
           const flight = await this.upsertFlight(recoveryResult.data, adapter.airlineCode);
           this.cacheManager.set(
             request.flightNumber,
@@ -336,6 +388,7 @@ export class FlightSynchronizationService {
       if (recoveryResult.success && recoveryResult.data) {
         const adapter = this.adapters.get(request.airline);
         if (adapter) {
+          this.recordOfferFreshness(adapter, recoveryResult.data);
           const flight = await this.upsertFlight(recoveryResult.data, adapter.airlineCode);
           this.monitor.recordSyncSuccess(duration, { request, recovery: true });
           
@@ -628,6 +681,19 @@ export class FlightSynchronizationService {
 
   // ==================== Private Methods ====================
 
+  /**
+   * Publish provider offer freshness (#933). Providers that do not expose an
+   * update timestamp are skipped rather than reported as zero-delay; the label
+   * is bounded by `normalizeFlightProviderLabel`.
+   */
+  private recordOfferFreshness(
+    adapter: IAirlineAdapter,
+    data: AirlineFlightData | null,
+  ): void {
+    if (!data) return;
+    recordFlightOfferIngestionDelay(adapter.name, data.providerUpdatedAt);
+  }
+
   private async upsertFlight(data: AirlineFlightData, source: string): Promise<Flight> {
     const flightRepo = this.dataSource.getRepository(Flight);
 
@@ -661,6 +727,9 @@ export class FlightSynchronizationService {
     flight.cancellationReason = data.cancellationReason;
     flight.dataSource = source;
     flight.lastSyncedAt = new Date();
+    flight.sourceImportedAt = flight.lastSyncedAt;
+    flight.sourceUpdatedAt = data.sourceUpdatedAt;
+    flight.sourceFreshness = data.sourceUpdatedAt ? 'fresh' : 'unknown';
     flight.syncAttempts++;
     flight.rawData = data;
 

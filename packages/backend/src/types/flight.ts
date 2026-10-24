@@ -12,6 +12,13 @@ export interface FlightSegmentCabin {
   flightNumber: string;
   cabinClass: CabinClass;
   fareBrand: string;
+export type FlightFreshness = 'fresh' | 'stale' | 'unknown';
+
+export interface FlightProvenance {
+  source: string;
+  imported_at: string;
+  source_updated_at?: string;
+  freshness: FlightFreshness;
 }
 
 export interface Flight {
@@ -28,6 +35,7 @@ export interface Flight {
   available_seats: number;
   class: CabinClass;
   segments?: FlightSegmentCabin[];
+  provenance?: FlightProvenance;
 }
 
 export interface EnrichedFlight extends Flight {

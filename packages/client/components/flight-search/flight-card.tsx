@@ -33,6 +33,13 @@ export interface Flight {
   rating: number
   available_seats: number
   class: "economy" | "premium_economy" | "business" | "first"
+  date?: string
+  provenance?: {
+    source: string
+    imported_at: string
+    source_updated_at?: string
+    freshness: "fresh" | "stale" | "unknown"
+  }
   aircraft?: string
   amenities?: string[]
 }
@@ -116,10 +123,27 @@ export function FlightCard({
   const xlmPrice = flight.price / xlmRate
   const airlineName = airlineNames[flight.airline] || flight.airline_name || flight.airline
   const airlineLogo = airlineLogos[flight.airline]
+  const localDepartureDate = new Date(flight.departure_time).toLocaleDateString("en-CA")
+  const hasDateMismatch = Boolean(flight.date && localDepartureDate !== flight.date)
 
   return (
     <Card className="hover:shadow-lg transition-shadow duration-200 border-0 bg-card/50 backdrop-blur-sm">
       <CardContent className="p-6">
+        {hasDateMismatch && (
+          <div
+            className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            role="status"
+          >
+            Departure is listed as {flight.date} at {flight.from}; your local timezone shows {localDepartureDate}.
+            Confirm the airport date before booking.
+          </div>
+        )}
+        {flight.provenance && (
+          <div className="mb-4 flex flex-wrap gap-2 text-xs text-muted-foreground" aria-label="Flight data provenance">
+            <span>Source: {flight.provenance.source}</span>
+            <span>Freshness: {flight.provenance.freshness}</span>
+          </div>
+        )}
         <div className="flex flex-col lg:flex-row lg:items-center gap-4">
           {/* Airline Info */}
           <div className="flex items-center gap-3 lg:w-48">
