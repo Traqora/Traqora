@@ -3,13 +3,13 @@ import { configSchema } from '../src/config/schema';
 import { logger } from '../src/utils/logger';
 
 function setAllContractIds(): void {
-  process.env.BOOKING_CONTRACT_ID = 'CBOOKING';
-  process.env.AIRLINE_CONTRACT_ID = 'CAIRLINE';
-  process.env.REFUND_CONTRACT_ID = 'CREFUND';
-  process.env.LOYALTY_CONTRACT_ID = 'CLOYALTY';
-  process.env.GOVERNANCE_CONTRACT_ID = 'CGOV';
-  process.env.TOKEN_CONTRACT_ID = 'CTOKEN';
-  process.env.FLIGHT_REGISTRY_CONTRACT_ID = 'CREG';
+  process.env.BOOKING_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+  process.env.AIRLINE_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+  process.env.REFUND_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+  process.env.LOYALTY_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+  process.env.GOVERNANCE_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+  process.env.TOKEN_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+  process.env.FLIGHT_REGISTRY_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
 }
 
 describe('Configuration Security Enforcements', () => {
@@ -135,13 +135,13 @@ describe('Configuration Security Enforcements', () => {
     process.env.HORIZON_URL = 'https://horizon.stellar.org';
     process.env.SOROBAN_RPC_URL = 'https://soroban-rpc.stellar.org';
     process.env.CONTRACTS_NETWORK = 'mainnet';
-    process.env.BOOKING_CONTRACT_ID = 'CBOOKING';
-    process.env.AIRLINE_CONTRACT_ID = 'CAIRLINE';
-    process.env.REFUND_CONTRACT_ID = 'CREFUND';
-    process.env.LOYALTY_CONTRACT_ID = 'CLOYALTY';
-    process.env.GOVERNANCE_CONTRACT_ID = 'CGOV';
-    process.env.TOKEN_CONTRACT_ID = 'CTOKEN';
-    process.env.FLIGHT_REGISTRY_CONTRACT_ID = 'CREG';
+    process.env.BOOKING_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.AIRLINE_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.REFUND_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.LOYALTY_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.GOVERNANCE_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.TOKEN_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.FLIGHT_REGISTRY_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
 
     const config = await loadConfig();
     expect(config.environment).toBe('production');
@@ -237,17 +237,53 @@ describe('Configuration Security Enforcements', () => {
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
+  it('rejects a malformed configured contract ID and names the entry without echoing its value', async () => {
+    process.env.NODE_ENV = 'development';
+    setAllContractIds();
+    process.env.TOKEN_CONTRACT_ID = 'NOT_A_VALID_CONTRACT_ID';
+
+    await expect(loadConfig()).rejects.toThrow(/TOKEN_CONTRACT_ID|valid Soroban contract ID/i);
+    expect(exitSpy).not.toHaveBeenCalled();
+    const messages = loggerErrorSpy.mock.calls
+      .map((call: any[]) => call.map((arg) => String(arg)).join(' '))
+      .join(' ');
+    expect(messages).not.toContain('NOT_A_VALID_CONTRACT_ID');
+  });
+
+  it('fails production startup when a required contract ID is missing and reports which one', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.JWT_SECRET = 'a-strong-and-secure-custom-jwt-secret-here-32-chars';
+    process.env.JWT_REFRESH_SECRET = 'a-strong-and-secure-custom-refresh-secret-here-32-chars';
+    process.env.ADMIN_API_KEY = 'a-strong-and-secure-custom-admin-key-here-16-chars';
+    process.env.ENCRYPTION_KEY = 'a-strong-and-secure-custom-encryption-key-here-32-chars';
+    process.env.DATABASE_URL = 'postgres://user:pass@localhost:5432/db';
+    process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.STELLAR_NETWORK = 'production';
+    process.env.HORIZON_URL = 'https://horizon.stellar.org';
+    process.env.SOROBAN_RPC_URL = 'https://soroban-rpc.stellar.org';
+    process.env.CONTRACTS_NETWORK = 'mainnet';
+    setAllContractIds();
+    process.env.REFUND_CONTRACT_ID = 'DEFAULT_ID';
+
+    await expect(loadConfig()).rejects.toThrow('process.exit called');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const messages = loggerErrorSpy.mock.calls
+      .map((call: any[]) => call.map((arg) => String(arg)).join(' '))
+      .join(' ');
+    expect(messages).toMatch(/REFUND_CONTRACT_ID|Refund contract ID/);
+  });
+
   it('should load tier quotas from config in development mode', async () => {
     process.env.NODE_ENV = 'development';
     process.env.DATABASE_URL = 'sqlite::memory:';
     process.env.REDIS_URL = 'redis://localhost:6379';
-    process.env.BOOKING_CONTRACT_ID = 'CBOOKING';
-    process.env.AIRLINE_CONTRACT_ID = 'CAIRLINE';
-    process.env.REFUND_CONTRACT_ID = 'CREFUND';
-    process.env.LOYALTY_CONTRACT_ID = 'CLOYALTY';
-    process.env.GOVERNANCE_CONTRACT_ID = 'CGOV';
-    process.env.TOKEN_CONTRACT_ID = 'CTOKEN';
-    process.env.FLIGHT_REGISTRY_CONTRACT_ID = 'CREG';
+    process.env.BOOKING_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.AIRLINE_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.REFUND_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.LOYALTY_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.GOVERNANCE_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.TOKEN_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+    process.env.FLIGHT_REGISTRY_CONTRACT_ID = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
     process.env.RATE_LIMIT_FREE_PER_MIN = '200';
 
     await loadConfig();

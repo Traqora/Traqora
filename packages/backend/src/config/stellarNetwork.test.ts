@@ -1,4 +1,4 @@
-import { Networks } from '@stellar/stellar-sdk';
+import { Networks, StrKey } from '@stellar/stellar-sdk';
 import {
   assertValidStellarConfiguration,
   canonicalNetwork,
@@ -9,9 +9,12 @@ import {
   validateStellarConfiguration,
 } from './stellarNetwork';
 
+const contractId = (fill: number) =>
+  StrKey.encodeContract(new Uint8Array(32).fill(fill));
+
 const CONTRACT_IDS = {
-  booking: 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
-  airline: 'CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSC4',
+  booking: contractId(1),
+  airline: contractId(2),
 };
 
 describe('stellarNetwork config validation (#925/#926)', () => {
@@ -119,5 +122,93 @@ describe('stellarNetwork config validation (#925/#926)', () => {
         requireContractsNetwork: true,
       }),
     ).toThrow(StellarConfigurationError);
+  });
+});
+
+describe('contract ID validation (#935)', () => {
+  const base = {
+    stellarNetwork: 'testnet' as const,
+    horizonUrl: STELLAR_NETWORKS.testnet.horizonUrl,
+    sorobanRpcUrl: STELLAR_NETWORKS.testnet.sorobanRpcUrl,
+    contractsNetwork: 'testnet' as const,
+    requireContractsNetwork: true,
+  };
+
+  it('rejects a configured contract ID that is not a valid StrKey in any environment', () => {
+    const issues = validateStellarConfiguration({
+      ...base,
+      contractIds: { ...CONTRACT_IDS, token: 'NOT_A_CONTRACT' },
+      requireContractIds: false,
+    });
+
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'CONTRACT_ID_INVALID',
+          message: expect.stringContaining('TOKEN_CONTRACT_ID'),
+        }),
+      ]),
+    );
+    expect(issues.map((issue) => issue.message).join(' ')).not.toContain('NOT_A_CONTRACT');
+  });
+
+  it('names every missing contract entry when a complete contract set is required', () => {
+    const issues = validateStellarConfiguration({
+      ...base,
+      contractIds: { booking: CONTRACT_IDS.booking },
+      requireContractIds: true,
+    });
+
+    const missing = issues
+      .filter((issue) => issue.code === 'CONTRACT_ID_MISSING')
+      .map((issue) => issue.message);
+
+    expect(missing).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('AIRLINE_CONTRACT_ID'),
+        expect.stringContaining('REFUND_CONTRACT_ID'),
+        expect.stringContaining('LOYALTY_CONTRACT_ID'),
+        expect.stringContaining('GOVERNANCE_CONTRACT_ID'),
+        expect.stringContaining('TOKEN_CONTRACT_ID'),
+        expect.stringContaining('FLIGHT_REGISTRY_CONTRACT_ID'),
+      ]),
+    );
+    expect(missing.join(' ')).not.toContain('BOOKING_CONTRACT_ID');
+  });
+
+  it('treats DEFAULT_ID as missing only when contract IDs are required', () => {
+    expect(
+      validateStellarConfiguration({
+        ...base,
+        contractIds: { booking: 'DEFAULT_ID' },
+        requireContractIds: false,
+      }),
+    ).toEqual([]);
+
+    expect(
+      validateStellarConfiguration({
+        ...base,
+        contractIds: { booking: 'DEFAULT_ID' },
+        requireContractIds: true,
+      }).some((issue) => issue.code === 'CONTRACT_ID_MISSING'),
+    ).toBe(true);
+  });
+
+  it('accepts a complete, valid contract set', () => {
+    expect(
+      validateStellarConfiguration({
+        ...base,
+        contractIds: {
+          booking: CONTRACT_IDS.booking,
+          airline: CONTRACT_IDS.airline,
+          refund: CONTRACT_IDS.booking,
+          loyalty: CONTRACT_IDS.airline,
+          governance: CONTRACT_IDS.booking,
+          token: CONTRACT_IDS.airline,
+          flightRegistry: CONTRACT_IDS.booking,
+        },
+        requireContractIds: true,
+      }),
+    ).toEqual([]);
   });
 });
