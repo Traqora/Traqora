@@ -4,6 +4,23 @@ export type FlightSortBy = 'price' | 'duration' | 'departure_time' | 'rating';
 
 export type SortOrder = 'asc' | 'desc';
 
+export interface FlightSegmentCabin {
+  segmentIndex: number;
+  origin: string;
+  destination: string;
+  carrier: string;
+  flightNumber: string;
+  cabinClass: CabinClass;
+  fareBrand: string;
+export type FlightFreshness = 'fresh' | 'stale' | 'unknown';
+
+export interface FlightProvenance {
+  source: string;
+  imported_at: string;
+  source_updated_at?: string;
+  freshness: FlightFreshness;
+}
+
 export interface Flight {
   id: string;
   from: string;
@@ -17,6 +34,8 @@ export interface Flight {
   rating: number;
   available_seats: number;
   class: CabinClass;
+  segments?: FlightSegmentCabin[];
+  provenance?: FlightProvenance;
 }
 
 export interface EnrichedFlight extends Flight {

@@ -91,6 +91,53 @@ fn test_error_discriminants_are_stable() {
     // Migration / Storage
     assert_eq!(ContractError::InvalidMigrationDirection as u32, 1100);
     assert_eq!(ContractError::VersionMismatch as u32, 1101);
+
+    // Simulation mapping
+    assert_eq!(ContractError::SimulationInsufficientBalance as u32, 1200);
+    assert_eq!(ContractError::SimulationAuthFailure as u32, 1201);
+    assert_eq!(ContractError::SimulationFootprintError as u32, 1202);
+    assert_eq!(ContractError::SimulationContractRejection as u32, 1203);
+    assert_eq!(ContractError::SimulationUnknownError as u32, 1204);
+}
+
+@test
+fn test_simulation_error_mapping() {
+    let env = new_env();
+    let sim_err = errors::SimulationError::map_simulation_failure(
+        &env,
+        "HostError: InsufficientBalance",
+        "diagnostic trace details here",
+    );
+    assert_eq!(sim_err.code, ContractError::SimulationInsufficientBalance);
+    assert_eq!(sim_err.diagnostic, soroban_sdk::String::from_str(&env, "diagnostic trace details here"));
+
+    let auth_err = errors::SimulationError::map_simulation_failure(
+        &env,
+        "Unauthorized signer",
+        "auth context",
+    );
+    assert_eq!(auth_err.code, ContractError::SimulationAuthFailure);
+
+    let footprint_err = errors::SimulationError::map_simulation_failure(
+        &env,
+        "Footprint expired or TTL issue",
+        "footprint diag",
+    );
+    assert_eq!(footprint_err.code, ContractError::SimulationFootprintError);
+
+    let contract_err = errors::SimulationError::map_simulation_failure(
+        &env,
+        "Contract panic occurred",
+        "contract diag",
+    );
+    assert_eq!(contract_err.code, ContractError::SimulationContractRejection);
+
+    let unknown_err = errors::SimulationError::map_simulation_failure(
+        &env,
+        "unknown reason",
+        "unknown diag",
+    );
+    assert_eq!(unknown_err.code, ContractError::SimulationUnknownError);
 }
 
 /// Variants compare by domain ordering.
@@ -181,16 +228,16 @@ fn test_access_roles_grant_revoke() {
 
     client.set_role(&owner, &admin, &1, &true);
     assert!(client.has_role(&admin, &1));
-    assert!(client.has_role(&admin, &2)); // Admin ⊃ Operator
+    assert!(!client.has_role(&admin, &2)); // Admin does not inherit Operator rights
 
     client.set_role(&owner, &operator, &2, &true);
     assert!(client.has_role(&operator, &2));
-    assert!(!client.has_role(&operator, &1)); // Operator ⊄ Admin
+    assert!(!client.has_role(&operator, &1)); // Operator does not inherit Admin rights
 
     // Revoke
     client.set_role(&owner, &admin, &1, &false);
     assert!(!client.has_role(&admin, &1));
-    assert!(!client.has_role(&admin, &2)); // No longer admin, no longer operator
+    assert!(!client.has_role(&admin, &2)); // No longer admin or operator
 }
 
 // ─── 3. guards helpers ───────────────────────────────────────────────────────

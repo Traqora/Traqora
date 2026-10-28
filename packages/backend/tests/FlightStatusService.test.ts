@@ -214,6 +214,33 @@ describe('FlightStatusService', () => {
       expect(staleResult?.status).toBe('delayed');
       expect(missingResult?.status).toBe('on_time'); // offline fallback
     });
+
+    it('preserves stale and offline fallbacks when a successful refresh omits flights', async () => {
+      const oldTime = Date.now() - 10 * 60 * 1000;
+      service.lastFetchTime.set('flight-omitted-stale', oldTime);
+      service.lastKnownStatus.set('flight-omitted-stale', {
+        flightId: 'flight-omitted-stale',
+        status: 'delayed',
+        delayMinutes: 20,
+        timestamp: new Date(oldTime),
+      });
+      jest.spyOn(service as any, 'mockApiCall').mockResolvedValue([]);
+
+      const results = await service.getStatusesWithFreshness([
+        'flight-omitted-stale',
+        'flight-omitted-missing',
+      ]);
+
+      expect(results).toHaveLength(2);
+      expect(results.find((result) => result.flightId === 'flight-omitted-stale')).toMatchObject({
+        status: 'delayed',
+        delayMinutes: 20,
+      });
+      expect(results.find((result) => result.flightId === 'flight-omitted-missing')).toMatchObject({
+        status: 'on_time',
+      });
+      expect(service.isStatusStale('flight-omitted-stale')).toBe(true);
+    });
   });
 
   describe('getOnTimePerformance (issue #332)', () => {

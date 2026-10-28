@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge"
 import { Plane, Zap, Shield, Globe, Star, TrendingUp, Clock, CheckCircle, History, X } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { HomeNav } from "@/components/home-nav"
+import { RecentSearches, saveRecentSearch } from "@/components/flight-search/recent-searches"
 
 
 export default function HomePage() {
@@ -75,13 +77,17 @@ export default function HomePage() {
   }
 
   const handleSearch = (searchData: any) => {
+    // Save to recent searches
+    saveRecentSearch(searchData)
+
     const params = new URLSearchParams()
+    params.set('tripType', searchData.tripType)
     params.set('from', searchData.from)
     params.set('to', searchData.to)
     params.set('departure', searchData.departure)
     params.set('passengers', searchData.passengers)
     params.set('class', searchData.class)
-    if (searchData.return) {
+    if (searchData.tripType === 'roundtrip' && searchData.return) {
       params.set('return', searchData.return)
     }
 
@@ -137,13 +143,6 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-background">
 
-            </div>
-          </div>
-        </nav>
-      </header>
-
-
-      </footer>
     </div>
   )
 }

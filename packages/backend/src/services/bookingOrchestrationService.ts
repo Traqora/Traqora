@@ -15,6 +15,9 @@ import { logger } from "../utils/logger";
 import { withRetries } from "./retry";
 import { config } from "../config";
 import { BadRequestError, ConflictError } from "../utils/errors";
+import { assertTrustedStablecoin, parseAllowlist } from "./stablecoinIssuerAllowlist";
+import { evaluateProviderReprice } from "./itineraryRepricing";
+import { normalizeTicketNumbers } from "./airlineTicketing";
 import { FareRulesService, FareClass } from "./fareRulesService";
 import type {
   ChangeFeeQuote,
@@ -29,6 +32,7 @@ import { executeIdempotentOperation, hashObject } from "./idempotency";
 import { assertCheckoutActionable } from "./checkoutOfferExpiry";
 import { assertPassengerAgeRules, type PassengerAgeInput } from "./passengerAgeRules";
 import { resolveStoredTicketingDeadline } from "./ticketingDeadline";
+import { recordSloLatency } from "./metrics";
 
 // ── Booking cancel policy engine (#785) ────────────────────────────────────
 //
@@ -308,6 +312,10 @@ export class BookingOrchestrationService {
     ticketingDeadline?: string | Date | null;
     lastTicketingDate?: string | null;
     lastTicketingDateTime?: string | null;
+    stablecoin?: { code: string; issuer: string };
+    confirmedProviderPriceCents?: number;
+    repriceAccepted?: boolean;
+    ticketNumbers?: string[];
   }): Promise<Booking> {
     const requestHash = hashObject({
       flightId: params.flightId,
@@ -361,6 +369,23 @@ export class BookingOrchestrationService {
               ? null
               : resolveStoredTicketingDeadline(rawDeadline, flight.departureTime);
 
+          if (params.stablecoin) {
+            const allowlist = parseAllowlist(process.env.STABLECOIN_ALLOWLIST);
+            const trusted = assertTrustedStablecoin(params.stablecoin, allowlist);
+            if (!trusted.ok) {
+              throw new BadRequestError(trusted.message, trusted);
+            }
+          }
+
+          const confirmedPrice = params.confirmedProviderPriceCents ?? flight.priceCents;
+          const reprice = evaluateProviderReprice(flight.priceCents, confirmedPrice);
+          if (reprice.action === "require_traveler_confirmation" && !params.repriceAccepted) {
+            throw new ConflictError(
+              "Provider price changed; traveler must review and accept the new total before payment capture.",
+              reprice,
+            );
+          }
+
           const updated = await this.flightRepo
             .createQueryBuilder()
             .update(Flight)
@@ -409,6 +434,7 @@ export class BookingOrchestrationService {
               sorobanIsFeeBump: result.isFeeBump,
               bookingReference: result.bookingReference ?? bookingReference ?? null,
               ticketingDeadline,
+              ticketNumbers: normalizeTicketNumbers(params.ticketNumbers),
             });
             booking.id = bookingId;
 
@@ -493,6 +519,7 @@ export class BookingOrchestrationService {
                 error: wsError,
               });
             }
+            terminalFailed = false;
           } else if (status.status === "failed") {
             booking.status = "failed";
             booking.lastError = status.error || "Transaction failed";
@@ -519,6 +546,7 @@ export class BookingOrchestrationService {
                 error: wsError,
               });
             }
+            terminalFailed = true;
           } else if (status.status === "pending") {
             throw new Error("Transaction still pending");
           } else if (status.status === "not_found") {
@@ -531,7 +559,11 @@ export class BookingOrchestrationService {
           backoff: true,
         },
       );
+      if (terminalFailed !== undefined) {
+        recordSloLatency("booking", (Date.now() - start) / 1000, terminalFailed);
+      }
     } catch (error: any) {
+      recordSloLatency("booking", (Date.now() - start) / 1000, true);
       logger.error("Max retries reached for booking status polling", {
         bookingId,
         txHash,
