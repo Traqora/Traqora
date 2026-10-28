@@ -24,6 +24,7 @@ import {
 } from "../../services/specialAssistanceService";
 import type { SpecialAssistanceRequest } from "../../types/specialAssistance";
 import { bookingRateLimit, excludingPaths } from "../../middleware/rate-limit-tiers";
+import { buildItineraryCalendar } from '../../services/itineraryCalendar';
 
 const router = Router();
 
@@ -195,6 +196,24 @@ router.get(
   }),
 );
 
+router.get(
+  "/:id/itinerary.ics",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
+    if (!booking) throw new NotFoundError("Booking not found");
+    if (booking.walletAddress && booking.walletAddress !== req.user?.walletAddress) {
+      throw new NotFoundError("Booking not found");
+    }
+
+    const calendar = buildItineraryCalendar(booking);
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="traqora-${booking.id}.ics"`);
+    return res.status(200).send(calendar);
+  }),
+);
+
 router.post(
   "/:id/submit-onchain",
   requireAuth,
@@ -227,6 +246,9 @@ router.post(
     );
 
     booking.sorobanTxHash = result.txHash;
+    booking.sorobanInnerTxHash = result.innerTxHash;
+    booking.sorobanFeeBumpTxHash = result.feeBumpTxHash ?? null;
+    booking.sorobanIsFeeBump = result.isFeeBump;
     booking.status = "onchain_submitted";
     booking.contractSubmitAttempts = (booking.contractSubmitAttempts || 0) + 1;
     await bookingRepo.save(booking);

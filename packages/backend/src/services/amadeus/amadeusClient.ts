@@ -5,8 +5,12 @@
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { logger } from '../../utils/logger';
-import { withRetry, isTransientError, RetryOptions } from '../../services/ErrorHandlingService';
-import { CircuitBreaker } from './flightSyncService';
+import {
+  withRetry,
+  isTransientError,
+  RetryOptions,
+  CircuitBreaker,
+} from '../../services/ErrorHandlingService';
 import {
   AmadeusFlightData,
   AmadeusFlightStatus,
@@ -61,11 +65,13 @@ export class AmadeusAnalyticsClient {
       timeout: config.timeout || 30000,
     });
 
-    // Initialize circuit breaker
-    this.circuitBreaker = new CircuitBreaker(
-      config.circuitBreakerThreshold || 5,
-      config.circuitBreakerResetTimeout || 60000,
-    );
+    // Initialize circuit breaker using the shared breaker implementation so
+    // retries and open/half-open transitions are enforced consistently.
+    this.circuitBreaker = new CircuitBreaker('amadeus', {
+      failureThreshold: config.circuitBreakerThreshold || 5,
+      recoveryTimeoutMs: config.circuitBreakerResetTimeout || 60000,
+      halfOpenSuccesses: 1,
+    });
 
     // Initialize retry options with defaults
     this.retryOptions = {
@@ -97,9 +103,10 @@ export class AmadeusAnalyticsClient {
     operationName: string,
     fn: () => Promise<T>
   ): Promise<T> {
-    return this.circuitBreaker.execute(async () => {
-      return withRetry(fn, this.retryOptions);
-    });
+    return this.circuitBreaker.execute(
+      async () => withRetry(fn, { ...this.retryOptions, operationName }),
+      { operationName }
+    );
   }
 
   /**
@@ -342,6 +349,12 @@ export class AmadeusAnalyticsClient {
    * Get circuit breaker status
    */
   getCircuitBreakerStatus() {
-    return this.circuitBreaker.getStatus();
+    if (typeof (this.circuitBreaker as any).getStatus === 'function') {
+      return this.circuitBreaker.getStatus();
+    }
+
+    return {
+      state: this.circuitBreaker.getState(),
+    };
   }
 }

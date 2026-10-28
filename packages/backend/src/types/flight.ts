@@ -13,6 +13,28 @@ export interface FlightSegmentCarriers {
   arrivalAt?: string;
 }
 
+export interface FlightSegmentCabin {
+  segmentIndex: number;
+  origin: string;
+  destination: string;
+  carrier: string;
+  flightNumber: string;
+  cabinClass: CabinClass;
+  fareBrand: string;
+}
+
+/** One itinerary segment: its fare brand and cabin (#904) together with its carriers (#903). */
+export type FlightSegment = FlightSegmentCabin & Partial<FlightSegmentCarriers>;
+
+export type FlightFreshness = 'fresh' | 'stale' | 'unknown';
+
+export interface FlightProvenance {
+  source: string;
+  imported_at: string;
+  source_updated_at?: string;
+  freshness: FlightFreshness;
+}
+
 export interface Flight {
   id: string;
   from: string;
@@ -30,7 +52,8 @@ export interface Flight {
   providerOfferId?: string;
   marketingCarrier?: string;
   operatingCarrier?: string;
-  segments?: FlightSegmentCarriers[];
+  segments?: FlightSegment[];
+  provenance?: FlightProvenance;
 }
 
 export interface EnrichedFlight extends Flight {

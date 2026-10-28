@@ -91,3 +91,35 @@ fn test_refund_policy_integration() {
     );
     assert_eq!(calc, price);
 }
+
+#[test]
+fn test_soroban_transaction_envelope_rebuild_and_expiry_flow() {
+    use integration_tests::SorobanTransactionEnvelope;
+
+    // Primary path: create an envelope with valid time bounds and sequence
+    let mut envelope = SorobanTransactionEnvelope::new(10, 1000, 2000);
+    assert!(!envelope.is_expired(15, 1500));
+    assert!(!envelope.simulated);
+
+    // Simulate the envelope successfully
+    envelope.simulate_and_rebuild(11, 1050, 2050);
+    assert!(envelope.simulated);
+    assert_eq!(envelope.sequence_number, 11);
+    assert_eq!(envelope.time_bounds_min, 1050);
+    assert_eq!(envelope.time_bounds_max, 2050);
+
+    // Expiry case 1: ledger sequence exceeds max time bounds / bounds exceeded
+    assert!(envelope.is_expired(2100, 1500));
+    assert!(envelope.is_expired(11, 2051));
+    assert!(envelope.is_expired(11, 1049));
+
+    // Expiry case 2: footprint invalidated directly
+    envelope.footprint_valid = false;
+    assert!(envelope.is_expired(11, 1500));
+
+    // Retry / re-simulation flow after expiration or invalidation
+    envelope.simulate_and_rebuild(12, 1100, 2100);
+    assert!(envelope.footprint_valid);
+    assert!(!envelope.is_expired(12, 1500));
+    assert_eq!(envelope.sequence_number, 12);
+}

@@ -8,12 +8,28 @@ export const configSchema = z.object({
   trustProxy: z.boolean().default(false),
 
   stellarNetwork: z.enum(['production', 'mainnet', 'testnet', 'standalone']).default('testnet'),
+  /**
+   * Optional explicit network passphrase. When set it must match the
+   * passphrase derived from `stellarNetwork` (#925).
+   */
+  stellarNetworkPassphrase: z.string().optional(),
   stellarSecretKey: z.string().optional().refine(
     (v) => !v || /^S[A-Z0-9]{55}$/.test(v),
     'Invalid Stellar secret key format'
   ),
   horizonUrl: z.string().url(),
   sorobanRpcUrl: z.string().url(),
+  /**
+   * The network the configured contract IDs were deployed to (#926). Contract
+   * IDs are network-agnostic StrKeys, so this binding is what prevents a
+   * testnet address being used against mainnet (and vice versa).
+   */
+  contractsNetwork: z.enum(['production', 'mainnet', 'testnet', 'standalone']).optional(),
+  /**
+   * Secret used to derive deterministic, privacy-safe booking reference
+   * memos (#924). Falls back to JWT_SECRET when unset.
+   */
+  bookingMemoSecret: z.string().min(16).optional(),
 
   contracts: z.object({
     booking: z.string().min(1, "Booking contract ID is required").refine(v => v !== 'DEFAULT_ID', 'Booking contract ID must not be the placeholder DEFAULT_ID'),

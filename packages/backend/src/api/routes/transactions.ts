@@ -21,6 +21,10 @@ function serializeTransaction(booking: Booking) {
     bookingId: booking.id,
     bookingStatus: booking.status,
     txHash: booking.sorobanTxHash || null,
+    innerTxHash: booking.sorobanInnerTxHash || null,
+    feeBumpTxHash: booking.sorobanFeeBumpTxHash || null,
+    isFeeBump: booking.sorobanIsFeeBump || false,
+    bookingReference: booking.bookingReference || null,
     explorerUrl: booking.sorobanTxHash ? explorerUrlForTx(booking.sorobanTxHash) : null,
     contractSubmitAttempts: booking.contractSubmitAttempts,
     lastError: booking.lastError || null,
@@ -128,6 +132,9 @@ router.post(
     );
 
     booking.sorobanTxHash = result.txHash;
+    booking.sorobanInnerTxHash = result.innerTxHash;
+    booking.sorobanFeeBumpTxHash = result.feeBumpTxHash ?? null;
+    booking.sorobanIsFeeBump = result.isFeeBump;
     booking.status = 'onchain_submitted';
     booking.contractSubmitAttempts = (booking.contractSubmitAttempts || 0) + 1;
     booking.lastError = null;

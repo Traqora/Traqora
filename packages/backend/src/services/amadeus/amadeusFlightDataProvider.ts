@@ -33,6 +33,8 @@ import {
   Flight,
   FlightPagination,
   FlightSearchCriteria,
+  FlightProvenance,
+  FlightSegment,
 } from '../../types/flight';
 import type {
   AmadeusFlightData,
@@ -41,6 +43,7 @@ import type {
 import { OffchainFlightDataProvider } from '../offchainFlightDataProvider';
 import { AmadeusAnalyticsClient } from './amadeusClient';
 import { resolveSegmentCarriers } from '../carrierIdentity';
+import { retainSegmentFareAndCabin } from '../flightOfferSegments';
 
 /** Minimal config surface — keeps the provider testable without env vars. */
 export interface AmadeusConfigSource {
@@ -109,7 +112,7 @@ export function mapAmadeusOfferToFlight(offer: AmadeusFlightData): Flight | null
   const number = firstSegment.number || '';
   const synthesizedId = `amadeus-${marketing}${number}-${departureIso}`;
 
-  const segments = itinerary.segments.map((segment) => {
+  const carrierSegments = itinerary.segments.map((segment) => {
     const resolved = resolveSegmentCarriers({
       carrierCode: segment.carrierCode,
       marketingCarrier: segment.carrierCode || marketing,
@@ -136,6 +139,18 @@ export function mapAmadeusOfferToFlight(offer: AmadeusFlightData): Flight | null
       arrivalAt: segment.arrival.at,
     };
   });
+  const cabinSegments = retainSegmentFareAndCabin(offer);
+  const segments: FlightSegment[] = carrierSegments.map((carriers, index) => ({
+    ...cabinSegments[index],
+    ...carriers,
+  }));
+  const provenance: FlightProvenance = {
+    source: 'AMADEUS',
+    imported_at: new Date().toISOString(),
+    // The flight-offers response has no authoritative last-modified field.
+    // Keep this explicit rather than claiming a false freshness timestamp.
+    freshness: 'unknown',
+  };
 
   return {
     id: synthesizedId,
@@ -161,6 +176,7 @@ export function mapAmadeusOfferToFlight(offer: AmadeusFlightData): Flight | null
     rating: 0,
     available_seats: offer.numberOfBookableSeats ?? 0,
     class: firstCabinClass(offer.travelerPricings),
+    provenance,
   };
 }
 

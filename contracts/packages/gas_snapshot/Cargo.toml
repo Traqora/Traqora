@@ -1,0 +1,12 @@
+[package]
+name = "gas-snapshot"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[[bin]]
+name = "gas-snapshot"
+path = "src/main.rs"

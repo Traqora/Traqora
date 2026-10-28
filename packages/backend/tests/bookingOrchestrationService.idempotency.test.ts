@@ -17,6 +17,7 @@ jest.mock('../src/config', () => ({
     contracts: {
       token: 'TEST_TOKEN',
     },
+    jwtSecret: 'test-jwt-secret-for-booking-memo-derivation',
   },
 }));
 
@@ -178,6 +179,44 @@ describe('BookingOrchestrationService - Idempotency', () => {
     expect(booking).toBeDefined();
     expect(booking.idempotencyKey).toBe('idem-key-1');
     expect(booking.status).toBe('onchain_submitted');
+  });
+
+  it('attaches a stable booking reference memo and persists fee-bump metadata (#923/#924)', async () => {
+    const { signAndSubmitCreateBooking, getTransactionStatus } = require('../src/services/soroban');
+    let submittedParams: any;
+    signAndSubmitCreateBooking.mockImplementation(async (params: any) => {
+      submittedParams = params;
+      return {
+        txHash: 'outer-fee-bump-hash',
+        innerTxHash: 'inner-hash',
+        feeBumpTxHash: 'outer-fee-bump-hash',
+        isFeeBump: true,
+        bookingReference: params.bookingReference,
+      };
+    });
+    getTransactionStatus.mockResolvedValue({
+      status: 'success',
+      txHash: 'outer-fee-bump-hash',
+      innerTxHash: 'inner-hash',
+      feeBumpTxHash: 'outer-fee-bump-hash',
+      isFeeBump: true,
+      result: { bookingId: '1' },
+    });
+
+    const booking = await service.createBooking({
+      flightId: 'flight-1',
+      passenger: mockPassenger,
+      idempotencyKey: 'idem-memo-1',
+      walletAddress: 'GWALLET123',
+    });
+
+    expect(submittedParams.bookingReference).toMatch(/^TRQ-[0-9A-HJKMNP-TV-Z]{16}$/);
+    expect(submittedParams.bookingReference).toHaveLength(20);
+    expect(booking.bookingReference).toBe(submittedParams.bookingReference);
+    expect(booking.sorobanTxHash).toBe('outer-fee-bump-hash');
+    expect(booking.sorobanInnerTxHash).toBe('inner-hash');
+    expect(booking.sorobanFeeBumpTxHash).toBe('outer-fee-bump-hash');
+    expect(booking.sorobanIsFeeBump).toBe(true);
   });
 
   it('returns cached booking on duplicate idempotency key with same payload', async () => {
