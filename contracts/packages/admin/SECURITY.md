@@ -33,6 +33,11 @@ The Admin Multisig contract implements a multi-signature scheme for critical adm
 - Cancelled proposals cannot be approved or executed
 - Prevents replay attacks
 
+### 6. Least-Privilege Role Scoping
+- `Admin` and `Operator` are distinct roles; admin authority does not silently grant operator access.
+- Operator-only actions must be granted explicitly to the account that needs them.
+- This reduces accidental permission escalation in admin workflows and aligns with audit expectations for narrow access.
+
 ## Supported Admin Actions
 
 ### Critical Operations

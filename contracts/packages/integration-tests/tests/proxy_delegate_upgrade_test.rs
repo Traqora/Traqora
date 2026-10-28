@@ -43,30 +43,6 @@
 use proxy::{ContractProxy, ContractProxyClient, ProxyState};
 use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, Vec};
 
-// ─────────────────────────────── helpers ─────────────────────────────────────
-
-fn new_env() -> Env {
-    let env = Env::default();
-    env.mock_all_auths();
-    env
-}
-
-fn register(env: &Env) -> ContractProxyClient<'_> {
-    let id = env.register(ContractProxy, ());
-    ContractProxyClient::new(env, &id)
-}
-
-fn signers(env: &Env, n: u32) -> Vec<Address> {
-    let mut v = Vec::new(env);
-    for _ in 0..n {
-        v.push_back(Address::generate(env));
-    }
-    v
-}
-
-fn hash(env: &Env, byte: u8) -> BytesN<32> {
-    BytesN::from_array(env, &[byte; 32])
-}
 
 /// Initialise proxy with `n` signers and `threshold`, returning (client, admin, signers_vec, impl_hash).
 fn init(
@@ -100,10 +76,6 @@ fn do_full_upgrade(
     client.upgrade_to(&s.get(0).unwrap(), &pid);
     new_impl
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-// §1  Delegate-call routing simulation
-// ══════════════════════════════════════════════════════════════════════════════
 
 /// The implementation hash returned by get_implementation after init matches exactly
 /// what was passed to init_proxy — i.e. the "delegate target" is stored correctly.
@@ -194,10 +166,6 @@ fn test_routing_latest_upgrade_wins() {
     let _ = impl_b; // earlier versions replaced
     let _ = impl_c;
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-// §2  Storage layout preservation across upgrades
-// ══════════════════════════════════════════════════════════════════════════════
 
 /// ProxyConfig fields (admin, threshold, signer count) are intact after upgrade.
 #[test]
@@ -332,10 +300,6 @@ fn test_storage_multisig_config_survives_multiple_upgrades() {
     assert_eq!(ms.threshold, 3);
     assert_eq!(ms.signers.len(), 4);
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-// §3  Non-upgradeable failure modes
-// ══════════════════════════════════════════════════════════════════════════════
 
 /// A non-signer cannot propose an upgrade.
 #[test]
@@ -572,10 +536,6 @@ fn test_failure_update_multisig_threshold_exceeds_signers() {
     client.update_multisig(&admin, &new_signers, &3);
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// §4  State machine invariants
-// ══════════════════════════════════════════════════════════════════════════════
-
 /// After upgrade: state is Active (not stuck in Upgrading).
 #[test]
 fn test_invariant_state_active_after_upgrade() {
@@ -693,4 +653,85 @@ fn test_invariant_multiple_open_proposals_are_independent() {
     // Execute px (overrides implementation again)
     client.upgrade_to(&s.get(0).unwrap(), &px);
     assert_eq!(client.get_implementation(), impl_x);
+}
+fn new_env() -> Env {
+    let env = Env::default();
+    env.mock_all_auths();
+    env
+}
+
+fn register(env: &Env) -> ContractProxyClient<'_> {
+    let id = env.register(ContractProxy, ());
+    ContractProxyClient::new(env, &id)
+}
+
+fn signers(env: &Env, n: u32) -> Vec<Address> {
+    let mut v = Vec::new(env);
+    for _ in 0..n {
+        v.push_back(Address::generate(env));
+    }
+    v
+}
+
+fn hash(env: &Env, byte: u8) -> BytesN<32> {
+    BytesN::from_array(env, &[byte; 32])
+}
+
+#[test]
+fn test_proxy_delegate_upgrade_happy_path() {
+    let env = new_env();
+    let client = register(&env);
+    let admin = Address::generate(&env);
+    let s = signers(&env, 3);
+    let impl_v1 = hash(&env, 0xAA);
+    
+    client.init_proxy(&admin, &impl_v1, &s, &2);
+    assert_eq!(client.get_version(), 1);
+    assert_eq!(client.get_implementation(), impl_v1);
+
+    let impl_v2 = hash(&env, 0xBB);
+    let proposal_id = client.propose_upgrade(&s.get(0).unwrap(), &impl_v2, &Some(2));
+    client.approve_upgrade(&s.get(1).unwrap(), &proposal_id);
+    client.upgrade_to(&s.get(0).unwrap(), &proposal_id);
+
+    assert_eq!(client.get_version(), 2);
+    assert_eq!(client.get_implementation(), impl_v2);
+    assert_eq!(client.get_storage_version(), 2);
+}
+
+#[test]
+#[should_panic(expected = "Insufficient approvals")]
+fn test_proxy_delegate_upgrade_insufficient_approvals() {
+    let env = new_env();
+    let client = register(&env);
+    let admin = Address::generate(&env);
+    let s = signers(&env, 3);
+    let impl_v1 = hash(&env, 0xAA);
+    
+    client.init_proxy(&admin, &impl_v1, &s, &2);
+
+    let impl_v2 = hash(&env, 0xBB);
+    let proposal_id = client.propose_upgrade(&s.get(0).unwrap(), &impl_v2, &None);
+    // Only 1 approval when threshold is 2
+    client.upgrade_to(&s.get(0).unwrap(), &proposal_id);
+}
+
+#[test]
+#[should_panic(expected = "Already executed")]
+fn test_proxy_delegate_upgrade_double_execution() {
+    let env = new_env();
+    let client = register(&env);
+    let admin = Address::generate(&env);
+    let s = signers(&env, 3);
+    let impl_v1 = hash(&env, 0xAA);
+    
+    client.init_proxy(&admin, &impl_v1, &s, &2);
+
+    let impl_v2 = hash(&env, 0xBB);
+    let proposal_id = client.propose_upgrade(&s.get(0).unwrap(), &impl_v2, &Some(2));
+    client.approve_upgrade(&s.get(1).unwrap(), &proposal_id);
+    client.upgrade_to(&s.get(0).unwrap(), &proposal_id);
+    
+    // Attempting to execute the same proposal again should panic
+    client.upgrade_to(&s.get(0).unwrap(), &proposal_id);
 }
