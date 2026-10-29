@@ -89,9 +89,21 @@ export interface FlightSearchCriteria {
 
 import { CursorPaginationMeta } from './pagination';
 
+export interface ProviderResultSummary {
+  /** False when at least one upstream provider failed and another returned flights. */
+  complete: boolean;
+  succeeded: number;
+  failed: number;
+}
+
 export interface FlightSearchResponse {
   data: EnrichedFlight[];
   pagination: CursorPaginationMeta;
+  /**
+   * Present on flight-search responses. Counts only — never provider names,
+   * credentials, or upstream error text.
+   */
+  provider_results: ProviderResultSummary;
 }
 
 export interface FlightPagination {

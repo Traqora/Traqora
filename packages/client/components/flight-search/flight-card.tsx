@@ -16,6 +16,8 @@ import {
   Zap
 } from "lucide-react"
 import Link from "next/link"
+import { airportChangeNotices, segmentsFromFlight, type ItinerarySegment } from "@/app/search/airport-change"
+import { AirportChangeWarning } from "@/app/search/airport-change-warning"
 import { CarrierLabels } from "./carrier-labels"
 
 export interface Flight {
@@ -50,6 +52,7 @@ export interface Flight {
   }
   aircraft?: string
   amenities?: string[]
+  segments?: ItinerarySegment[]
 }
 
 interface FlightCardProps {
@@ -228,6 +231,7 @@ export function FlightCard({
                 )}
               </div>
             </div>
+            <AirportChangeWarning notices={airportChangeNotices(segmentsFromFlight(flight))} />
           </div>
 
           {/* Flight Details */}

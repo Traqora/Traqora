@@ -19,6 +19,7 @@ import {
 import {
   FailoverFlightDataProvider,
   NamedFlightDataProvider,
+  ProviderResultSummary,
 } from './failoverFlightDataProvider';
 import { AmadeusFlightDataProvider } from './amadeus/amadeusFlightDataProvider';
 import { sloMeasure } from '../monitoring/slo';
@@ -115,12 +116,23 @@ export class FlightSearchService {
   ): Promise<FlightSearchResponse> {
     const { offset } = decodeCursor(normalizedCriteria.cursor);
 
-    const flights = await measureAsync('flight_search', 'provider_search', () =>
-      this.provider.search(normalizedCriteria, {
-        limit: normalizedCriteria.pageSize + 1,
-        offset,
-      })
-    );
+    const pagination = {
+      limit: normalizedCriteria.pageSize + 1,
+      offset,
+    };
+    let providerResults: ProviderResultSummary = {
+      complete: true,
+      succeeded: 1,
+      failed: 0,
+    };
+    const flights = await measureAsync('flight_search', 'provider_search', async () => {
+      if (this.provider instanceof FailoverFlightDataProvider) {
+        const collected = await this.provider.searchAll(normalizedCriteria, pagination);
+        providerResults = collected.provider_results;
+        return collected.flights;
+      }
+      return this.provider.search(normalizedCriteria, pagination);
+    });
 
     const hasMore = flights.length > normalizedCriteria.pageSize;
     const pageFlights = hasMore ? flights.slice(0, normalizedCriteria.pageSize) : flights;
@@ -161,6 +173,7 @@ export class FlightSearchService {
         has_more: hasMore,
         page_size: normalizedCriteria.pageSize,
       },
+      provider_results: providerResults,
     };
 
     return response;
