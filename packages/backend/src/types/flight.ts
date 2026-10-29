@@ -4,6 +4,15 @@ export type FlightSortBy = 'price' | 'duration' | 'departure_time' | 'rating';
 
 export type SortOrder = 'asc' | 'desc';
 
+export interface FlightSegmentCarriers {
+  marketingCarrier: string;
+  operatingCarrier: string;
+  from?: string;
+  to?: string;
+  departureAt?: string;
+  arrivalAt?: string;
+}
+
 export interface FlightSegmentCabin {
   segmentIndex: number;
   origin: string;
@@ -12,6 +21,11 @@ export interface FlightSegmentCabin {
   flightNumber: string;
   cabinClass: CabinClass;
   fareBrand: string;
+}
+
+/** One itinerary segment: its fare brand and cabin (#904) together with its carriers (#903). */
+export type FlightSegment = FlightSegmentCabin & Partial<FlightSegmentCarriers>;
+
 export type FlightFreshness = 'fresh' | 'stale' | 'unknown';
 
 export interface FlightProvenance {
@@ -34,7 +48,11 @@ export interface Flight {
   rating: number;
   available_seats: number;
   class: CabinClass;
-  segments?: FlightSegmentCabin[];
+  /** Upstream provider offer identifier (#914). */
+  providerOfferId?: string;
+  marketingCarrier?: string;
+  operatingCarrier?: string;
+  segments?: FlightSegment[];
   provenance?: FlightProvenance;
 }
 
@@ -71,9 +89,21 @@ export interface FlightSearchCriteria {
 
 import { CursorPaginationMeta } from './pagination';
 
+export interface ProviderResultSummary {
+  /** False when at least one upstream provider failed and another returned flights. */
+  complete: boolean;
+  succeeded: number;
+  failed: number;
+}
+
 export interface FlightSearchResponse {
   data: EnrichedFlight[];
   pagination: CursorPaginationMeta;
+  /**
+   * Present on flight-search responses. Counts only — never provider names,
+   * credentials, or upstream error text.
+   */
+  provider_results: ProviderResultSummary;
 }
 
 export interface FlightPagination {

@@ -112,6 +112,7 @@ const createBookingSchema = z.object({
   refreshPath: z.string().min(1).optional(),
   lastTicketingDate: z.string().min(1).optional(),
   lastTicketingDateTime: z.string().min(1).optional(),
+  providerOfferId: z.string().min(1).max(256).optional(),
 });
 
 import { BadRequestError, NotFoundError, ConflictError, InternalServerError } from "../../utils/errors";
@@ -146,6 +147,7 @@ router.post(
       ...(parsed.data.lastTicketingDateTime
         ? { lastTicketingDateTime: parsed.data.lastTicketingDateTime }
         : {}),
+      providerOfferId: parsed.data.providerOfferId,
     });
 
     const bookingRepo = AppDataSource.getRepository(Booking);
@@ -190,6 +192,7 @@ router.post(
         refreshPath: parsed.data.refreshPath,
         lastTicketingDate: parsed.data.lastTicketingDate,
         lastTicketingDateTime: parsed.data.lastTicketingDateTime,
+        providerOfferId: parsed.data.providerOfferId,
       });
 
       // Update idempotency key with resource ID

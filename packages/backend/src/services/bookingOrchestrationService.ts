@@ -32,6 +32,7 @@ import { executeIdempotentOperation, hashObject } from "./idempotency";
 import { assertCheckoutActionable } from "./checkoutOfferExpiry";
 import { assertPassengerAgeRules, type PassengerAgeInput } from "./passengerAgeRules";
 import { resolveStoredTicketingDeadline } from "./ticketingDeadline";
+import { requireProviderOfferId } from "./providerOfferTracking";
 import { recordSloLatency } from "./metrics";
 
 // ── Booking cancel policy engine (#785) ────────────────────────────────────
@@ -312,11 +313,15 @@ export class BookingOrchestrationService {
     ticketingDeadline?: string | Date | null;
     lastTicketingDate?: string | null;
     lastTicketingDateTime?: string | null;
+    providerOfferId?: string;
     stablecoin?: { code: string; issuer: string };
     confirmedProviderPriceCents?: number;
     repriceAccepted?: boolean;
     ticketNumbers?: string[];
   }): Promise<Booking> {
+    const providerOfferId = params.providerOfferId
+      ? requireProviderOfferId(params.providerOfferId)
+      : undefined;
     const requestHash = hashObject({
       flightId: params.flightId,
       passenger: params.passenger,
@@ -329,6 +334,7 @@ export class BookingOrchestrationService {
       ...(params.lastTicketingDateTime
         ? { lastTicketingDateTime: params.lastTicketingDateTime }
         : {}),
+      providerOfferId,
     });
 
     const { result: booking, isCached } = await executeIdempotentOperation(
@@ -429,6 +435,7 @@ export class BookingOrchestrationService {
               status: "onchain_submitted",
               amountCents: flight.priceCents,
               sorobanTxHash: result.txHash,
+              providerOfferId: providerOfferId ?? null,
               sorobanInnerTxHash: result.innerTxHash,
               sorobanFeeBumpTxHash: result.feeBumpTxHash ?? null,
               sorobanIsFeeBump: result.isFeeBump,

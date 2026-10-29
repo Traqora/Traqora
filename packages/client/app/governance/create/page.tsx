@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -25,10 +25,13 @@ import {
   AlertTriangle,
 } from "lucide-react"
 import { useGovernanceStore } from "@/lib/stores/governance"
+import { DISCONNECTED_WALLET_MESSAGE } from "./wallet-session"
+import { useBoundGovernanceDraft } from "./use-governance-wallet"
 
 export default function CreateProposalPage() {
   const router = useRouter()
   const store = useGovernanceStore()
+  const draft = useBoundGovernanceDraft<{ title: string }>("proposal")
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [proposalType, setProposalType] = useState("")
@@ -38,20 +41,42 @@ export default function CreateProposalPage() {
   const [isSuccess, setIsSuccess] = useState(false)
   const [error, setError] = useState("")
 
+  useEffect(() => {
+    if (draft.notice) {
+      setShowConfirmDialog(false)
+      setError(draft.notice)
+    }
+  }, [draft.notice])
+
   const isFormValid = title.trim() && description.trim() && proposalType && votingPeriodDays
 
   const handleSubmit = () => {
     if (!isFormValid) return
+    const started = draft.startDraft({ title: title.trim() })
+    if (!started) {
+      setShowConfirmDialog(false)
+      setError(DISCONNECTED_WALLET_MESSAGE)
+      return
+    }
+    setError("")
     setShowConfirmDialog(true)
   }
 
   const handleConfirm = async () => {
+    const proposer = draft.requireAccount()
+    if (!proposer) {
+      setShowConfirmDialog(false)
+      setIsSubmitting(false)
+      setError(draft.notice || DISCONNECTED_WALLET_MESSAGE)
+      return
+    }
+
     setIsSubmitting(true)
     setError("")
 
     try {
       const proposalData = {
-        proposer: 'current-user-address', // TODO: Get from wallet context
+        proposer,
         title: title.trim(),
         description: description.trim(),
         proposalType,
@@ -206,10 +231,10 @@ export default function CreateProposalPage() {
               </div>
             </div>
 
-            {error && (
+            {(error || draft.notice) && (
               <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
                 <AlertTriangle className="h-4 w-4 text-red-500" />
-                <p className="text-sm text-red-700">{error}</p>
+                <p role="alert" className="text-sm text-red-700">{error || draft.notice}</p>
               </div>
             )}
 

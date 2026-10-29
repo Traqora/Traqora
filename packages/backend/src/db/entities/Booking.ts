@@ -93,6 +93,11 @@ export class Booking {
   @Column({ type: 'text', nullable: true })
   lastError?: string | null;
 
+  /** Upstream provider offer id from search, carried through confirmation (#914). */
+  @Index()
+  @Column({ type: 'varchar', length: 256, nullable: true })
+  providerOfferId?: string | null;
+
   @CreateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   createdAt!: Date;
 

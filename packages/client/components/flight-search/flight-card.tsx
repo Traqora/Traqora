@@ -16,6 +16,9 @@ import {
   Zap
 } from "lucide-react"
 import Link from "next/link"
+import { airportChangeNotices, segmentsFromFlight, type ItinerarySegment } from "@/app/search/airport-change"
+import { AirportChangeWarning } from "@/app/search/airport-change-warning"
+import { CarrierLabels } from "./carrier-labels"
 
 export interface Flight {
   id: string
@@ -27,6 +30,13 @@ export interface Flight {
   arrival_time?: string
   airline: string
   airline_name?: string
+  marketingCarrier?: string
+  operatingCarrier?: string
+  providerOfferId?: string
+  segments?: Array<{
+    marketingCarrier: string
+    operatingCarrier?: string
+  }>
   stops: number
   duration: number // in minutes
   price: number
@@ -42,6 +52,7 @@ export interface Flight {
   }
   aircraft?: string
   amenities?: string[]
+  segments?: ItinerarySegment[]
 }
 
 interface FlightCardProps {
@@ -169,6 +180,21 @@ export function FlightCard({
             <div>
               <div className="font-medium text-sm">{airlineName}</div>
               <div className="text-xs text-muted-foreground">{flight.airline}</div>
+              {(flight.segments?.length
+                ? flight.segments
+                : [
+                    {
+                      marketingCarrier: flight.marketingCarrier || flight.airline,
+                      operatingCarrier: flight.operatingCarrier,
+                    },
+                  ]
+              ).map((segment, index) => (
+                <CarrierLabels
+                  key={`${segment.marketingCarrier}-${index}`}
+                  marketingCarrier={segment.marketingCarrier}
+                  operatingCarrier={segment.operatingCarrier}
+                />
+              ))}
             </div>
           </div>
 
@@ -205,6 +231,7 @@ export function FlightCard({
                 )}
               </div>
             </div>
+            <AirportChangeWarning notices={airportChangeNotices(segmentsFromFlight(flight))} />
           </div>
 
           {/* Flight Details */}
