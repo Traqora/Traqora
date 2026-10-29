@@ -97,6 +97,15 @@ describe('Booking confirmation view (issue #664)', () => {
     )
   })
 
+  it('shows the provider offer identifier on confirmation', () => {
+    renderConfirmation({
+      booking: { id: 'booking-db-1', sorobanTxHash: 'tx-hash-1', providerOfferId: 'AMA-OFFER-99' },
+    })
+
+    expect(screen.getByText('Provider offer')).toBeInTheDocument()
+    expect(screen.getByText('AMA-OFFER-99')).toBeInTheDocument()
+  })
+
   it('explains that the on-chain receipt is unavailable when there is no hash', () => {
     const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null)
 
