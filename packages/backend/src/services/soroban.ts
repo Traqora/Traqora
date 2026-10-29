@@ -17,6 +17,12 @@ import {
   resolveFeeBumpOutcome,
   type TransactionStatusLike,
 } from './feeBumpTransaction';
+import { assertSourceCanCoverReserve, feeStroopsFrom } from './stellarReserve';
+
+/** Refuse a wallet signature when the source cannot keep the minimum reserve (#920). */
+const guardReserveBeforeSign = (account: unknown, fee: string | number | undefined): void => {
+  assertSourceCanCoverReserve(account, { feeStroops: feeStroopsFrom(fee) });
+};
 
 /** Blockchain explorer URL for a Stellar/Soroban transaction hash, network-aware. */
 export const explorerUrlForTx = (txHash: string): string => {
@@ -37,6 +43,8 @@ export const buildBatchBookingActionUnsignedXdr = async (params: {
   actor: string;
   bookingIds: number[];
   action: 'batch_release_payments' | 'batch_refund_passenger';
+  /** Horizon-style account when Soroban RPC omits native balances (#920). */
+  reserveAccount?: unknown;
 }): Promise<UnsignedSorobanTx> => {
   // Deliberately outside the try block below (#547): this is the ONLY
   // condition that should fall back to a mock XDR — a genuinely
@@ -99,6 +107,8 @@ export const buildBatchBookingActionUnsignedXdr = async (params: {
       transaction,
       simulated
     ).build();
+
+    guardReserveBeforeSign(params.reserveAccount ?? sourceAccount, prepared.fee);
 
     return {
       xdr: prepared.toXDR(),
@@ -188,6 +198,8 @@ export const buildCreateBookingUnsignedXdr = async (params: {
   token: string;
   /** Stable, privacy-safe booking reference to attach as MEMO_TEXT (#924). */
   bookingReference?: string;
+  /** Horizon-style account when Soroban RPC omits native balances (#920). */
+  reserveAccount?: unknown;
 }): Promise<UnsignedSorobanTx> => {
   // Validate the memo before any RPC call so oversized or non-ASCII
   // references fail fast and never reach the network (#924).
@@ -268,6 +280,8 @@ export const buildCreateBookingUnsignedXdr = async (params: {
       simulated
     ).build();
 
+    guardReserveBeforeSign(params.reserveAccount ?? sourceAccount, prepared.fee);
+
     return {
       xdr: prepared.toXDR(),
       networkPassphrase,
@@ -290,6 +304,8 @@ export const signAndSubmitCreateBooking = async (params: {
   token: string;
   /** Stable, privacy-safe booking reference to attach as MEMO_TEXT (#924). */
   bookingReference?: string;
+  /** Horizon-style account when Soroban RPC omits native balances (#920). */
+  reserveAccount?: unknown;
 }): Promise<SubmittedSorobanTransaction> => {
   const bookingMemo = params.bookingReference
     ? buildBookingMemo(params.bookingReference)
@@ -362,6 +378,7 @@ export const signAndSubmitCreateBooking = async (params: {
     }
 
     const prepared = StellarSdk.SorobanRpc.assembleTransaction(transaction, simulated).build();
+    guardReserveBeforeSign(params.reserveAccount ?? sourceAccount, prepared.fee);
     prepared.sign(sourceKeypair);
 
     // Submit

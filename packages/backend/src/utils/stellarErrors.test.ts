@@ -1,6 +1,22 @@
 import { mapStellarError } from './stellarErrors';
 
 describe('mapStellarError', () => {
+  it('maps an insufficient-reserve error raised before signing (#920)', () => {
+    const result = mapStellarError({
+      name: 'InsufficientReserveError',
+      code: 'STELLAR_INSUFFICIENT_RESERVE',
+      statusCode: 422,
+      message: 'Source account balance would fall below the Stellar minimum reserve.',
+      details: { nativeBalanceStroops: '10000000' },
+    });
+    expect(result).toEqual({
+      code: 'STELLAR_INSUFFICIENT_RESERVE',
+      message: 'Source account balance would fall below the Stellar minimum reserve.',
+      statusCode: 422,
+      details: { nativeBalanceStroops: '10000000' },
+    });
+  });
+
   it('returns null for a falsy error', () => {
     expect(mapStellarError(null)).toBeNull();
     expect(mapStellarError(undefined)).toBeNull();

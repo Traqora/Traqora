@@ -73,6 +73,10 @@ export class Booking {
   bookingReference?: string | null;
 
   /**
+   * Provider ticketing deadline. Distinct from the flight departure time (#906).
+   */
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', nullable: true })
+  ticketingDeadline?: Date | null;
    * Issued airline ticket numbers, stored separately from the PNR / booking
    * reference. A confirmed reservation is not ticketed until at least one
    * number is present (#905).

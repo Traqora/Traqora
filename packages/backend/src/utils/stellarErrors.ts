@@ -34,6 +34,18 @@ const RESULT_CODE_MAP: Record<string, { code: string; message: string }> = {
 export const mapStellarError = (error: any): StellarErrorMapping | null => {
   if (!error) return null;
 
+  if (error.code === 'STELLAR_INSUFFICIENT_RESERVE' || error.name === 'InsufficientReserveError') {
+    return {
+      code: 'STELLAR_INSUFFICIENT_RESERVE',
+      message:
+        typeof error.message === 'string'
+          ? error.message
+          : 'Source account cannot cover the Stellar minimum reserve.',
+      statusCode: typeof error.statusCode === 'number' ? error.statusCode : 422,
+      details: error.details,
+    };
+  }
+
   const message = typeof error.message === 'string' ? error.message : '';
   const responseData = error.response?.data;
   const resultCodes = responseData?.extras?.result_codes;
