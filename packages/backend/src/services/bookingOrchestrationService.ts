@@ -29,6 +29,7 @@ import type {
 } from "./fareRulesService";
 import { getWebSocketServer } from "../websockets/server";
 import { executeIdempotentOperation, hashObject } from "./idempotency";
+import { requireProviderOfferId } from "./providerOfferTracking";
 import { recordSloLatency } from "./metrics";
 
 // ── Booking cancel policy engine (#785) ────────────────────────────────────
@@ -298,15 +299,20 @@ export class BookingOrchestrationService {
     };
     idempotencyKey: string;
     walletAddress?: string;
+    providerOfferId?: string;
     stablecoin?: { code: string; issuer: string };
     confirmedProviderPriceCents?: number;
     repriceAccepted?: boolean;
     ticketNumbers?: string[];
   }): Promise<Booking> {
+    const providerOfferId = params.providerOfferId
+      ? requireProviderOfferId(params.providerOfferId)
+      : undefined;
     const requestHash = hashObject({
       flightId: params.flightId,
       passenger: params.passenger,
       walletAddress: params.walletAddress,
+      providerOfferId,
     });
 
     const { result: booking, isCached } = await executeIdempotentOperation(
@@ -382,6 +388,7 @@ export class BookingOrchestrationService {
               status: "onchain_submitted",
               amountCents: flight.priceCents,
               sorobanTxHash: result.txHash,
+              providerOfferId: providerOfferId ?? null,
               sorobanInnerTxHash: result.innerTxHash,
               sorobanFeeBumpTxHash: result.feeBumpTxHash ?? null,
               sorobanIsFeeBump: result.isFeeBump,

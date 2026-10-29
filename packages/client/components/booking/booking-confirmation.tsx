@@ -27,6 +27,7 @@ export interface BookingConfirmationProps {
   booking?: {
     id?: string
     sorobanTxHash?: string | null
+    providerOfferId?: string | null
     bookingReference?: string | null
     ticketNumbers?: string[] | null
     status?: string | null
@@ -146,6 +147,12 @@ export function BookingConfirmation({
               <p className="text-xs text-muted-foreground uppercase font-bold">Terminal</p>
               <p className="font-medium">{terminalLabel}</p>
             </div>
+            {booking?.providerOfferId ? (
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground uppercase font-bold">Provider offer</p>
+                <p className="font-mono font-medium">{booking.providerOfferId}</p>
+              </div>
+            ) : null}
           </div>
           <Separator className="my-6" />
           <div className="flex gap-4">
