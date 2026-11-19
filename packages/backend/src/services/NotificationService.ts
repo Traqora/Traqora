@@ -7,8 +7,9 @@ import { logger } from "../utils/logger";
 import { emailService } from "./EmailService";
 import { smsService } from "./SMSService";
 import { pushNotificationService } from "./PushNotificationService";
-import type {
-  NotificationPreference,
+import {
+  isRequiredNotice,
+  type NotificationPreference,
   UserNotificationSettings,
   NotificationPayload,
   Notification,
@@ -188,26 +189,31 @@ export class NotificationService {
   /**
    * Returns true when a notification should be delivered on the given channel.
    * Checks:
-   *   1. Per-channel / per-category preference (enabled + frequency != "never")
-   *   2. Do-Not-Disturb window (skips non-system channels during quiet hours)
+   *   1. Required notices (explicit flag or required category) always pass
+   *   2. Per-channel / per-category preference (enabled + frequency != "never")
+   *   3. Do-Not-Disturb window (skips non-required notices during quiet hours)
    */
   async shouldDeliver(
     userId: string,
     channel: NotificationChannel,
     category: NotificationCategory,
+    required?: boolean,
   ): Promise<boolean> {
-    const prefs = await this.getPreferences(userId, channel, category);
+    const isRequired = isRequiredNotice(category, required);
 
-    if (prefs.length > 0) {
-      const pref = prefs[0];
-      if (!pref.enabled || pref.frequency === "never") return false;
+    if (!isRequired) {
+      const prefs = await this.getPreferences(userId, channel, category);
+
+      if (prefs.length > 0) {
+        const pref = prefs[0];
+        if (!pref.enabled || pref.frequency === "never") return false;
+      }
+      // Default: enabled if no preference stored yet
+      return !this.isDoNotDisturbActive(userId);
     }
-    // Default: enabled if no preference stored yet
 
-    // System notifications bypass Do-Not-Disturb
-    if (category === "system") return true;
-
-    return !this.isDoNotDisturbActive(userId);
+    // Legally or operationally required notices are never opted out of.
+    return true;
   }
 
   /**
@@ -286,7 +292,10 @@ export class NotificationService {
         const alreadyScheduled = existing.deliveries.some(
           (d) => d.channel === channel && d.status !== "failed",
         );
-        if (!alreadyScheduled && (await this.shouldDeliver(userId, channel, payload.category))) {
+        if (
+          !alreadyScheduled &&
+          (await this.shouldDeliver(userId, channel, payload.category, payload.required))
+        ) {
           existing.deliveries.push({ channel, status: "pending", retryCount: 0 });
         }
       }
@@ -307,7 +316,12 @@ export class NotificationService {
     };
 
     for (const channel of channels) {
-      const gate = await this.shouldDeliver(userId, channel, payload.category);
+      const gate = await this.shouldDeliver(
+        userId,
+        channel,
+        payload.category,
+        payload.required,
+      );
       if (gate) {
         notification.deliveries.push({
           channel,

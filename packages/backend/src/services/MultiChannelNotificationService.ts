@@ -7,8 +7,9 @@ import { logger } from '../utils/logger';
 import { AppDataSource } from '../db/dataSource';
 import { NotificationPreference } from '../db/entities/NotificationPreference';
 import { NotificationLog } from '../db/entities/NotificationLog';
-import type {
-  NotificationChannel,
+import {
+  isRequiredNotice,
+  type NotificationChannel,
   NotificationCategory,
   NotificationPayload,
   DeliveryStatus,
@@ -128,7 +129,11 @@ export class MultiChannelNotificationService {
     userId: string,
     channel: NotificationChannel,
     category: NotificationCategory,
+    required?: boolean,
   ): Promise<boolean> {
+    // Legally or operationally required notices ignore optional preferences.
+    if (isRequiredNotice(category, required)) return true;
+
     const preference = await this.getPreference(userId, channel, category);
 
     // Default to enabled if no preference exists
@@ -144,12 +149,13 @@ export class MultiChannelNotificationService {
     userId: string,
     category: NotificationCategory,
     requestedChannels?: NotificationChannel[],
+    required?: boolean,
   ): Promise<NotificationChannel[]> {
     const channels = requestedChannels || this.config.defaultChannels;
     const deliveryChannels: NotificationChannel[] = [];
 
     for (const channel of channels) {
-      const shouldDeliver = await this.shouldDeliver(userId, channel, category);
+      const shouldDeliver = await this.shouldDeliver(userId, channel, category, required);
       if (shouldDeliver && this.channels.has(channel)) {
         deliveryChannels.push(channel);
       }
@@ -171,6 +177,7 @@ export class MultiChannelNotificationService {
       userId,
       payload.category,
       requestedChannels,
+      payload.required,
     );
 
     const results = new Map<NotificationChannel, DeliveryResult>();
