@@ -1,7 +1,17 @@
 import { Router } from 'express';
+import { MoreThan } from 'typeorm';
 import Redis from 'ioredis';
 import { Horizon } from '@stellar/stellar-sdk';
 import { AppDataSource } from '../db/dataSource';
+import { ContractReconciliationAttempt } from '../db/entities/ContractReconciliationAttempt';
+import { requireAdmin } from '../middleware/adminAuth';
+import { asyncHandler } from '../utils/errorHandler';
+import { getStripeCircuitState } from '../services/stripe';
+import {
+  getOperationsHealth,
+  getSupplierRequestData,
+  type ContractHealthData,
+} from '../services/operationsHealthService';
 import { performanceMonitor } from '../monitoring/performance';
 import { getConfig } from '../config';
 import { updateSystemHealth, updateUptimeMetric, uptimeSeconds } from '../services/metrics';
@@ -111,5 +121,49 @@ router.get('/services', async (_req, res) => {
     checkedAt: new Date().toISOString(),
   });
 });
+
+const CONTRACT_REVIEW_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+async function readContractHealth(): Promise<ContractHealthData> {
+  if (!AppDataSource.isInitialized) {
+    return { available: false, lastReconciledAt: null, needsReviewCount: 0 };
+  }
+  try {
+    const repo = AppDataSource.getRepository(ContractReconciliationAttempt);
+    const [latest, needsReviewCount] = await Promise.all([
+      repo.findOne({ order: { attemptedAt: 'DESC' } }),
+      repo.count({
+        where: {
+          outcome: 'failed',
+          attemptedAt: MoreThan(new Date(Date.now() - CONTRACT_REVIEW_WINDOW_MS)),
+        },
+      }),
+    ]);
+    return {
+      available: true,
+      lastReconciledAt: latest?.attemptedAt ?? null,
+      needsReviewCount,
+    };
+  } catch (error) {
+    logger.warn('Contract health read failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { available: false, lastReconciledAt: null, needsReviewCount: 0 };
+  }
+}
+
+/**
+ * Operations health snapshot (#1172, #1173). Admin-only because it exposes
+ * infrastructure state. The payload contains states and counters only: no
+ * keys, endpoints, signing material or upstream error text.
+ */
+router.get('/operations', requireAdmin, asyncHandler(async (_req, res) => {
+  const snapshot = await getOperationsHealth({
+    supplier: async () => getSupplierRequestData(),
+    payment: async () => ({ circuitState: getStripeCircuitState() }),
+    contract: readContractHealth,
+  });
+  res.json(snapshot);
+}));
 
 export default router;
