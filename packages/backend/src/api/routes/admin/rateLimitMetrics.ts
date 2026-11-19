@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { requireAdmin } from '../../../middleware/adminAuth';
+import { requireAdmin, requirePermission } from '../../../middleware/adminAuth';
 import { getRateLimitAbuseMetrics } from '../../../services/analytics/rateLimitMetricsService';
 
 export const rateLimitMetricsRouter = Router();
@@ -7,6 +7,7 @@ export const rateLimitMetricsRouter = Router();
 rateLimitMetricsRouter.get(
   '/security/rate-limits/metrics',
   requireAdmin,
+  requirePermission('config:read'),
   async (_req: Request, res: Response) => {
     try {
       const metrics = await getRateLimitAbuseMetrics();

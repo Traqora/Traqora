@@ -6,7 +6,7 @@ import { AppDataSource } from '../../../db/dataSource';
 import { Booking } from '../../../db/entities/Booking';
 import { Flight } from '../../../db/entities/Flight';
 import { Passenger } from '../../../db/entities/Passenger';
-import { requireAdmin, requireRole } from '../../../middleware/adminAuth';
+import { requireAdmin, requirePermission } from '../../../middleware/adminAuth';
 import { BadRequestError, NotFoundError, TooManyRequestsError } from '../../../utils/errors';
 import { emailService } from '../../../services/EmailService';
 import { SelectQueryBuilder } from 'typeorm';
@@ -560,7 +560,7 @@ function getExportJobForAdmin(req: Request) {
 }
 
 // GET /api/v1/admin/analytics
-router.get('/', requireAdmin, requireRole('admin'), asyncHandler(async (_req: Request, res: Response) => {
+router.get('/', requireAdmin, requirePermission('analytics:read'), asyncHandler(async (_req: Request, res: Response) => {
     
 
     const bookingRepo = AppDataSource.getRepository(Booking);
@@ -610,7 +610,7 @@ router.get('/', requireAdmin, requireRole('admin'), asyncHandler(async (_req: Re
 }));
 
 // GET /api/v1/admin/analytics/distributions
-router.get('/distributions', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/distributions', requireAdmin, requirePermission('analytics:read'), asyncHandler(async (req: Request, res: Response) => {
     const parsed = distributionAnalyticsQuerySchema.safeParse(req.query);
     if (!parsed.success) {
         throw new BadRequestError('Validation Error', parsed.error.flatten());
@@ -637,7 +637,7 @@ router.get('/distributions', requireAdmin, requireRole('admin'), asyncHandler(as
 }));
 
 // GET /api/v1/admin/analytics/funnel
-router.get('/funnel', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/funnel', requireAdmin, requirePermission('analytics:read'), asyncHandler(async (req: Request, res: Response) => {
     const parsed = funnelQuerySchema.safeParse(req.query);
     if (!parsed.success) {
         throw new BadRequestError('Validation Error', parsed.error.flatten());
@@ -655,7 +655,7 @@ router.get('/funnel', requireAdmin, requireRole('admin'), asyncHandler(async (re
 }));
 
 // GET /api/v1/admin/analytics/export
-router.get('/export', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/export', requireAdmin, requirePermission('analytics:read'), asyncHandler(async (req: Request, res: Response) => {
     const parsed = exportQuerySchema.safeParse(req.query);
     if (!parsed.success) {
         throw new BadRequestError('Validation Error', parsed.error.flatten());
@@ -672,7 +672,7 @@ router.get('/export', requireAdmin, requireRole('admin'), asyncHandler(async (re
 }));
 
 // POST /api/v1/admin/analytics/export/jobs
-router.post('/export/jobs', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+router.post('/export/jobs', requireAdmin, requirePermission('analytics:read'), asyncHandler(async (req: Request, res: Response) => {
     const parsed = exportJobRequestSchema.safeParse(req.body);
     if (!parsed.success) {
         throw new BadRequestError('Validation Error', parsed.error.flatten());
@@ -707,12 +707,12 @@ router.post('/export/jobs', requireAdmin, requireRole('admin'), asyncHandler(asy
 }));
 
 // GET /api/v1/admin/analytics/export/jobs/:id
-router.get('/export/jobs/:id', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/export/jobs/:id', requireAdmin, requirePermission('analytics:read'), asyncHandler(async (req: Request, res: Response) => {
     return res.json({ success: true, data: serializeExportJob(getExportJobForAdmin(req)) });
 }));
 
 // GET /api/v1/admin/analytics/export/jobs/:id/download
-router.get('/export/jobs/:id/download', requireAdmin, requireRole('admin'), asyncHandler(async (req: Request, res: Response) => {
+router.get('/export/jobs/:id/download', requireAdmin, requirePermission('analytics:read'), asyncHandler(async (req: Request, res: Response) => {
     const job = getExportJobForAdmin(req);
     if (job.status === 'expired') {
         return res.status(410).json({ success: false, error: 'Export download link has expired' });

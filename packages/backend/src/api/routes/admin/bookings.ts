@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { asyncHandler } from '../../../utils/errorHandler';
 import { AppDataSource } from '../../../db/dataSource';
 import { Booking, BookingStatus } from '../../../db/entities/Booking';
-import { requireAdmin } from '../../../middleware/adminAuth';
+import { adminGuard } from '../../../middleware/adminAuth';
 import { auditLog } from '../../../middleware/adminAudit';
 import { adminPaginationSchema } from '../../schemas/common';
 import { BadRequestError, NotFoundError } from '../../../utils/errors';
 import { createPaginationMeta } from '../../../types/pagination';
 import { supportBookingService } from '../../../services/SupportBookingService';
+import { bookingRecoveryService, RECOVERY_ACTIONS } from '../../../services/bookingRecoveryService';
 
 const router = Router();
 
@@ -29,7 +30,7 @@ const updateStatusSchema = z.object({
 });
 
 // GET /api/v1/admin/bookings
-router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', ...adminGuard('booking:read'), asyncHandler(async (req: Request, res: Response) => {
 
     const parsed = adminPaginationSchema.safeParse(req.query);
     if (!parsed.success) {
@@ -74,7 +75,7 @@ router.get('/lookup', requireAdmin, asyncHandler(async (req: Request, res: Respo
 }));
 
 // GET /api/v1/admin/bookings/:id
-router.get('/:id', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id', ...adminGuard('booking:read'), asyncHandler(async (req: Request, res: Response) => {
 
     const booking = await AppDataSource.getRepository(Booking).findOne({
         where: { id: req.params.id },
@@ -89,7 +90,7 @@ router.get('/:id', requireAdmin, asyncHandler(async (req: Request, res: Response
 // PATCH /api/v1/admin/bookings/:id/status
 router.patch(
     '/:id/status',
-    requireAdmin,
+    ...adminGuard('booking:reconcile'),
     auditLog('BOOKING_STATUS_UPDATED', 'bookings'),
     asyncHandler(async (req: Request, res: Response) => {
         const parsed = updateStatusSchema.safeParse(req.body);
@@ -108,6 +109,48 @@ router.patch(
         res.locals.resourceId = saved.id;
         res.locals.auditDetails = { previousStatus: booking.status, newStatus: parsed.data.status };
         return res.json({ success: true, data: saved });
+    })
+);
+
+const recoverySchema = z.object({
+    action: z.enum(RECOVERY_ACTIONS),
+    reason: z.string().min(1).max(500),
+});
+
+// POST /api/v1/admin/bookings/:id/recovery
+// The service writes its own AdminAuditLog row inside the same transaction as
+// the status change, so the audit middleware is deliberately not used here.
+router.post(
+    '/:id/recovery',
+    ...adminGuard('booking:reconcile'),
+    asyncHandler(async (req: Request, res: Response) => {
+        const parsed = recoverySchema.safeParse(req.body);
+        if (!parsed.success) {
+            throw new BadRequestError('Validation Error', parsed.error.flatten());
+        }
+        const idempotencyKey = req.header('Idempotency-Key');
+        if (!idempotencyKey) {
+            throw new BadRequestError('Idempotency-Key header is required.');
+        }
+
+        const result = await bookingRecoveryService.recoverBooking({
+            bookingId: req.params.id,
+            action: parsed.data.action,
+            reason: parsed.data.reason,
+            idempotencyKey,
+            admin: req.admin ?? null,
+            ipAddress: req.ip,
+        });
+
+        res.locals.resourceId = result.booking.id;
+        return res.status(200).json({
+            success: true,
+            data: {
+                booking: result.booking,
+                auditLogId: result.auditLogId,
+            },
+            idempotentReplay: result.replayed,
+        });
     })
 );
 
