@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { asyncHandler } from '../../../utils/errorHandler';
 import { AppDataSource } from '../../../db/dataSource';
 import { Flight } from '../../../db/entities/Flight';
-import { requireAdmin } from '../../../middleware/adminAuth';
+import { adminGuard } from '../../../middleware/adminAuth';
 import { auditLog } from '../../../middleware/adminAudit';
 import { paginationSchema } from '../../schemas/common';
 import { BadRequestError, NotFoundError } from '../../../utils/errors';
@@ -29,7 +29,7 @@ const flightPaginationSchema = paginationSchema.extend({
 });
 
 // GET /api/v1/admin/flights
-router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', ...adminGuard('config:read'), asyncHandler(async (req: Request, res: Response) => {
 
     const parsed = flightPaginationSchema.safeParse(req.query);
     if (!parsed.success) {
@@ -59,7 +59,7 @@ router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) =
 }));
 
 // GET /api/v1/admin/flights/:id
-router.get('/:id', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id', ...adminGuard('config:read'), asyncHandler(async (req: Request, res: Response) => {
 
     const flight = await AppDataSource.getRepository(Flight).findOne({ where: { id: req.params.id } });
     if (!flight) {
@@ -71,7 +71,7 @@ router.get('/:id', requireAdmin, asyncHandler(async (req: Request, res: Response
 // POST /api/v1/admin/flights
 router.post(
     '/',
-    requireAdmin,
+    ...adminGuard('config:write'),
     auditLog('FLIGHT_CREATED', 'flights'),
     asyncHandler(async (req: Request, res: Response) => {
         const parsed = flightSchema.safeParse(req.body);
@@ -92,7 +92,7 @@ router.post(
 // PUT /api/v1/admin/flights/:id
 router.put(
     '/:id',
-    requireAdmin,
+    ...adminGuard('config:write'),
     auditLog('FLIGHT_UPDATED', 'flights'),
     asyncHandler(async (req: Request, res: Response) => {
         const parsed = flightSchema.partial().safeParse(req.body);
@@ -124,7 +124,7 @@ router.put(
 // DELETE /api/v1/admin/flights/:id
 router.delete(
     '/:id',
-    requireAdmin,
+    ...adminGuard('config:write'),
     auditLog('FLIGHT_DELETED', 'flights'),
     asyncHandler(async (req: Request, res: Response) => {
 
