@@ -141,6 +141,36 @@ groups:
           description: "95th percentile booking processing time is {{ $value }}s (threshold: 300s)"
           runbook: "https://github.com/traqora/runbooks/slow-processing.md"
 
+      # Stuck Booking Alerts (#1174). Thresholds: 15 minutes awaiting payment,
+      # 30 minutes pending on-chain confirmation. dedup_key is deliberately
+      # constant per alert so a booking id never becomes a label and every
+      # instance of the same problem is grouped into one notification.
+      - alert: StuckBookingAwaitingPayment
+        expr: traqora_pending_booking_age_seconds{status="awaiting_payment"} > 900
+        for: 5m
+        labels:
+          severity: warning
+          component: bookings
+          owner: bookings-oncall
+          dedup_key: stuck-booking-awaiting-payment
+        annotations:
+          summary: "Bookings stuck awaiting payment"
+          description: "Oldest awaiting-payment booking age is {{ printf \"%.0f\" $value }}s (threshold: 900s)"
+          runbook: "https://github.com/traqora/runbooks/stuck-bookings.md"
+
+      - alert: StuckBookingOnchainPending
+        expr: traqora_pending_booking_age_seconds{status=~"onchain_pending|onchain_submitted"} > 1800
+        for: 10m
+        labels:
+          severity: warning
+          component: bookings
+          owner: bookings-oncall
+          dedup_key: stuck-booking-onchain
+        annotations:
+          summary: "Bookings stuck pending on-chain confirmation"
+          description: "Oldest on-chain pending booking age is {{ printf \"%.0f\" $value }}s (threshold: 1800s)"
+          runbook: "https://github.com/traqora/runbooks/stuck-bookings.md"
+
       # Payment Alerts
       - alert: LowPaymentSuccessRate
         expr: (rate(traqora_stripe_payments_total{status="succeeded"}[5m]) / rate(traqora_stripe_payments_total[5m])) * 100 < 95

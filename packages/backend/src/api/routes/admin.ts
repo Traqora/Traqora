@@ -11,7 +11,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
-import { requireAdmin } from '../../middleware/adminAuth';
+import { requireAdmin, requirePermission } from '../../middleware/adminAuth';
 import { logger } from '../../utils/logger';
 import { SEARCH_LIMITS, BOOKING_LIMITS } from '../../middleware/rate-limit-tiers';
 import { getRefundDisputeRepository } from '../../repositories/refundDisputeRepository';
@@ -47,6 +47,7 @@ export function recordThrottleEvent(event: Omit<ThrottleEvent, 'timestamp'>): vo
  */
 router.get(
   '/rate-limits/stats',
+  requirePermission('config:read'),
   asyncHandler(async (_req: Request, res: Response) => {
     res.json({
       categories: {
@@ -77,6 +78,7 @@ router.get(
  */
 router.get(
   '/rate-limits/events',
+  requirePermission('config:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const page     = Math.max(1, parseInt(String(req.query.page ?? '1'), 10));
     const limit    = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? '50'), 10)));
@@ -107,6 +109,7 @@ router.get(
  */
 router.put(
   '/rate-limits/:tier',
+  requirePermission('config:write'),
   asyncHandler(async (req: Request, res: Response) => {
     const { tier } = req.params as { tier: 'anonymous' | 'authenticated' | 'premium' };
     const { category, points, durationSeconds } = req.body ?? {};
@@ -138,6 +141,7 @@ router.put(
  */
 router.get(
   '/metrics/summary',
+  requirePermission('analytics:read'),
   asyncHandler(async (_req: Request, res: Response) => {
     res.json({
       rateLimiting: {
@@ -180,8 +184,8 @@ const handleRefundDisputeOverview = asyncHandler(async (req: Request, res: Respo
   });
 });
 
-router.get('/overview/refunds-disputes', handleRefundDisputeOverview);
-router.get('/refunds-disputes/overview', handleRefundDisputeOverview);
+router.get('/overview/refunds-disputes', requirePermission('analytics:read'), handleRefundDisputeOverview);
+router.get('/refunds-disputes/overview', requirePermission('analytics:read'), handleRefundDisputeOverview);
 
 /**
  * GET /admin/refunds/overview
@@ -189,6 +193,7 @@ router.get('/refunds-disputes/overview', handleRefundDisputeOverview);
  */
 router.get(
   '/refunds/overview',
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const parsed = adminOverviewQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -215,6 +220,7 @@ router.get(
  */
 router.get(
   '/disputes/overview',
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const parsed = adminOverviewQuerySchema.safeParse(req.query);
     if (!parsed.success) {

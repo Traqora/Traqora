@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { queryAuditLogs, verifyAuditChain } from '../../middleware/audit';
-import { requireAdmin, requireRole } from '../../middleware/adminAuth';
+import { requireAdmin, requirePermission } from '../../middleware/adminAuth';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { SecurityAuditLog } from '../../db/entities/SecurityAuditLog';
@@ -58,7 +58,7 @@ function buildFiltersFromQuery(
 router.get(
   '/audit-logs',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const filters = buildFiltersFromQuery(req.query);
     const result = await queryAuditLogs(filters);
@@ -79,7 +79,7 @@ router.get(
 router.get(
   '/audit-logs/export',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const filters = buildFiltersFromQuery({ ...req.query, limit: 10_000 });
     const result = await queryAuditLogs(filters);
@@ -118,7 +118,7 @@ router.get(
 router.get(
   '/audit-logs/chain-verify',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { adminId, userId } = req.query;
     const result = await verifyAuditChain({
