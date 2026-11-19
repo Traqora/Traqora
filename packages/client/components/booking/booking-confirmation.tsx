@@ -13,7 +13,12 @@ import {
   Leaf,
   FileText,
 } from "lucide-react"
-import { getTransactionReceiptPdf, type InsurancePolicy } from "@/lib/api"
+import { SelfTransferNotice } from "@/components/booking/self-transfer-notice"
+import {
+  getTransactionReceiptPdf,
+  type InsurancePolicy,
+  type SelfTransferAnalysisResponse,
+} from "@/lib/api"
 import { getStellarExpertUrl } from "@/lib/wallet"
 import { toast } from "sonner"
 
@@ -38,6 +43,8 @@ export interface BookingConfirmationProps {
   offsetCertificate?: any
   onGoToDashboard: () => void
   onFileClaim?: (policyId: string) => void
+  /** Optional self-transfer analysis result, shown when separate tickets are detected. */
+  selfTransferAnalysis?: SelfTransferAnalysisResponse | null
 }
 
 /**
@@ -60,6 +67,7 @@ export function BookingConfirmation({
   offsetCertificate,
   onGoToDashboard,
   onFileClaim,
+  selfTransferAnalysis,
 }: BookingConfirmationProps) {
   const [isDownloadingReceipt, setIsDownloadingReceipt] = useState(false)
 
@@ -196,6 +204,18 @@ export function BookingConfirmation({
               </Button>
             )}
           </div>
+        </div>
+      )}
+
+      {selfTransferAnalysis?.itinerary?.isSelfTransfer && (
+        <div className="bg-card rounded-2xl border border-border p-6 space-y-3">
+          <SelfTransferNotice
+            isSelfTransfer={selfTransferAnalysis.itinerary.isSelfTransfer}
+            separateTicketCount={selfTransferAnalysis.itinerary.separateTicketCount}
+            riskLevel={selfTransferAnalysis.itinerary.overallRiskLevel}
+            explanation={selfTransferAnalysis.itinerary.overallExplanation}
+            segments={selfTransferAnalysis.itinerary.segments}
+          />
         </div>
       )}
 

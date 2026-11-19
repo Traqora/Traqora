@@ -38,6 +38,8 @@ import {
   estimateFootprint,
   purchaseOffset,
   CarbonFootprint,
+  analyzeSelfTransfer,
+  type SelfTransferAnalysisResponse,
 } from "@/lib/api"
 import {
   AncillaryCatalogItem,
@@ -83,6 +85,34 @@ export default function BookFlightPage() {
   const [currentStep, setCurrentStep] = useState<BookingStep>("details")
   const [displayCurrency, setDisplayCurrency] = useState<CurrencyCode>("USD")
   const [rates, setRates] = useState<Record<string, number> | undefined>(undefined)
+  const [selfTransferAnalysis, setSelfTransferAnalysis] = useState<SelfTransferAnalysisResponse | null>(null)
+  const [selfTransferLoading, setSelfTransferLoading] = useState(false)
+
+  // Analyze the booking for self-transfer (separate-ticket) risk when the
+  // confirmation step is reached. The backend labels each segment, computes an
+  // overall risk level, and returns a human-readable explanation plus
+  // mitigations. Unknown airports fall back to UTC with an explicit label.
+  useEffect(() => {
+    let cancelled = false
+    const fetchAnalysis = async () => {
+      if (currentStep !== "success" || !params.id) return
+      setSelfTransferLoading(true)
+      try {
+        const res = await analyzeSelfTransfer({ bookingIds: [params.id] })
+        if (!cancelled && res.success) {
+          setSelfTransferAnalysis(res.data)
+        }
+      } catch {
+        // Swallow errors — the confirmation page should not block on analysis
+      } finally {
+        if (!cancelled) setSelfTransferLoading(false)
+      }
+    }
+    fetchAnalysis()
+    return () => {
+      cancelled = true
+    }
+  }, [currentStep, params.id, analyzeSelfTransfer])
   
   const { 
     isProcessing, 
@@ -625,6 +655,7 @@ export default function BookFlightPage() {
                 destinationCity={flight.toCity}
                 insurancePolicy={insurancePolicy}
                 offsetCertificate={offsetCertificate}
+                selfTransferAnalysis={selfTransferAnalysis}
                 onGoToDashboard={() => router.push("/dashboard")}
                 onFileClaim={(policyId) => router.push(`/insurance/claims?policyId=${policyId}`)}
               />
