@@ -38,8 +38,58 @@ The application performs mandatory connectivity checks at startup for:
 In **production**, any failure in these checks will prevent the service from starting to avoid inconsistent states.
 
 ## Encryption
-- **Transit**: All connections to DB, Redis, and Stellar must use TLS in production.
-- **Rest**: Sensitive database fields (e.g., specific user PII or operational metadata) are encrypted using `DATABASE_ENCRYPTION_KEY` (AES-256-GCM).
+
+### Transport security
+
+Production and staging configuration is checked at startup by
+`packages/backend/src/config/transportSecurity.ts`. The service refuses to start
+when any of the following is not explicitly TLS enabled:
+
+| Setting | Accepted production form |
+| --- | --- |
+| `CORS_ORIGIN`, `FRONTEND_URL` | `https://` |
+| `HORIZON_URL`, `SOROBAN_RPC_URL`, `AMADEUS_BASE_URL` | `https://` |
+| `DATABASE_URL` | `postgres://` or `postgresql://` with `sslmode=require`, `verify-ca`, or `verify-full` |
+| `REDIS_URL` | `rediss://`, or `ssl=true` / `tls=true` |
+| `MONGO_URI` | `mongodb+srv://`, or `tls=true` / `ssl=true` |
+| `OTLP_TRACE_URL` | `https://`, checked only when tracing is enabled |
+
+Development and test environments are not constrained so local SQLite and
+single-node Redis continue to work.
+
+The automated check verifies configuration strings only. It does not confirm
+that a remote endpoint presents a valid certificate, that a managed database
+enforces TLS, or that storage encryption is enabled. Those checks require
+deployment-time verification.
+
+### Managed storage encryption at rest
+
+Complete this checklist for every production environment. Record the evidence
+in the deployment ticket.
+
+- [ ] The managed PostgreSQL instance has storage encryption enabled with a provider-managed or customer-managed key.
+- [ ] Database backups and snapshots inherit encryption at rest.
+- [ ] Redis persistence, when enabled, is encrypted at rest by the managed provider.
+- [ ] Object storage buckets holding exports or audit artifacts use server-side encryption.
+- [ ] Encryption keys are held in the cloud KMS or secrets manager, never in the repository or application image.
+- [ ] Key rotation follows the policy in this document and the rotation is recorded.
+- [ ] Logs, metrics, and traces contain no plaintext PII or payment credentials.
+
+Sensitive database fields (for example user PII and operational metadata) are
+also encrypted in the application layer with `ENCRYPTION_KEY` using AES-256-GCM.
+That is separate from, and does not replace, managed storage encryption at rest.
+
+### Automated coverage
+
+`packages/backend/tests/config/transport-security.test.ts` covers the secure
+baseline, equivalent TLS flag forms, all insecure settings in one error,
+disabled optional transports, development exemptions, and staging parity.
+Run it with:
+
+```bash
+cd packages/backend
+npx jest --config jest.config.cjs tests/config/transport-security.test.ts --runInBand
+```
 
 ## Audit Logging
 When `AUDIT_LOG_ENABLED=true`, all configuration access and security-sensitive actions (like failed logins or rotation checks) are logged to the audit stream with timestamp and source metadata.

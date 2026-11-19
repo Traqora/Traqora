@@ -6,6 +6,7 @@ import {
   StellarConfigurationError,
   validateStellarConfiguration,
 } from './stellarNetwork';
+import { enforceTransportSecurity } from './transportSecurity';
 
 let activeConfig: Config | null = null;
 
@@ -170,6 +171,7 @@ const readConfigFromEnv = (): Config => {
 
   const parsed = configSchema.parse(rawConfig);
   enforceStellarConfiguration(parsed, nodeEnv);
+  enforceTransportSecurity(parsed);
   return parsed;
 };
 
@@ -358,9 +360,10 @@ export const loadConfig = async (): Promise<Config> => {
     activeConfig = result.data;
     try {
       enforceStellarConfiguration(activeConfig, env);
+      enforceTransportSecurity(activeConfig);
     } catch (error) {
       logger.error(
-        'CRITICAL CONFIGURATION ERROR: Inconsistent Stellar network or contract configuration detected!',
+        'CRITICAL CONFIGURATION ERROR: Inconsistent Stellar network, contract, or transport configuration detected!',
         error as Error,
       );
       if (isProdOrStaging) {

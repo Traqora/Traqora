@@ -335,6 +335,12 @@ export class BookingOrchestrationService {
         ? { lastTicketingDateTime: params.lastTicketingDateTime }
         : {}),
       providerOfferId,
+      ...(params.confirmedProviderPriceCents !== undefined
+        ? { confirmedProviderPriceCents: params.confirmedProviderPriceCents }
+        : {}),
+      ...(params.repriceAccepted !== undefined
+        ? { repriceAccepted: params.repriceAccepted }
+        : {}),
     });
 
     const { result: booking, isCached } = await executeIdempotentOperation(
