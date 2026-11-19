@@ -1,14 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
-import { RefundService } from '../../services/refundService';
+import { QuoteUnavailableError, RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
 import { AppDataSource } from '../../db/dataSource';
 import { Booking } from '../../db/entities/Booking';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { requireAdmin } from '../../middleware/adminAuth';
-import { BadRequestError, NotFoundError, ForbiddenError } from '../../utils/errors';
+import { BadRequestError, NotFoundError, ForbiddenError, UnprocessableEntityError } from '../../utils/errors';
 
 const router = Router();
 const refundService = RefundService.getInstance();
@@ -117,6 +117,38 @@ router.post('/request', asyncHandler(async (req: Request, res: Response) => {
   } catch (error: any) {
     logger.error('Failed to create refund request', error);
     throw new BadRequestError(error.message || 'Failed to create refund request');
+  }
+}));
+
+/**
+ * GET /api/v1/refunds/quote/:bookingId
+ * Return a non-mutating cancellation quote before the traveller confirms.
+ * The estimate is valid for a short window and never past flight departure.
+ */
+router.get('/quote/:bookingId', asyncHandler(async (req: Request, res: Response) => {
+  const { bookingId } = req.params;
+  if (!z.string().uuid().safeParse(bookingId).success) {
+    throw new BadRequestError('Validation error', { bookingId: 'Must be a UUID' });
+  }
+
+  const bookingRepo = AppDataSource.getRepository(Booking);
+  const booking = await bookingRepo.findOne({
+    where: { id: bookingId },
+    relations: ['flight'],
+  });
+
+  if (!booking) {
+    throw new NotFoundError('Booking not found');
+  }
+
+  try {
+    const quote = await refundService.getCancellationQuote(booking);
+    return res.json({ success: true, data: quote });
+  } catch (error) {
+    if (error instanceof QuoteUnavailableError) {
+      throw new UnprocessableEntityError(error.message, { code: error.code });
+    }
+    throw error;
   }
 }));
 

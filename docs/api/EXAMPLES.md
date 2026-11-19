@@ -216,6 +216,42 @@ Response `200` (abridged):
 
 Refunds may be requested by the passenger and are either auto-approved (policy-eligible) or routed to admin review.
 
+### Get a cancellation quote (before confirming)
+
+Request a non-mutating estimate before the traveller confirms a cancellation. It returns the outcome, estimated refund, currency, fees, and a short-lived expiry. The quote uses the same eligibility policy as the refund flow and never creates a refund record.
+
+```bash
+curl -s http://localhost:3001/api/v1/refunds/quote/b7e6d5c4-3210-4fed-cba9-876543210fed \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+```
+
+Response `200` (abridged):
+
+```json
+{
+  "success": true,
+  "data": {
+    "bookingId": "b7e6d5c4-3210-4fed-cba9-876543210fed",
+    "outcome": "eligible",
+    "reason": "Eligible for 80% refund under standard_partial policy",
+    "currency": "USD",
+    "originalAmountCents": 35000,
+    "estimatedRefundCents": 26250,
+    "refundPercentage": 80,
+    "fees": {
+      "processingFeeCents": 1750,
+      "cancellationFeeCents": 0,
+      "totalFeeCents": 1750
+    },
+    "tier": "standard_partial",
+    "quotedAt": "2026-11-19T12:00:00.000Z",
+    "expiresAt": "2026-11-19T12:15:00.000Z"
+  }
+}
+```
+
+`outcome` is `eligible`, `manual_review`, or `ineligible`. `estimatedRefundCents` is already net of `fees.totalFeeCents`. Quotes expire 15 minutes after `quotedAt`, or at flight departure if that is sooner. An unknown booking returns `404`; a booking without the data needed to price it returns `422` with a `details.code` of `MISSING_FLIGHT`, `MISSING_DEPARTURE_TIME`, or `MISSING_AMOUNT`.
+
 ### Step 4.1 — Request a refund
 
 ```bash
