@@ -16,6 +16,7 @@ import {
   Zap
 } from "lucide-react"
 import Link from "next/link"
+import { formatAirportClock } from "@/lib/airport-time"
 
 export interface Flight {
   id: string
@@ -76,12 +77,9 @@ export function FlightCard({
   compareSelected = false,
   onToggleCompare,
 }: FlightCardProps) {
-  const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    })
+  const formatTime = (dateString: string, airportCode: string) => {
+    const { time, zoneLabel } = formatAirportClock(dateString, airportCode)
+    return `${time} ${zoneLabel}`
   }
 
   const formatDuration = (minutes: number) => {
@@ -152,7 +150,7 @@ export function FlightCard({
           <div className="flex-1">
             <div className="flex items-center justify-between">
               <div className="text-center">
-                <div className="text-2xl font-bold">{formatTime(flight.departure_time)}</div>
+                <div className="text-2xl font-bold">{formatTime(flight.departure_time, flight.from)}</div>
                 <div className="text-sm text-muted-foreground">{flight.from}</div>
                 {flight.fromCity && (
                   <div className="text-xs text-muted-foreground">{flight.fromCity}</div>
@@ -173,7 +171,7 @@ export function FlightCard({
 
               <div className="text-center">
                 <div className="text-2xl font-bold">
-                  {flight.arrival_time ? formatTime(flight.arrival_time) : "--:--"}
+                  {flight.arrival_time ? formatTime(flight.arrival_time, flight.to) : "--:--"}
                 </div>
                 <div className="text-sm text-muted-foreground">{flight.to}</div>
                 {flight.toCity && (

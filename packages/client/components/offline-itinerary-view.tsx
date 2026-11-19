@@ -7,6 +7,7 @@ import {
 } from "@/lib/offline-storage";
 import { useOffline } from "@/components/offline-provider";
 import { Plane, MapPin, Clock, AlertCircle } from "lucide-react";
+import { formatAirportClock, formatAirportDate } from "@/lib/airport-time";
 
 /**
  * Component to display cached itineraries for offline viewing
@@ -85,6 +86,9 @@ function ItineraryCard({ itinerary }: ItineraryCardProps) {
   const hours = Math.floor(duration / 60);
   const minutes = duration % 60;
 
+  const departureClock = formatAirportClock(booking.departureTime, booking.from);
+  const arrivalClock = formatAirportClock(booking.arrivalTime, booking.to);  
+
   return (
     <div className="border rounded-lg p-6 hover:shadow-lg transition-shadow bg-white">
       {/* Header */}
@@ -120,11 +124,10 @@ function ItineraryCard({ itinerary }: ItineraryCardProps) {
         {/* Departure */}
         <div>
           <p className="text-2xl font-bold text-gray-900">
-            {departureTime.toLocaleTimeString("en-US", {
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: false,
-            })}
+            {departureClock.time}
+            <span className="ml-1 text-sm font-normal text-gray-500">
+              {departureClock.zoneLabel}
+            </span>
           </p>
           <p className="text-sm text-gray-600 flex items-center gap-1 mt-1">
             <MapPin className="w-4 h-4" />
@@ -147,11 +150,10 @@ function ItineraryCard({ itinerary }: ItineraryCardProps) {
         {/* Arrival */}
         <div className="text-right">
           <p className="text-2xl font-bold text-gray-900">
-            {arrivalTime.toLocaleTimeString("en-US", {
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: false,
-            })}
+            {arrivalClock.time}
+            <span className="ml-1 text-sm font-normal text-gray-500">
+              {arrivalClock.zoneLabel}
+            </span>
           </p>
           <p className="text-sm text-gray-600 flex items-center justify-end gap-1 mt-1">
             {booking.to}
@@ -165,12 +167,7 @@ function ItineraryCard({ itinerary }: ItineraryCardProps) {
         <div>
           <p className="text-xs text-gray-600 uppercase tracking-wide">Date</p>
           <p className="text-sm font-semibold text-gray-900 mt-1">
-            {departureTime.toLocaleDateString("en-US", {
-              weekday: "short",
-              year: "numeric",
-              month: "short",
-              day: "numeric",
-            })}
+            {formatAirportDate(booking.departureTime, booking.from)}
           </p>
         </div>
         <div>
