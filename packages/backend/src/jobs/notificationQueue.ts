@@ -6,6 +6,7 @@ export type NotificationType =
   | "booking"
   | "reminder"
   | "refund"
+  | "payment"
   | "promotional"
   | "flight_delayed"
   | "flight_delayed_significant"
@@ -14,7 +15,9 @@ export type NotificationType =
   | "boarding_reminder"
   | "flight_status"
   | "flight_status_shared"
-  | "refund_initiated";
+  | "refund_initiated"
+  | "booking_cancelled"
+  | "refund_processed";
 
 export interface NotificationPayload {
   userId: string;

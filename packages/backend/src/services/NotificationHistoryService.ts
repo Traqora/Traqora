@@ -250,8 +250,9 @@ export class NotificationHistoryService {
   /**
    * Get failed notifications for retry
    */
-  async getFailedNotifications(maxAge: number = 3600000): Promise<NotificationLog[]> {
+  async getFailedNotifications(maxAge: number = 3600000, limit: number = 100): Promise<NotificationLog[]> {
     const cutoffDate = new Date(Date.now() - maxAge);
+    const safeLimit = Math.max(1, Math.min(limit, 500));
 
     return this.repository
       .createQueryBuilder('log')
@@ -259,6 +260,7 @@ export class NotificationHistoryService {
       .andWhere('log.attempts < :maxAttempts', { maxAttempts: 3 })
       .andWhere('log.createdAt >= :cutoffDate', { cutoffDate })
       .orderBy('log.createdAt', 'DESC')
+      .take(safeLimit)
       .getMany();
   }
 
@@ -286,14 +288,40 @@ export class NotificationHistoryService {
   /**
    * Get history by notification ID
    */
-  async getHistoryByNotificationId(notificationId: string): Promise<NotificationHistoryEntry[]> {
-    const logs = await this.repository
+  async getHistoryByNotificationId(
+    notificationId: string,
+    options: { limit?: number } = {},
+  ): Promise<NotificationHistoryEntry[]> {
+    const safeLimit = Math.max(1, Math.min(options.limit ?? 100, 500));
+    const queryBuilder = this.repository
       .createQueryBuilder('log')
-      .where('log.payload::text LIKE :notificationId', {
-        notificationId: `%${notificationId}%`,
-      })
       .orderBy('log.createdAt', 'DESC')
-      .getMany();
+      .take(safeLimit);
+
+    // Prefer indexed column matches; avoid payload text scans when possible.
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(notificationId)) {
+      queryBuilder.where('log.id = :notificationId', { notificationId });
+    } else {
+      queryBuilder.where('log.idempotencyKey = :notificationId', { notificationId });
+    }
+
+    let logs = await queryBuilder.getMany();
+
+    // Backward-compatible fallback for legacy records that only stored the value in payload.
+    if (logs.length === 0) {
+      const likePattern = `%${notificationId}%`;
+      const driverType = AppDataSource.options.type;
+      const payloadCondition =
+        driverType === 'postgres'
+          ? 'CAST(log.payload AS TEXT) LIKE :notificationId'
+          : 'log.payload LIKE :notificationId';
+      logs = await this.repository
+        .createQueryBuilder('log')
+        .where(payloadCondition, { notificationId: likePattern })
+        .orderBy('log.createdAt', 'DESC')
+        .take(safeLimit)
+        .getMany();
+    }
 
     return logs.map(log => this.mapToHistoryEntry(log));
   }
