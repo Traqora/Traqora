@@ -139,6 +139,11 @@ const createBookingSchema = z
     lastTicketingDate: z.string().min(1).max(64).optional(),
     lastTicketingDateTime: z.string().min(1).max(64).optional(),
     providerOfferId: z.string().min(1).max(256).optional(),
+    // Checkout reprice gate (#1189): the confirmed provider total and the
+    // traveler's explicit acceptance are passed through to the orchestrator so
+    // a changed price stops before payment capture.
+    confirmedProviderPriceCents: z.number().int().positive().optional(),
+    repriceAccepted: z.boolean().optional(),
   })
   .strict();
 
@@ -175,6 +180,12 @@ router.post(
       ...(body.lastTicketingDate ? { lastTicketingDate: body.lastTicketingDate } : {}),
       ...(body.lastTicketingDateTime ? { lastTicketingDateTime: body.lastTicketingDateTime } : {}),
       providerOfferId: body.providerOfferId,
+      ...(body.confirmedProviderPriceCents !== undefined
+        ? { confirmedProviderPriceCents: body.confirmedProviderPriceCents }
+        : {}),
+      ...(body.repriceAccepted !== undefined
+        ? { repriceAccepted: body.repriceAccepted }
+        : {}),
     });
 
     const bookingRepo = AppDataSource.getRepository(Booking);
@@ -229,6 +240,8 @@ router.post(
         lastTicketingDate: body.lastTicketingDate,
         lastTicketingDateTime: body.lastTicketingDateTime,
         providerOfferId: body.providerOfferId,
+        confirmedProviderPriceCents: body.confirmedProviderPriceCents,
+        repriceAccepted: body.repriceAccepted,
       });
 
       idem.resourceId = booking.id;
