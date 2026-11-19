@@ -60,6 +60,115 @@ function determineActorEmail(req: Request): string | undefined | null {
   return null;
 }
 
+export interface AppendAuditLogInput {
+  action: SecurityAction;
+  resource: string;
+  resourceId?: string | null;
+  details?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  maskFields?: string[];
+  actorType: ActorType;
+  actorId?: string | null;
+  actorEmail?: string | null;
+  ipAddress?: string;
+  userAgent?: string | null;
+  sessionId?: string | null;
+  occurredAt?: Date;
+}
+
+/**
+ * Append one entry to the single tamper-evident audit chain.
+ * Every audit producer (HTTP middleware and support actions alike) goes
+ * through here so there is only one chain and one integrity story.
+ */
+export async function appendAuditLog(input: AppendAuditLogInput): Promise<SecurityAuditLog> {
+  await initDataSource();
+  const repo = AppDataSource.getRepository(SecurityAuditLog);
+
+  const previousLog = await repo.findOne({
+    where: {},
+    order: { createdAt: 'DESC' },
+  });
+  const previousHash = previousLog?.logHash || null;
+  const details = input.details
+    ? JSON.stringify(redactFields(input.details, input.maskFields))
+    : null;
+
+  const entity = repo.create({
+    userId: input.actorType === 'user' ? input.actorId ?? null : null,
+    userEmail: input.actorType === 'user' ? input.actorEmail ?? null : null,
+    adminId: input.actorType === 'admin' ? input.actorId ?? null : null,
+    adminEmail: input.actorType === 'admin' ? input.actorEmail ?? null : null,
+    actorType: input.actorType,
+    action: input.action,
+    resource: input.resource,
+    resourceId: input.resourceId ?? undefined,
+    details,
+    metadata: input.metadata && Object.keys(input.metadata).length > 0 ? input.metadata : undefined,
+    ipAddress: input.ipAddress || 'unknown',
+    userAgent: input.userAgent ?? null,
+    sessionId: input.sessionId ?? null,
+    previousLogHash: previousHash,
+    logHash: '',
+    createdAt: input.occurredAt ?? new Date(),
+  });
+
+  entity.logHash = entity.generateLogHash(previousHash);
+  return repo.save(entity);
+}
+
+export type SupportAuditAction =
+  | 'support_booking_access'
+  | 'support_booking_change'
+  | 'support_access_denied'
+  | 'support_change_failed';
+
+export interface SupportAuditInput {
+  action: SupportAuditAction;
+  actorId: string;
+  actorType?: 'admin' | 'user';
+  actorEmail?: string | null;
+  reason: string;
+  bookingReference: string;
+  bookingId?: string | null;
+  occurredAt?: Date;
+  ipAddress?: string;
+  userAgent?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Record a support access or change that would otherwise be missed by the
+ * HTTP audit middleware, which only records successful mutations. Reads and
+ * denied or failed attempts are recorded here explicitly.
+ */
+export async function recordSupportAudit(input: SupportAuditInput): Promise<SecurityAuditLog> {
+  const reason = input.reason?.trim();
+  const bookingReference = input.bookingReference?.trim();
+  const actorId = input.actorId?.trim();
+
+  if (!reason) throw new Error('Support audit requires a reason');
+  if (!bookingReference) throw new Error('Support audit requires a booking reference');
+  if (!actorId) throw new Error('Support audit requires an actor');
+
+  return appendAuditLog({
+    action: input.action,
+    resource: 'bookings',
+    resourceId: bookingReference,
+    details: {
+      reason,
+      ...(input.bookingId ? { bookingId: input.bookingId } : {}),
+    },
+    metadata: input.metadata,
+    actorType: input.actorType ?? 'admin',
+    actorId,
+    actorEmail: input.actorEmail ?? null,
+    ipAddress: input.ipAddress,
+    userAgent: input.userAgent ?? null,
+    occurredAt: input.occurredAt,
+  });
+}
+
 export function auditLog(options: AuditOptions) {
   const { action, resource, getResourceId, getDetails, includeBody, includeQuery, maskFields } = options;
   const logger = getLogger({ component: 'audit-middleware' });
@@ -75,43 +184,27 @@ export function auditLog(options: AuditOptions) {
 
       (async () => {
         try {
-          await initDataSource();
-          const repo = AppDataSource.getRepository(SecurityAuditLog);
-
-          const previousLog = await repo.findOne({
-            where: {},
-            order: { createdAt: 'DESC' },
-          });
-
-          const previousHash = previousLog?.logHash || null;
           const resourceId = getResourceId ? getResourceId(req, res) : (res.locals.resourceId as string | undefined) || null;
           const detailsRaw = getDetails ? getDetails(req, res) : (res.locals.auditDetails as Record<string, unknown> | undefined) || null;
-          const details = detailsRaw ? JSON.stringify(redactFields(detailsRaw, maskFields)) : null;
 
           const meta: Record<string, unknown> = {};
           if (includeBody && req.body) meta.body = redactFields(req.body as Record<string, unknown>, maskFields);
           if (includeQuery && req.query) meta.query = redactFields(req.query as Record<string, unknown>, maskFields);
 
-          const entity = repo.create({
-            userId: determineActorType(req) === 'user' ? determineActorId(req) : null,
-            userEmail: determineActorType(req) === 'user' ? determineActorEmail(req) : null,
-            adminId: determineActorType(req) === 'admin' ? determineActorId(req) : null,
-            adminEmail: determineActorType(req) === 'admin' ? determineActorEmail(req) : null,
-            actorType: determineActorType(req),
+          const entity = await appendAuditLog({
             action,
             resource,
-            resourceId: resourceId ?? undefined,
-            details,
-            metadata: Object.keys(meta).length > 0 ? meta : undefined,
+            resourceId,
+            details: detailsRaw,
+            metadata: meta,
+            maskFields,
+            actorType: determineActorType(req),
+            actorId: determineActorId(req),
+            actorEmail: determineActorEmail(req),
             ipAddress: req.ip || (req.socket?.remoteAddress) || 'unknown',
             userAgent: req.header('user-agent') || null,
             sessionId: (req as unknown as Record<string, unknown>).sessionID as string || null,
-            previousLogHash: previousHash,
-            logHash: '',
           });
-
-          entity.logHash = entity.generateLogHash(previousHash);
-          await repo.save(entity);
 
           logger.info('Audit log recorded', {
             action,

@@ -16,3 +16,8 @@ To prevent duplicate bookings and ensure idempotent retries:
 
 - **Reference Mismatch**: Supplying a different flight or booking parameter with a previously used `request_ref` triggers an explicit panic / failure to prevent parameter tampering during retries.
 - **Unverified / Inactive Flights**: Attempts to reconcile against unverified airlines or non-active flights are rejected according to standard domain rules.
+
+## Support and operations guides
+
+- [Booking Operations View](BOOKING_OPERATIONS_VIEW.md): the read-only operator table for booking, supplier, payment and reconciliation state.
+- [Traveler Support Escalation](TRAVELER_SUPPORT_ESCALATION.md): how support handles payment, supplier, booking, cancellation and refund incidents, including audit requirements.
