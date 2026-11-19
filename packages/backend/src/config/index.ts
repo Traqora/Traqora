@@ -41,6 +41,7 @@ const enforceStellarConfiguration = (parsed: Config, environment: string): void 
     contractsNetwork: parsed.contractsNetwork,
     contractIds: parsed.contracts,
     requireContractsNetwork: environment === 'production' || environment === 'staging',
+    requireContractIds: environment === 'production' || environment === 'staging',
   });
 
   if (issues.length > 0) {

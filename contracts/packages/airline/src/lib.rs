@@ -155,6 +155,18 @@ impl AirlineRegistry {
         env.storage().instance().set(&key, &(next_id + 1));
         next_id
     }
+
+    pub fn get_booking_by_reference(env: &Env, request_ref: &Symbol) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("bk_ref"), request_ref))
+}
+
+    pub fn set_booking_reference(env: &Env, request_ref: &Symbol, flight_id: u64) {
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("bk_ref"), request_ref), &flight_id);
+    }
 }
 
 pub struct PricingStorage;
@@ -359,7 +371,7 @@ impl AirlineContract {
         AirlineRegistry::get_airline(&env, &address)
     }
 
-    // Decrement available seats when booking is made
+    // Decrement available seats when booking is made, supporting request reference reconciliation for timeouts
     pub fn reserve_seat(env: Env, airline: Address, flight_id: u64) {
         airline.require_auth();
 
@@ -370,6 +382,29 @@ impl AirlineContract {
 
         flight.available_seats -= 1;
         AirlineRegistry::set_flight(&env, flight_id, &flight);
+    }
+
+    pub fn reconcile_and_reserve_seat(
+        env: Env,
+        airline: Address,
+        flight_id: u64,
+        request_ref: Symbol,
+    ) -> u64 {
+        airline.require_auth();
+        if let Some(existing_flight_id) = AirlineRegistry::get_booking_by_reference(&env, &request_ref) {
+            assert!(existing_flight_id == flight_id, "Reference mismatch on timeout reconciliation");
+            return existing_flight_id;
+        }
+
+        let mut flight = AirlineRegistry::get_flight(&env, flight_id).expect("Flight not found");
+        assert!(flight.airline == airline, "Unauthorized");
+        assert!(flight.available_seats > 0, "No seats available");
+
+        flight.available_seats -= 1;
+        AirlineRegistry::set_flight(&env, flight_id, &flight);
+        AirlineRegistry::set_booking_reference(&env, &request_ref, flight_id);
+
+        flight_id
     }
 
     /// Atomically reserves one seat on each active, available leg of a connected journey.

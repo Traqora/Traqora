@@ -7,7 +7,6 @@ import {
 } from "@/lib/offline-storage";
 import { useOffline } from "@/components/offline-provider";
 import { Plane, MapPin, Clock, AlertCircle } from "lucide-react";
-import { formatAirportClock, formatAirportDate } from "@/lib/airport-time";
 
 /**
  * Component to display cached itineraries for offline viewing
@@ -79,6 +78,11 @@ function ItineraryCard({ itinerary }: ItineraryCardProps) {
   const departureTime = new Date(booking.departureTime);
   const arrivalTime = new Date(booking.arrivalTime);
   const cachedTime = new Date(itinerary.cachedAt);
+
+  const ticketBy = presentTicketingDeadline(
+    booking.ticketingDeadline,
+    booking.departureTime,
+  );
 
   const duration = Math.round(
     (arrivalTime.getTime() - departureTime.getTime()) / (1000 * 60),
@@ -170,6 +174,19 @@ function ItineraryCard({ itinerary }: ItineraryCardProps) {
             {formatAirportDate(booking.departureTime, booking.from)}
           </p>
         </div>
+        {ticketBy ? (
+          <div>
+            <p className="text-xs text-gray-600 uppercase tracking-wide">
+              {ticketBy.heading}
+            </p>
+            <p className="text-sm font-semibold text-gray-900 mt-1">
+              {ticketBy.when}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Ticketing deadline, separate from the departure time above.
+            </p>
+          </div>
+        ) : null}
         <div>
           <p className="text-xs text-gray-600 uppercase tracking-wide">
             Passengers

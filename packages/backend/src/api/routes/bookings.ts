@@ -24,6 +24,7 @@ import {
 } from "../../services/specialAssistanceService";
 import type { SpecialAssistanceRequest } from "../../types/specialAssistance";
 import { bookingRateLimit, excludingPaths } from "../../middleware/rate-limit-tiers";
+import { buildItineraryCalendar } from '../../services/itineraryCalendar';
 
 const router = Router();
 
@@ -98,6 +99,20 @@ const correctionRejectionSchema = z.object({
 const createBookingSchema = z.object({
   flightId: z.string().uuid(),
   passenger: passengerSchema,
+  passengers: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        dateOfBirth: z.string().min(1),
+      }),
+    )
+    .optional(),
+  sessionExpiresAt: z.string().min(1).optional(),
+  offerExpiresAt: z.string().min(1).optional(),
+  refreshPath: z.string().min(1).optional(),
+  lastTicketingDate: z.string().min(1).optional(),
+  lastTicketingDateTime: z.string().min(1).optional(),
+  providerOfferId: z.string().min(1).max(256).optional(),
 });
 
 import { BadRequestError, NotFoundError, ConflictError, InternalServerError } from "../../utils/errors";
@@ -120,6 +135,19 @@ router.post(
       flightId: parsed.data.flightId,
       passenger: parsed.data.passenger,
       walletAddress: req.user?.walletAddress,
+      ...(parsed.data.passengers ? { passengers: parsed.data.passengers } : {}),
+      ...(parsed.data.sessionExpiresAt
+        ? { sessionExpiresAt: parsed.data.sessionExpiresAt }
+        : {}),
+      ...(parsed.data.offerExpiresAt ? { offerExpiresAt: parsed.data.offerExpiresAt } : {}),
+      ...(parsed.data.refreshPath ? { refreshPath: parsed.data.refreshPath } : {}),
+      ...(parsed.data.lastTicketingDate
+        ? { lastTicketingDate: parsed.data.lastTicketingDate }
+        : {}),
+      ...(parsed.data.lastTicketingDateTime
+        ? { lastTicketingDateTime: parsed.data.lastTicketingDateTime }
+        : {}),
+      providerOfferId: parsed.data.providerOfferId,
     });
 
     const bookingRepo = AppDataSource.getRepository(Booking);
@@ -158,6 +186,13 @@ router.post(
         passenger: parsed.data.passenger,
         idempotencyKey: idempotencyKeyHeader,
         walletAddress: req.user?.walletAddress,
+        passengers: parsed.data.passengers,
+        sessionExpiresAt: parsed.data.sessionExpiresAt,
+        offerExpiresAt: parsed.data.offerExpiresAt,
+        refreshPath: parsed.data.refreshPath,
+        lastTicketingDate: parsed.data.lastTicketingDate,
+        lastTicketingDateTime: parsed.data.lastTicketingDateTime,
+        providerOfferId: parsed.data.providerOfferId,
       });
 
       // Update idempotency key with resource ID
@@ -170,7 +205,10 @@ router.post(
       });
     } catch (error: any) {
       logger.error("Booking creation failed", { error: error.message });
-      
+
+      if (typeof error?.statusCode === "number" && typeof error?.code === "string") {
+        throw error;
+      }
       if (error.message === "Flight not found") {
         throw new NotFoundError(error.message);
       }
@@ -189,6 +227,24 @@ router.get(
       throw new NotFoundError("Booking not found");
     }
     return res.json({ success: true, data: booking });
+  }),
+);
+
+router.get(
+  "/:id/itinerary.ics",
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const bookingRepo = AppDataSource.getRepository(Booking);
+    const booking = await bookingRepo.findOne({ where: { id: req.params.id } });
+    if (!booking) throw new NotFoundError("Booking not found");
+    if (booking.walletAddress && booking.walletAddress !== req.user?.walletAddress) {
+      throw new NotFoundError("Booking not found");
+    }
+
+    const calendar = buildItineraryCalendar(booking);
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="traqora-${booking.id}.ics"`);
+    return res.status(200).send(calendar);
   }),
 );
 

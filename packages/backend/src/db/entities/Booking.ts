@@ -72,6 +72,18 @@ export class Booking {
   @Column({ type: 'varchar', length: 64, nullable: true })
   bookingReference?: string | null;
 
+  /**
+   * Provider ticketing deadline. Distinct from the flight departure time (#906).
+   */
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', nullable: true })
+  ticketingDeadline?: Date | null;
+   * Issued airline ticket numbers, stored separately from the PNR / booking
+   * reference. A confirmed reservation is not ticketed until at least one
+   * number is present (#905).
+   */
+  @Column({ type: 'simple-json', nullable: true })
+  ticketNumbers?: string[] | null;
+
   @Column({ type: 'bigint', nullable: true })
   sorobanBookingId?: string | null;
 
@@ -80,6 +92,11 @@ export class Booking {
 
   @Column({ type: 'text', nullable: true })
   lastError?: string | null;
+
+  /** Upstream provider offer id from search, carried through confirmation (#914). */
+  @Index()
+  @Column({ type: 'varchar', length: 256, nullable: true })
+  providerOfferId?: string | null;
 
   @CreateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   createdAt!: Date;

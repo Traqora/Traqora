@@ -60,7 +60,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Typecheck
         run: npm run typecheck --workspace=packages/backend
@@ -83,7 +83,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Lint
         run: npm run lint --workspace=packages/client || true
@@ -147,7 +147,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Run tests
         # Fails when coverage drops below the thresholds configured in
@@ -183,7 +183,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Run tests
         run: npm test --workspace=packages/client
@@ -203,7 +203,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Run performance tests
         run: npm run test:perf --workspace=packages/backend
@@ -314,7 +314,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Run integration tests (Auth)
         env:
@@ -391,7 +391,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm install --legacy-peer-deps --ignore-scripts
 
       # Playwright browser binaries are cached by the built-in store path.
       - name: Cache Playwright browsers
@@ -492,7 +492,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm install --legacy-peer-deps --ignore-scripts
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
@@ -581,7 +581,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build backend
         run: npm run build --workspace=packages/backend
@@ -601,7 +601,7 @@ jobs:
           cache-dependency-path: '**/package.json'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build client
         run: npm run build --workspace=packages/client
@@ -643,7 +643,7 @@ jobs:
       - name: Install Trivy (retry)
         run: |
           for i in 1 2 3; do
-            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.65.0 && break
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.65.0 && break
             echo "trivy install attempt $i failed, retrying..."
             sleep 10
           done

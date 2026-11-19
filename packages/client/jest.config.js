@@ -14,4 +14,15 @@ const customJestConfig = {
   },
 }
 
-module.exports = createJestConfig(customJestConfig)
+const configFactory = createJestConfig(customJestConfig)
+
+module.exports = async () => {
+  const config = await configFactory()
+
+  config.transformIgnorePatterns = [
+    '/node_modules/(?!.*(?:@exodus/bytes|@noble/|@scure/|@stellar/stellar-sdk|uint8array-extras))',
+    ...config.transformIgnorePatterns.filter((pattern) => !pattern.includes('node_modules')),
+  ]
+
+  return config
+}

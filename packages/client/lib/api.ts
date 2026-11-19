@@ -187,6 +187,14 @@ export interface Flight {
   fromCity?: string
   toCity?: string
   airline_name?: string
+  segments?: Array<{ origin: string; destination: string }>
+  date?: string
+  provenance?: {
+    source: string
+    imported_at: string
+    source_updated_at?: string
+    freshness: "fresh" | "stale" | "unknown"
+  }
 }
 
 export interface FlightSearchResponse {
@@ -195,6 +203,11 @@ export interface FlightSearchResponse {
     next_cursor: string | null
     has_more: boolean
     page_size: number
+  }
+  provider_results?: {
+    complete: boolean
+    succeeded: number
+    failed: number
   }
 }
 
@@ -1245,19 +1258,3 @@ export const apiClient = {
     }
   },
 
-  analyzeSelfTransfer: async (
-    request: AnalyzeSelfTransferRequest
-  ): Promise<ApiResult<SelfTransferAnalysisResponse>> => {
-    try {
-      const query = new URLSearchParams({
-        bookingIds: request.bookingIds.join(","),
-      })
-      const body = await authedFetch(
-        `/api/v1/self-transfer/analyze?${query.toString()}`
-      )
-      return { success: true, data: body as SelfTransferAnalysisResponse }
-    } catch (error: any) {
-      return { success: false, error: { message: error.message } }
-    }
-  },
-}

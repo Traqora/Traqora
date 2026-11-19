@@ -21,6 +21,7 @@ import {
 } from "@/lib/api"
 import { getStellarExpertUrl } from "@/lib/wallet"
 import { toast } from "sonner"
+import { TicketNumbers } from "./ticket-numbers"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"
 
@@ -31,6 +32,10 @@ export interface BookingConfirmationProps {
   booking?: {
     id?: string
     sorobanTxHash?: string | null
+    providerOfferId?: string | null
+    bookingReference?: string | null
+    ticketNumbers?: string[] | null
+    status?: string | null
   } | null
   passengerName: string
   seatNumber?: string | null
@@ -128,6 +133,11 @@ export function BookingConfirmation({
           <QrCode className="h-12 w-12" />
         </div>
         <div className="p-8">
+          <TicketNumbers
+            bookingReference={booking?.bookingReference || bookingId}
+            ticketNumbers={booking?.ticketNumbers}
+            reservationConfirmed={booking?.status === "confirmed"}
+          />
           <div className="grid grid-cols-2 gap-8">
             <div>
               <p className="text-xs text-muted-foreground uppercase font-bold">Passenger</p>
@@ -145,6 +155,12 @@ export function BookingConfirmation({
               <p className="text-xs text-muted-foreground uppercase font-bold">Terminal</p>
               <p className="font-medium">{terminalLabel}</p>
             </div>
+            {booking?.providerOfferId ? (
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground uppercase font-bold">Provider offer</p>
+                <p className="font-mono font-medium">{booking.providerOfferId}</p>
+              </div>
+            ) : null}
           </div>
           <Separator className="my-6" />
           <div className="flex gap-4">
