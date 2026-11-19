@@ -115,6 +115,62 @@ export interface PriceTrend {
   changePercent: number
 }
 
+/** Self-transfer (separate-ticket) analysis types. */
+export interface SelfTransferSegmentClient {
+  bookingId: string
+  bookingReference: string | null
+  passengerEmail: string
+  flightNumber: string
+  airline: string
+  fromAirport: string
+  toAirport: string
+  departure: string
+  arrival: string
+  sequence: number
+  connection?: {
+    layoverMinutes: number
+    separateTickets: boolean
+    connectionProtected: boolean
+    isSelfTransfer: boolean
+  }
+  riskLevel: "low" | "medium" | "high" | "severe"
+  riskExplanation: string
+  departureTimeZone: string
+  arrivalTimeZone: string
+  departureLocalTime: string
+  arrivalLocalTime: string
+}
+
+export interface SeparateTicketRiskClient {
+  id: string
+  title: string
+  description: string
+  severity: "low" | "medium" | "high"
+}
+
+export interface SelfTransferItineraryClient {
+  itineraryId: string
+  passengerEmail: string
+  segments: SelfTransferSegmentClient[]
+  isSelfTransfer: boolean
+  separateTicketCount: number
+  unprotectedConnectionCount: number
+  overallRiskLevel: "low" | "medium" | "high" | "severe"
+  overallExplanation: string
+  risks: SeparateTicketRiskClient[]
+  mitigations: string[]
+  generatedAt: string
+}
+
+export interface SelfTransferAnalysisResponse {
+  itinerary: SelfTransferItineraryClient
+  analyzedAt: string
+}
+
+export interface AnalyzeSelfTransferRequest {
+  bookingIds: string[]
+}
+
 export interface Flight {
   id: string
   from: string
@@ -1201,4 +1257,4 @@ export const apiClient = {
       return { success: false, error: { message: error.message } }
     }
   },
-}
+
