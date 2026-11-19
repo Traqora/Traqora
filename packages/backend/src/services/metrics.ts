@@ -207,6 +207,91 @@ export const walletBalance = new Gauge({
 });
 
 // ============================================================================
+// Flight Offer Freshness Metrics
+// ============================================================================
+
+/**
+ * Bounded provider labels for offer freshness. Unknown provider names collapse
+ * to `other` so a config typo or a new adapter cannot create unbounded
+ * Prometheus time series (#933).
+ */
+export const FLIGHT_PROVIDER_LABELS = [
+  'amadeus',
+  'lufthansa',
+  'air-france',
+  'british-airways',
+  'offchain-repository',
+  'other',
+] as const;
+
+const FLIGHT_PROVIDER_ALIASES: Record<string, string> = {
+  lh: 'lufthansa',
+  lufthansa: 'lufthansa',
+  af: 'air-france',
+  'air-france': 'air-france',
+  ba: 'british-airways',
+  'british-airways': 'british-airways',
+  amadeus: 'amadeus',
+  repository: 'offchain-repository',
+  'offchain-repository': 'offchain-repository',
+  unknown: 'other',
+};
+
+export const normalizeFlightProviderLabel = (provider: string | null | undefined): string => {
+  const slug = String(provider ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (FLIGHT_PROVIDER_ALIASES[slug]) return FLIGHT_PROVIDER_ALIASES[slug];
+  if ((FLIGHT_PROVIDER_LABELS as readonly string[]).includes(slug)) return slug;
+  return 'other';
+};
+
+export const flightOfferIngestionDelay = new Histogram({
+  name: 'traqora_flight_offer_ingestion_delay_seconds',
+  help: 'Delay between a flight offer provider update time and its ingestion time',
+  labelNames: ['provider'],
+  buckets: [0, 5, 15, 30, 60, 300, 900, 1800, 3600, 21600, 86400],
+  registers: [register],
+});
+
+/**
+ * Record the ingestion lag for one provider offer.
+ *
+ * Returns false (and emits nothing) for missing/unparseable timestamps and for
+ * provider clocks that appear to be in the future — a negative delay says
+ * nothing useful about feed staleness and would skew the histogram.
+ */
+export const recordFlightOfferIngestionDelay = (
+  provider: string | null | undefined,
+  providerUpdatedAt: Date | string | number | null | undefined,
+  ingestedAt: Date = new Date(),
+): boolean => {
+  if (providerUpdatedAt === null || providerUpdatedAt === undefined) return false;
+
+  const updatedAt =
+    providerUpdatedAt instanceof Date
+      ? providerUpdatedAt
+      : new Date(providerUpdatedAt);
+
+  if (Number.isNaN(updatedAt.getTime())) return false;
+
+  const delaySeconds = (ingestedAt.getTime() - updatedAt.getTime()) / 1000;
+  if (!Number.isFinite(delaySeconds) || delaySeconds < 0) return false;
+
+  const label = normalizeFlightProviderLabel(provider);
+  flightOfferIngestionDelay.observe({ provider: label }, delaySeconds);
+  logger.debug('Metric recorded: flight offer ingestion delay', {
+    provider: label,
+    delaySeconds,
+  });
+
+  return true;
+};
+
+// ============================================================================
 // Database Metrics
 // ============================================================================
 

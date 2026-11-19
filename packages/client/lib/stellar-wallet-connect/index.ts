@@ -39,6 +39,8 @@ export {
   isWalletKitInitialized,
   getInitializationError,
   getConfiguredNetwork,
+  getActiveWalletContext,
+  networkFromPassphrase,
   getKit,
   signTransaction,
 } from "./kit";

@@ -15,6 +15,9 @@ import { logger } from "../utils/logger";
 import { withRetries } from "./retry";
 import { config } from "../config";
 import { BadRequestError, ConflictError } from "../utils/errors";
+import { assertTrustedStablecoin, parseAllowlist } from "./stablecoinIssuerAllowlist";
+import { evaluateProviderReprice } from "./itineraryRepricing";
+import { normalizeTicketNumbers } from "./airlineTicketing";
 import { FareRulesService, FareClass } from "./fareRulesService";
 import type {
   ChangeFeeQuote,
@@ -26,6 +29,10 @@ import type {
 } from "./fareRulesService";
 import { getWebSocketServer } from "../websockets/server";
 import { executeIdempotentOperation, hashObject } from "./idempotency";
+import { assertCheckoutActionable } from "./checkoutOfferExpiry";
+import { assertPassengerAgeRules, type PassengerAgeInput } from "./passengerAgeRules";
+import { resolveStoredTicketingDeadline } from "./ticketingDeadline";
+import { requireProviderOfferId } from "./providerOfferTracking";
 import { recordSloLatency } from "./metrics";
 
 // ── Booking cancel policy engine (#785) ────────────────────────────────────
@@ -295,11 +302,39 @@ export class BookingOrchestrationService {
     };
     idempotencyKey: string;
     walletAddress?: string;
+    /** Present together, these cap checkout at the earlier expiry (#918). */
+    sessionExpiresAt?: string | Date;
+    offerExpiresAt?: string | Date;
+    now?: string | Date;
+    refreshPath?: string;
+    /** When set, infant and child rules run before a reservation is created (#907). */
+    passengers?: PassengerAgeInput[];
+    /** Provider deadline. Never filled from the departure time (#906). */
+    ticketingDeadline?: string | Date | null;
+    lastTicketingDate?: string | null;
+    lastTicketingDateTime?: string | null;
+    providerOfferId?: string;
+    stablecoin?: { code: string; issuer: string };
+    confirmedProviderPriceCents?: number;
+    repriceAccepted?: boolean;
+    ticketNumbers?: string[];
   }): Promise<Booking> {
+    const providerOfferId = params.providerOfferId
+      ? requireProviderOfferId(params.providerOfferId)
+      : undefined;
     const requestHash = hashObject({
       flightId: params.flightId,
       passenger: params.passenger,
       walletAddress: params.walletAddress,
+      ...(params.passengers ? { passengers: params.passengers } : {}),
+      ...(params.sessionExpiresAt ? { sessionExpiresAt: params.sessionExpiresAt } : {}),
+      ...(params.offerExpiresAt ? { offerExpiresAt: params.offerExpiresAt } : {}),
+      ...(params.refreshPath ? { refreshPath: params.refreshPath } : {}),
+      ...(params.lastTicketingDate ? { lastTicketingDate: params.lastTicketingDate } : {}),
+      ...(params.lastTicketingDateTime
+        ? { lastTicketingDateTime: params.lastTicketingDateTime }
+        : {}),
+      providerOfferId,
     });
 
     const { result: booking, isCached } = await executeIdempotentOperation(
@@ -314,6 +349,48 @@ export class BookingOrchestrationService {
           });
           if (!flight) throw new Error("Flight not found");
           if (flight.seatsAvailable <= 0) throw new Error("Flight sold out");
+
+          if (params.sessionExpiresAt && params.offerExpiresAt) {
+            assertCheckoutActionable({
+              sessionExpiresAt: params.sessionExpiresAt,
+              offerExpiresAt: params.offerExpiresAt,
+              now: params.now,
+              refreshPath: params.refreshPath ?? `/flights/${flight.id}`,
+            });
+          }
+
+          if (params.passengers?.length) {
+            assertPassengerAgeRules({
+              passengers: params.passengers,
+              itineraryDeparture: flight.departureTime,
+            });
+          }
+
+          const rawDeadline =
+            params.ticketingDeadline ??
+            params.lastTicketingDateTime ??
+            params.lastTicketingDate;
+          const ticketingDeadline =
+            rawDeadline == null
+              ? null
+              : resolveStoredTicketingDeadline(rawDeadline, flight.departureTime);
+
+          if (params.stablecoin) {
+            const allowlist = parseAllowlist(process.env.STABLECOIN_ALLOWLIST);
+            const trusted = assertTrustedStablecoin(params.stablecoin, allowlist);
+            if (!trusted.ok) {
+              throw new BadRequestError(trusted.message, trusted);
+            }
+          }
+
+          const confirmedPrice = params.confirmedProviderPriceCents ?? flight.priceCents;
+          const reprice = evaluateProviderReprice(flight.priceCents, confirmedPrice);
+          if (reprice.action === "require_traveler_confirmation" && !params.repriceAccepted) {
+            throw new ConflictError(
+              "Provider price changed; traveler must review and accept the new total before payment capture.",
+              reprice,
+            );
+          }
 
           const updated = await this.flightRepo
             .createQueryBuilder()
@@ -358,10 +435,13 @@ export class BookingOrchestrationService {
               status: "onchain_submitted",
               amountCents: flight.priceCents,
               sorobanTxHash: result.txHash,
+              providerOfferId: providerOfferId ?? null,
               sorobanInnerTxHash: result.innerTxHash,
               sorobanFeeBumpTxHash: result.feeBumpTxHash ?? null,
               sorobanIsFeeBump: result.isFeeBump,
               bookingReference: result.bookingReference ?? bookingReference ?? null,
+              ticketingDeadline,
+              ticketNumbers: normalizeTicketNumbers(params.ticketNumbers),
             });
             booking.id = bookingId;
 

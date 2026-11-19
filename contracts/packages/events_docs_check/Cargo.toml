@@ -1,0 +1,12 @@
+[package]
+name = "events-docs-check"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[[bin]]
+name = "events-docs-check"
+path = "src/main.rs"

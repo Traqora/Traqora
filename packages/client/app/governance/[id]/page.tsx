@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -29,6 +29,8 @@ import { VoteDialog } from "@/components/governance/vote-dialog"
 import { CountdownTimer } from "@/components/governance/countdown-timer"
 import { QuorumTimelockStatus } from "@/components/governance/quorum-timelock-status"
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts'
+import { DISCONNECTED_WALLET_MESSAGE } from "../wallet-session"
+import { useBoundGovernanceDraft } from "../use-governance-wallet"
 
 function getStatusBadge(status: string) {
   switch (status) {
@@ -82,9 +84,18 @@ export default function ProposalDetailPage() {
   const params = useParams()
   const proposalId = parseInt(params.id as string)
   const { proposal, votes, loading } = useProposal(proposalId)
-  const { votingPower } = useVotingPower('current-user-address') // TODO: Get from wallet context
+  const voteDraft = useBoundGovernanceDraft<{ proposalId: number }>("vote")
+  const { votingPower } = useVotingPower(voteDraft.account ?? "")
   const store = useGovernanceStore()
   const [showVoteDialog, setShowVoteDialog] = useState(false)
+  const [walletNotice, setWalletNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (voteDraft.notice) {
+      setShowVoteDialog(false)
+      setWalletNotice(voteDraft.notice)
+    }
+  }, [voteDraft.notice])
 
   if (loading || !proposal) {
     return (
@@ -118,10 +129,26 @@ export default function ProposalDetailPage() {
   }))
 
   const handleVote = async (support: boolean) => {
+    const voter = voteDraft.requireAccount()
+    if (!voter) {
+      setShowVoteDialog(false)
+      setWalletNotice(voteDraft.notice || DISCONNECTED_WALLET_MESSAGE)
+      return
+    }
     const success = await store.castVote(proposalId, support, votingPower.totalVotingPower)
     if (success) {
       setShowVoteDialog(false)
     }
+  }
+
+  const handleOpenVote = () => {
+    const started = voteDraft.startDraft({ proposalId })
+    if (!started) {
+      setWalletNotice(DISCONNECTED_WALLET_MESSAGE)
+      return
+    }
+    setWalletNotice(null)
+    setShowVoteDialog(true)
   }
 
   return (
@@ -171,12 +198,22 @@ export default function ProposalDetailPage() {
               </div>
             </div>
             {proposal.status === 'active' && (
-              <Button onClick={() => setShowVoteDialog(true)} size="lg">
+              <Button onClick={handleOpenVote} size="lg">
                 <Zap className="h-4 w-4 mr-2" />
                 Cast Vote
               </Button>
             )}
           </div>
+          {(walletNotice || voteDraft.notice) && (
+            <p role="alert" className="text-sm text-red-600">
+              {walletNotice || voteDraft.notice}
+            </p>
+          )}
+          {(walletNotice || voteDraft.notice) && (
+            <p role="alert" className="text-sm text-red-600 mb-4">
+              {walletNotice || voteDraft.notice}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -349,6 +386,8 @@ export default function ProposalDetailPage() {
         proposal={proposal}
         votingPower={votingPower.totalVotingPower}
         onVote={handleVote}
+        hasVoted={votes.some((vote) => vote.voter === voteDraft.account)}
+        disabled={!voteDraft.account}
       />
     </div>
   )

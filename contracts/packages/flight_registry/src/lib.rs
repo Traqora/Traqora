@@ -28,6 +28,8 @@ pub struct FlightRecord {
     pub arrival_time: u64,
     pub total_seats: u32,
     pub available_seats: u32,
+    pub source_timestamp: u64,
+    pub revision: u32,
 }
 
 // Legacy record for backward compatibility with pre-upgrade storage
@@ -171,6 +173,18 @@ impl FlightRegistryContract {
                 (Symbol::new(&env, "active"), 0, 0, 0, 0)
             };
 
+        let source_timestamp = env.ledger().timestamp();
+        let revision = if let Some(ref existing) = FlightRegistryStorage::get_flight(&env, &flight_id) {
+            existing.revision + 1
+        } else {
+            1
+        };
+
+        if let Some(existing) = FlightRegistryStorage::get_flight(&env, &flight_id) {
+            assert!(source_timestamp >= existing.source_timestamp, "Out-of-order provider snapshot: timestamp older than existing record");
+            assert!(revision > existing.revision, "Out-of-order provider snapshot: revision not newer than existing record");
+        }
+
         let flight = FlightRecord {
             flight_id: flight_id.clone(),
             airline_id: airline_id.clone(),
@@ -181,6 +195,8 @@ impl FlightRegistryContract {
             arrival_time,
             total_seats,
             available_seats,
+            source_timestamp,
+            revision,
         };
 
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
@@ -236,6 +252,18 @@ impl FlightRegistryContract {
 
         let is_update = FlightRegistryStorage::get_flight(&env, &flight_id).is_some();
 
+        let source_timestamp = env.ledger().timestamp();
+        let revision = if let Some(ref existing) = FlightRegistryStorage::get_flight(&env, &flight_id) {
+            existing.revision + 1
+        } else {
+            1
+        };
+
+        if let Some(existing) = FlightRegistryStorage::get_flight(&env, &flight_id) {
+            assert!(source_timestamp >= existing.source_timestamp, "Out-of-order provider snapshot: timestamp older than existing record");
+            assert!(revision > existing.revision, "Out-of-order provider snapshot: revision not newer than existing record");
+        }
+
         let flight = FlightRecord {
             flight_id: flight_id.clone(),
             airline_id: airline_id.clone(),
@@ -246,6 +274,8 @@ impl FlightRegistryContract {
             arrival_time,
             total_seats,
             available_seats,
+            source_timestamp,
+            revision,
         };
 
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
@@ -296,6 +326,10 @@ impl FlightRegistryContract {
             FlightRegistryStorage::is_valid_status(&env, &status),
             "Invalid status"
         );
+        let source_timestamp = env.ledger().timestamp();
+        assert!(source_timestamp >= flight.source_timestamp, "Out-of-order provider snapshot: timestamp older than existing record");
+        flight.source_timestamp = source_timestamp;
+        flight.revision += 1;
         flight.status = status.clone();
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
         contract_events::emit_indexed(
@@ -327,6 +361,10 @@ impl FlightRegistryContract {
         assert!(flight.airline_admin == airline_admin, "Unauthorized");
         assert!(departure_time < arrival_time, "Invalid schedule");
         assert!(departure_time > 0 && arrival_time > 0, "Invalid schedule");
+        let source_timestamp = env.ledger().timestamp();
+        assert!(source_timestamp >= flight.source_timestamp, "Out-of-order provider snapshot: timestamp older than existing record");
+        flight.source_timestamp = source_timestamp;
+        flight.revision += 1;
         flight.departure_time = departure_time;
         flight.arrival_time = arrival_time;
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
@@ -359,6 +397,10 @@ impl FlightRegistryContract {
         assert!(flight.airline_admin == airline_admin, "Unauthorized");
         assert!(total_seats > 0, "Invalid seats");
         assert!(available_seats <= total_seats, "Invalid available seats");
+        let source_timestamp = env.ledger().timestamp();
+        assert!(source_timestamp >= flight.source_timestamp, "Out-of-order provider snapshot: timestamp older than existing record");
+        flight.source_timestamp = source_timestamp;
+        flight.revision += 1;
         flight.total_seats = total_seats;
         flight.available_seats = available_seats;
         FlightRegistryStorage::set_flight(&env, &flight_id, &flight);
@@ -490,11 +532,9 @@ mod test {
             &180,
             &180,
         );
-        // Events from add_flight_with_details: added + details (capture before view calls)
         let events = env.events().all();
         assert!(events.len() >= 2, "should emit at least added and details");
 
-        // Read path via get_flight_details
         let flight = client.get_flight_details(&flight_id).unwrap();
         assert_eq!(flight.flight_id, flight_id);
         assert_eq!(flight.status, status);
@@ -503,7 +543,6 @@ mod test {
         assert_eq!(flight.total_seats, 180);
         assert_eq!(flight.available_seats, 180);
 
-        // Read via dedicated getters
         assert_eq!(client.get_flight_status(&flight_id).unwrap(), status);
         assert_eq!(client.get_flight_schedule(&flight_id).unwrap(), (dep, arr));
         assert_eq!(client.get_flight_seats(&flight_id).unwrap(), (180, 180));
@@ -525,19 +564,15 @@ mod test {
             &Symbol::new(&env, "StatAir"),
         );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
-        // Initial status is active
         assert_eq!(
             client.get_flight_status(&flight_id).unwrap(),
             Symbol::new(&env, "active")
         );
-        // Update to cancelled
         let cancelled = Symbol::new(&env, "cancelled");
         client.update_flight_status(&airline_admin, &flight_id, &cancelled);
-        // Event on update: update_flight_status emits status + updated (capture before view)
         let events = env.events().all();
         assert!(events.len() >= 2, "update should emit status and updated");
         assert_eq!(client.get_flight_status(&flight_id).unwrap(), cancelled);
-        // Deterministic: same sequence yields same state
         let flight = client.get_flight(&flight_id).unwrap();
         assert_eq!(flight.status, cancelled);
     }
@@ -558,15 +593,12 @@ mod test {
             &Symbol::new(&env, "SchedAir"),
         );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
-        // Update schedule
         let dep = 1_800_000_000;
         let arr = 1_800_003_600;
         client.update_flight_schedule(&airline_admin, &flight_id, &dep, &arr);
         assert_eq!(client.get_flight_schedule(&flight_id).unwrap(), (dep, arr));
-        // Update seats
         client.update_flight_seats(&airline_admin, &flight_id, &200, &150);
         assert_eq!(client.get_flight_seats(&flight_id).unwrap(), (200, 150));
-        // Full read path
         let flight = client.get_flight_details(&flight_id).unwrap();
         assert_eq!(flight.departure_time, dep);
         assert_eq!(flight.total_seats, 200);
@@ -649,21 +681,46 @@ mod test {
         );
         client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
         let before = client.get_flight(&flight_id).unwrap();
-        // Update via add_flight (same flight_id, should preserve status/schedule/seats)
         let mut new_meta = Map::new(&env);
         new_meta.set(
             Symbol::new(&env, "route"),
             Symbol::new(&env, "LOS_JFK").to_val(),
         );
         client.add_flight(&airline_admin, &flight_id, &new_meta);
-        // Event on update: second add_flight should emit updated + added (capture before view)
         let events = env.events().all();
         assert!(events.len() >= 1, "update should emit at least one event");
         let after = client.get_flight(&flight_id).unwrap();
         let route_val = after.metadata.get(Symbol::new(&env, "route")).unwrap();
         let route_sym = Symbol::try_from_val(&env, &route_val).unwrap();
         assert_eq!(route_sym, Symbol::new(&env, "LOS_JFK"));
-        // Status preserved
         assert_eq!(after.status, before.status);
     }
+
+    #[test]
+    #[should_panic(expected = "Out-of-order provider snapshot")]
+    fn test_delayed_sync_response_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let owner = Address::generate(&env);
+        let (_, client) = setup_registry(&env, &owner);
+        let airline_admin = Address::generate(&env);
+        let airline_id = Symbol::new(&env, "SYNC");
+        let flight_id = Symbol::new(&env, "SYNC100");
+        client.register_airline(
+            &owner,
+            &airline_admin,
+            &airline_id,
+            &Symbol::new(&env, "SyncAir"),
+        );
+        
+        // Advance ledger timestamp
+        env.ledger().set_timestamp(5000);
+        client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
+
+        // Simulate a delayed sync response arriving with an older ledger timestamp
+        env.ledger().set_timestamp(4000);
+        client.add_flight(&airline_admin, &flight_id, &sample_metadata(&env));
+    }
 }
+
+pub mod sync_cursor;

@@ -247,3 +247,4 @@ We welcome contributions from the community. Please refer to our [Contributing G
 
 This project is licensed under the MIT License. See the LICENSE file for more information.
 
+<!-- Keep zero-downtime migrations, backup restore, env-drift checks, and GDPR erasure export aligned. -->

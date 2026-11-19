@@ -131,6 +131,14 @@ export interface Flight {
   fromCity?: string
   toCity?: string
   airline_name?: string
+  segments?: Array<{ origin: string; destination: string }>
+  date?: string
+  provenance?: {
+    source: string
+    imported_at: string
+    source_updated_at?: string
+    freshness: "fresh" | "stale" | "unknown"
+  }
 }
 
 export interface FlightSearchResponse {
@@ -139,6 +147,11 @@ export interface FlightSearchResponse {
     next_cursor: string | null
     has_more: boolean
     page_size: number
+  }
+  provider_results?: {
+    complete: boolean
+    succeeded: number
+    failed: number
   }
 }
 
