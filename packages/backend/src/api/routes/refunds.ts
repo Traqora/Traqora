@@ -1,13 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
-import { RefundService } from '../../services/refundService';
+import { QuoteUnavailableError, RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
 import { AppDataSource } from '../../db/dataSource';
 import { Booking } from '../../db/entities/Booking';
 import { logger } from '../../utils/logger';
 import { requireAdmin } from '../../middleware/adminAuth';
-import { BadRequestError, NotFoundError } from '../../utils/errors';
+import { BadRequestError, NotFoundError, UnprocessableEntityError } from '../../utils/errors';
 import { validateBody, validateParams, validateQuery } from '../../middleware/requestValidation';
 import { requireAuth } from '../../middleware/authMiddleware';
 
@@ -211,6 +211,32 @@ router.get(
     await assertBookingOwnedByRequester(req.params.bookingId, req.user?.walletAddress);
     const refunds = await refundService.getRefundsByBooking(req.params.bookingId);
     return res.json({ success: true, data: refunds });
+  }),
+);
+
+/**
+ * GET /api/v1/refunds/quote/:bookingId
+ * Return a non-mutating cancellation quote before the traveller confirms.
+ * The estimate is valid for a short window and never past flight departure.
+ */
+router.get(
+  '/quote/:bookingId',
+  requireAuth,
+  validateParams(bookingIdParamSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const booking = await assertBookingOwnedByRequester(
+      req.params.bookingId,
+      req.user?.walletAddress,
+    );
+    try {
+      const quote = await refundService.getCancellationQuote(booking);
+      return res.json({ success: true, data: quote });
+    } catch (error) {
+      if (error instanceof QuoteUnavailableError) {
+        throw new UnprocessableEntityError(error.message, { code: error.code });
+      }
+      throw error;
+    }
   }),
 );
 
