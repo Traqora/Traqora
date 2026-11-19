@@ -10,6 +10,7 @@ import { requireAdmin } from '../../middleware/adminAuth';
 import { BadRequestError, NotFoundError } from '../../utils/errors';
 import { validateBody, validateParams, validateQuery } from '../../middleware/requestValidation';
 import { requireAuth } from '../../middleware/authMiddleware';
+import { refundReconciliationService } from '../../services/refundReconciliationService';
 
 const router = Router();
 const refundService = RefundService.getInstance();
@@ -25,6 +26,21 @@ const adminListQuerySchema = z
     offset: z.coerce.number().int().min(0).optional(),
   })
   .strict();
+
+const reconciliationQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  statuses: z.string().max(256).optional(),
+  dryRun: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((v) => (typeof v === 'string' ? v === 'true' : v)),
+});
+
+const operatorActionSchema = z.object({
+  action: z.enum(['investigated', 'escalated', 'resolved']),
+  notes: z.string().min(5).max(2000),
+  nextAction: z.string().max(500).optional(),
+});
 
 const createRefundSchema = z
   .object({
@@ -254,6 +270,31 @@ router.get(
   }),
 );
 
+/**
+ * GET /api/v1/refunds/admin/reconciliation (admin only)
+ * Bounded Stripe/Soroban/internal refund reconciliation with audited findings.
+ */
+router.get(
+  '/admin/reconciliation',
+  requireAdmin,
+  validateQuery(reconciliationQuerySchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const statuses =
+      typeof req.query.statuses === 'string' && req.query.statuses.trim().length
+        ? req.query.statuses
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined;
+    const result = await refundReconciliationService.reconcile({
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      statuses,
+      dryRun: req.query.dryRun === true,
+    });
+    return res.json({ success: true, data: result });
+  }),
+);
+
 router.get(
   '/:id',
   requireAuth,
@@ -425,6 +466,34 @@ router.post(
       `Dispute for refund ${req.params.id} resolved as ${req.body.resolution} by ${req.body.resolvedBy}`,
     );
     return res.json({ success: true, data: refund });
+  }),
+);
+
+/**
+ * POST /api/v1/refunds/:id/reconciliation-action (admin only)
+ * Record audited operator investigation/escalation/resolution for reconciliation findings.
+ */
+router.post(
+  '/:id/reconciliation-action',
+  validateParams(refundIdParamSchema),
+  requireAdmin,
+  validateBody(operatorActionSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    await refundReconciliationService.recordOperatorAction({
+      refundId: req.params.id,
+      action: req.body.action,
+      actor: req.admin?.email || req.admin?.adminId || 'admin',
+      notes: req.body.notes,
+      nextAction: req.body.nextAction,
+    });
+
+    logger.info('Refund reconciliation operator action recorded', {
+      refundId: req.params.id,
+      action: req.body.action,
+      actor: req.admin?.email || req.admin?.adminId,
+    });
+
+    return res.json({ success: true });
   }),
 );
 
