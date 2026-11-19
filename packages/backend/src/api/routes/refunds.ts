@@ -3,8 +3,15 @@ import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
 import { RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
+import {
+  deriveRefundOutcome,
+  isBookingFullyRefunded,
+  REFUND_OUTCOME_LABELS,
+  toTravelerRefund,
+} from '../../services/refundPresentation';
 import { AppDataSource } from '../../db/dataSource';
 import { Booking } from '../../db/entities/Booking';
+import { Refund } from '../../db/entities/Refund';
 import { logger } from '../../utils/logger';
 import { requireAdmin } from '../../middleware/adminAuth';
 import { BadRequestError, NotFoundError } from '../../utils/errors';
@@ -15,6 +22,26 @@ import { refundReconciliationService } from '../../services/refundReconciliation
 const router = Router();
 const refundService = RefundService.getInstance();
 const auditService = RefundAuditService.getInstance();
+
+/**
+ * Traveler-facing status payload. The derived outcome replaces raw
+ * `status === 'completed'` as the signal for "fully refunded" so partial,
+ * delayed, failed and unknown results are never reported as complete (#1155).
+ */
+function refundStatusPayload(refund: Refund) {
+  const outcome = deriveRefundOutcome(refund);
+  return {
+    refundStatus: refund.status,
+    outcome,
+    outcomeLabel: REFUND_OUTCOME_LABELS[outcome],
+    isFullyRefunded: isBookingFullyRefunded(refund),
+    stripeRefundId: refund.stripeRefundId,
+    sorobanTxHash: refund.sorobanTxHash,
+    approvedAmount: refund.approvedAmountCents,
+    requestedAmount: refund.requestedAmountCents,
+    isDelayed: Boolean(refund.isDelayed),
+  };
+}
 
 const refundIdParamSchema = z.object({ id: z.string().uuid() }).strict();
 const bookingIdParamSchema = z.object({ bookingId: z.string().uuid() }).strict();
@@ -226,7 +253,8 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     await assertBookingOwnedByRequester(req.params.bookingId, req.user?.walletAddress);
     const refunds = await refundService.getRefundsByBooking(req.params.bookingId);
-    return res.json({ success: true, data: refunds });
+    // Traveler-facing history: project each refund so no internal notes leak.
+    return res.json({ success: true, data: refunds.map(toTravelerRefund) });
   }),
 );
 
@@ -301,7 +329,9 @@ router.get(
   validateParams(refundIdParamSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const refund = await assertRefundOwnedByRequester(req.params.id, req.user?.walletAddress);
-    return res.json({ success: true, data: refund });
+    // Traveler-facing: expose the derived outcome but never internal operator
+    // notes, reviewer identity, error strings or signing material (#1155/#1156).
+    return res.json({ success: true, data: toTravelerRefund(refund) });
   }),
 );
 
@@ -315,24 +345,14 @@ router.get(
       const refund = await refundService.checkOnchainStatus(req.params.id);
       return res.json({
         success: true,
-        data: {
-          refundStatus: refund.status,
-          stripeRefundId: refund.stripeRefundId,
-          sorobanTxHash: refund.sorobanTxHash,
-          approvedAmount: refund.approvedAmountCents,
-        },
+        data: refundStatusPayload(refund),
       });
     } catch {
       const refund = await refundService.getRefund(req.params.id);
       if (!refund) throw new NotFoundError('Refund not found');
       return res.json({
         success: true,
-        data: {
-          refundStatus: refund.status,
-          stripeRefundId: refund.stripeRefundId,
-          sorobanTxHash: refund.sorobanTxHash,
-          approvedAmount: refund.approvedAmountCents,
-        },
+        data: refundStatusPayload(refund),
       });
     }
   }),
