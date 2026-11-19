@@ -113,6 +113,11 @@ const createBookingSchema = z.object({
   lastTicketingDate: z.string().min(1).optional(),
   lastTicketingDateTime: z.string().min(1).optional(),
   providerOfferId: z.string().min(1).max(256).optional(),
+  // Checkout reprice gate (#1189): the confirmed provider total and the
+  // traveler's explicit acceptance are passed through to the orchestrator so
+  // a changed price stops before payment capture.
+  confirmedProviderPriceCents: z.number().int().positive().optional(),
+  repriceAccepted: z.boolean().optional(),
 });
 
 import { BadRequestError, NotFoundError, ConflictError, InternalServerError } from "../../utils/errors";
@@ -148,6 +153,12 @@ router.post(
         ? { lastTicketingDateTime: parsed.data.lastTicketingDateTime }
         : {}),
       providerOfferId: parsed.data.providerOfferId,
+      ...(parsed.data.confirmedProviderPriceCents !== undefined
+        ? { confirmedProviderPriceCents: parsed.data.confirmedProviderPriceCents }
+        : {}),
+      ...(parsed.data.repriceAccepted !== undefined
+        ? { repriceAccepted: parsed.data.repriceAccepted }
+        : {}),
     });
 
     const bookingRepo = AppDataSource.getRepository(Booking);
@@ -193,6 +204,8 @@ router.post(
         lastTicketingDate: parsed.data.lastTicketingDate,
         lastTicketingDateTime: parsed.data.lastTicketingDateTime,
         providerOfferId: parsed.data.providerOfferId,
+        confirmedProviderPriceCents: parsed.data.confirmedProviderPriceCents,
+        repriceAccepted: parsed.data.repriceAccepted,
       });
 
       // Update idempotency key with resource ID
