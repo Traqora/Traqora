@@ -4,6 +4,7 @@ import { AppDataSource } from '../../src/db/dataSource';
 import { Flight } from '../../src/db/entities/Flight';
 import { Passenger } from '../../src/db/entities/Passenger';
 import { Booking } from '../../src/db/entities/Booking';
+import { Refund } from '../../src/db/entities/Refund';
 
 describe('Refunds API Integration Tests', () => {
   let testBooking: Booking;
@@ -189,6 +190,61 @@ describe('Refunds API Integration Tests', () => {
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.data).toEqual([]);
+    });
+  });
+
+  describe('GET /api/v1/refunds/quote/:bookingId', () => {
+    it('returns an estimated refund, currency, fees and a future expiry without creating a refund', async () => {
+      const refundRepo = AppDataSource.getRepository(Refund);
+      const before = await refundRepo.count();
+
+      const response = await request(app).get(`/api/v1/refunds/quote/${testBooking.id}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      const quote = response.body.data;
+      expect(quote.bookingId).toBe(testBooking.id);
+      expect(quote.outcome).toBe('eligible');
+      expect(quote.currency).toBe('USD');
+      expect(quote.originalAmountCents).toBe(35000);
+      expect(quote.estimatedRefundCents).toBeGreaterThan(0);
+      expect(quote.estimatedRefundCents).toBeLessThanOrEqual(35000);
+      expect(quote.fees.totalFeeCents).toBe(
+        quote.fees.processingFeeCents + quote.fees.cancellationFeeCents
+      );
+      expect(new Date(quote.expiresAt).getTime()).toBeGreaterThan(
+        new Date(quote.quotedAt).getTime()
+      );
+
+      const after = await refundRepo.count();
+      expect(after).toBe(before);
+    });
+
+    it('reports an ineligible outcome for a booking that is not confirmed', async () => {
+      testBooking.status = 'created';
+      await AppDataSource.getRepository(Booking).save(testBooking);
+
+      const response = await request(app).get(`/api/v1/refunds/quote/${testBooking.id}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.outcome).toBe('ineligible');
+      expect(response.body.data.estimatedRefundCents).toBe(0);
+    });
+
+    it('returns 404 for an unknown booking', async () => {
+      const response = await request(app).get(
+        '/api/v1/refunds/quote/00000000-0000-0000-0000-000000000000'
+      );
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('returns 400 for a non-UUID booking id', async () => {
+      const response = await request(app).get('/api/v1/refunds/quote/not-a-uuid');
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
     });
   });
 

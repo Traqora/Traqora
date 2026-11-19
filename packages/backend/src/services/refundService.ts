@@ -55,6 +55,51 @@ export interface AppliedFareRule {
   priority: number;
 }
 
+/**
+ * A non-mutating estimate returned before a cancellation is confirmed.
+ * Monetary figures mirror the eligibility policy used by the refund flow so
+ * the estimate cannot disagree with the amount actually approved later.
+ */
+export interface CancellationQuote {
+  bookingId: string;
+  outcome: 'eligible' | 'manual_review' | 'ineligible';
+  reason: string;
+  currency: string;
+  originalAmountCents: number;
+  estimatedRefundCents: number;
+  refundPercentage: number;
+  fees: CancellationQuoteFees;
+  tier: string;
+  factors: RefundPolicyFactors;
+  /** Diagnostic fare-rule detail. `estimatedRefundCents` remains the authoritative figure. */
+  breakdown?: PartialRefundBreakdown;
+  quotedAt: string;
+  expiresAt: string;
+}
+
+export interface CancellationQuoteFees {
+  processingFeeCents: number;
+  cancellationFeeCents: number;
+  totalFeeCents: number;
+}
+
+/** How long a cancellation quote remains valid before it must be regenerated. */
+export const CANCELLATION_QUOTE_TTL_MS = 15 * 60 * 1000;
+
+/** Monetary amounts are stored in cents; USD is the platform settlement currency. */
+export const DEFAULT_QUOTE_CURRENCY = 'USD';
+
+/** Raised when a booking cannot produce an honest cancellation quote. */
+export class QuoteUnavailableError extends Error {
+  constructor(
+    public readonly code: 'MISSING_FLIGHT' | 'MISSING_DEPARTURE_TIME' | 'MISSING_AMOUNT',
+    message: string
+  ) {
+    super(message);
+    this.name = 'QuoteUnavailableError';
+  }
+}
+
 export interface CreateRefundRequest {
   bookingId: string;
   reason: RefundReason;
@@ -165,6 +210,15 @@ function getUnusedSegmentRatio(booking: Booking): number {
 
 function getTicketType(booking: Booking, rules: FareRules): RefundPolicyFactors['ticketType'] {
   return rules.ticketType ?? (booking as RefundableBookingMetadata).ticketType ?? 'standard';
+}
+
+function getQuoteCurrency(booking: Booking): string {
+  const rawData = booking.flight?.rawData as Record<string, unknown> | undefined;
+  const candidate = rawData?.currency;
+  if (typeof candidate === 'string' && /^[A-Z]{3}$/.test(candidate)) {
+    return candidate;
+  }
+  return DEFAULT_QUOTE_CURRENCY;
 }
 
 export class RefundService {
@@ -291,6 +345,70 @@ export class RefundService {
       partialRefundBreakdown,
     };
   }
+
+  /**
+   * Produce a non-mutating cancellation quote for a booking.
+   * Uses a single eligibility pass so the displayed estimate matches the
+   * policy and amount that the refund flow will apply at confirmation.
+   */
+  public async getCancellationQuote(booking: Booking): Promise<CancellationQuote> {
+    if (!booking?.flight) {
+      throw new QuoteUnavailableError(
+        'MISSING_FLIGHT',
+        'Cancellation quote unavailable: booking has no flight relation'
+      );
+    }
+    if (!(booking.flight.departureTime instanceof Date) || Number.isNaN(booking.flight.departureTime.getTime())) {
+      throw new QuoteUnavailableError(
+        'MISSING_DEPARTURE_TIME',
+        'Cancellation quote unavailable: flight departure time is missing'
+      );
+    }
+    if (typeof booking.amountCents !== 'number' || !Number.isFinite(booking.amountCents)) {
+      throw new QuoteUnavailableError(
+        'MISSING_AMOUNT',
+        'Cancellation quote unavailable: booking amount is missing'
+      );
+    }
+
+    const eligibility = await this.checkEligibility(booking);
+    const processingFeeCents = eligibility.processingFeeCents;
+
+    const now = new Date();
+    const departure = booking.flight.departureTime;
+    const expiryWindow = new Date(now.getTime() + CANCELLATION_QUOTE_TTL_MS);
+    // A quote is never valid past the flight it covers.
+    const expiresAt = departure.getTime() > now.getTime() && departure.getTime() < expiryWindow.getTime()
+      ? departure
+      : expiryWindow;
+
+    return {
+      bookingId: booking.id,
+      outcome: eligibility.requiresManualReview
+        ? 'manual_review'
+        : eligibility.isEligible
+          ? 'eligible'
+          : 'ineligible',
+      reason: eligibility.reason,
+      currency: getQuoteCurrency(booking),
+      originalAmountCents: booking.amountCents,
+      estimatedRefundCents: eligibility.refundAmountCents,
+      refundPercentage: eligibility.refundPercentage,
+      fees: {
+        processingFeeCents,
+        // The eligibility policy applied by the refund flow never levies a
+        // separate cancellation fee, so none is deducted from the estimate.
+        cancellationFeeCents: 0,
+        totalFeeCents: processingFeeCents,
+      },
+      tier: eligibility.tier,
+      factors: eligibility.factors,
+      breakdown: eligibility.partialRefundBreakdown,
+      quotedAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    };
+  }
+
   /**
    * Create a new refund request
    * Automatically determines if refund should be delayed based on amount
