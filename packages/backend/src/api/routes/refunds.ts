@@ -3,8 +3,15 @@ import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
 import { RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
+import {
+  deriveRefundOutcome,
+  isBookingFullyRefunded,
+  REFUND_OUTCOME_LABELS,
+  toTravelerRefund,
+} from '../../services/refundPresentation';
 import { AppDataSource } from '../../db/dataSource';
 import { Booking } from '../../db/entities/Booking';
+import { Refund } from '../../db/entities/Refund';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { requireAdmin } from '../../middleware/adminAuth';
@@ -13,6 +20,26 @@ import { BadRequestError, NotFoundError, ForbiddenError } from '../../utils/erro
 const router = Router();
 const refundService = RefundService.getInstance();
 const auditService = RefundAuditService.getInstance();
+
+/**
+ * Traveler-facing status payload. The derived outcome replaces raw
+ * `status === 'completed'` as the signal for "fully refunded" so partial,
+ * delayed, failed and unknown results are never reported as complete (#1155).
+ */
+function refundStatusPayload(refund: Refund) {
+  const outcome = deriveRefundOutcome(refund);
+  return {
+    refundStatus: refund.status,
+    outcome,
+    outcomeLabel: REFUND_OUTCOME_LABELS[outcome],
+    isFullyRefunded: isBookingFullyRefunded(refund),
+    stripeRefundId: refund.stripeRefundId,
+    sorobanTxHash: refund.sorobanTxHash,
+    approvedAmount: refund.approvedAmountCents,
+    requestedAmount: refund.requestedAmountCents,
+    isDelayed: Boolean(refund.isDelayed),
+  };
+}
 
 // Request refund schema
 const createRefundSchema = z.object({
@@ -131,9 +158,11 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
     throw new NotFoundError('Refund not found');
   }
 
+  // Traveler-facing: expose the derived outcome but never internal operator
+  // notes, reviewer identity, error strings or signing material (#1155/#1156).
   return res.json({
     success: true,
-    data: refund,
+    data: toTravelerRefund(refund),
   });
 }));
 
@@ -144,9 +173,10 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
 router.get('/booking/:bookingId', asyncHandler(async (req: Request, res: Response) => {
   const refunds = await refundService.getRefundsByBooking(req.params.bookingId);
 
+  // Traveler-facing history: project each refund so no internal notes leak.
   return res.json({
     success: true,
-    data: refunds,
+    data: refunds.map(toTravelerRefund),
   });
 }));
 
@@ -186,12 +216,7 @@ router.get('/:id/status', asyncHandler(async (req: Request, res: Response) => {
 
     return res.json({
       success: true,
-      data: {
-        refundStatus: refund.status,
-        stripeRefundId: refund.stripeRefundId,
-        sorobanTxHash: refund.sorobanTxHash,
-        approvedAmount: refund.approvedAmountCents,
-      },
+      data: refundStatusPayload(refund),
     });
   } catch (error: any) {
     // If refund doesn't have on-chain tx, just return current status
@@ -202,12 +227,7 @@ router.get('/:id/status', asyncHandler(async (req: Request, res: Response) => {
 
     return res.json({
       success: true,
-      data: {
-        refundStatus: refund.status,
-        stripeRefundId: refund.stripeRefundId,
-        sorobanTxHash: refund.sorobanTxHash,
-        approvedAmount: refund.approvedAmountCents,
-      },
+      data: refundStatusPayload(refund),
     });
   }
 }));
