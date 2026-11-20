@@ -47,6 +47,8 @@ describe('Configuration Security Enforcements', () => {
     delete process.env.JWT_REFRESH_EXPIRES_IN;
     delete process.env.TRACING_SAMPLE_RATE;
     delete process.env.FRONTEND_URL;
+    delete process.env.CORS_ORIGIN;
+    delete process.env.CORS_ALLOWED_ORIGINS;
     delete process.env.CSP_REPORT_ONLY;
   });
 
@@ -78,6 +80,8 @@ describe('Configuration Security Enforcements', () => {
     delete process.env.JWT_REFRESH_EXPIRES_IN;
     delete process.env.TRACING_SAMPLE_RATE;
     delete process.env.FRONTEND_URL;
+    delete process.env.CORS_ORIGIN;
+    delete process.env.CORS_ALLOWED_ORIGINS;
     delete process.env.CSP_REPORT_ONLY;
   });
 
@@ -128,6 +132,8 @@ describe('Configuration Security Enforcements', () => {
     process.env.JWT_REFRESH_SECRET = 'a-strong-and-secure-custom-refresh-secret-here-32-chars';
     process.env.ADMIN_API_KEY = 'a-strong-and-secure-custom-admin-key-here-16-chars';
     process.env.ENCRYPTION_KEY = 'a-strong-and-secure-custom-encryption-key-here-32-chars';
+    process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com';
+    process.env.CSP_REPORT_ONLY = 'false';
 
     process.env.DATABASE_URL = 'postgres://user:pass@localhost:5432/db';
     process.env.REDIS_URL = 'redis://localhost:6379';

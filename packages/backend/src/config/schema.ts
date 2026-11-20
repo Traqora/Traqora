@@ -5,6 +5,7 @@ export const configSchema = z.object({
   port: z.number().default(3001),
   environment: z.enum(['development', 'staging', 'production', 'test']).default('development'),
   corsOrigin: z.string().url().default('http://localhost:3000'),
+  corsAllowedOrigins: z.array(z.string().url()).default([]),
   trustProxy: z.boolean().default(false),
 
   stellarNetwork: z.enum(['production', 'mainnet', 'testnet', 'standalone']).default('testnet'),

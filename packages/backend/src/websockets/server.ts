@@ -4,6 +4,10 @@ import { createClient } from 'redis';
 import http from 'http';
 import { logger } from '../utils/logger';
 import { config } from '../config';
+import {
+  corsOriginMatcher,
+  resolveCorsAllowedOrigins,
+} from '../config/browserSecurity';
 import jwt from 'jsonwebtoken';
 
 // Interface for typed events
@@ -27,7 +31,7 @@ export class WebSocketServer {
   constructor(httpServer: http.Server) {
     this.io = new Server(httpServer, {
       cors: {
-        origin: config.corsOrigin || '*',
+        origin: corsOriginMatcher(resolveCorsAllowedOrigins(config)),
         methods: ['GET', 'POST']
       }
     });

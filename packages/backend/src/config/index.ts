@@ -3,6 +3,10 @@ import { DEFAULT_TRACING_SAMPLER } from './tracing-samplers';
 import { SecretManager } from '../services/secret-manager.service';
 import { logger } from '../utils/logger';
 import {
+  assertBrowserSecurityConfiguration,
+  parseCorsAllowedOrigins,
+} from './browserSecurity';
+import {
   StellarConfigurationError,
   validateStellarConfiguration,
 } from './stellarNetwork';
@@ -60,6 +64,7 @@ const readConfigFromEnv = (): Config => {
     port: parseInteger(process.env.PORT, 3001),
     environment: nodeEnv,
     corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    corsAllowedOrigins: parseCorsAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS),
     trustProxy: parseBool(process.env.TRUST_PROXY, false),
 
     stellarNetwork: process.env.STELLAR_NETWORK || 'testnet',
@@ -170,6 +175,7 @@ const readConfigFromEnv = (): Config => {
 
   const parsed = configSchema.parse(rawConfig);
   enforceStellarConfiguration(parsed, nodeEnv);
+  assertBrowserSecurityConfiguration(parsed);
   return parsed;
 };
 
@@ -233,6 +239,9 @@ export const loadConfig = async (): Promise<Config> => {
     port: parseInteger(await secretManager.getSecret('PORT', '3001'), 3001),
     environment: env,
     corsOrigin: await secretManager.getSecret('CORS_ORIGIN', 'http://localhost:3000'),
+    corsAllowedOrigins: parseCorsAllowedOrigins(
+      await secretManager.getSecret('CORS_ALLOWED_ORIGINS', ''),
+    ),
     trustProxy: (await secretManager.getSecret('TRUST_PROXY', 'false')) === 'true',
 
     stellarNetwork: await secretManager.getSecret('STELLAR_NETWORK', 'testnet'),
@@ -358,9 +367,10 @@ export const loadConfig = async (): Promise<Config> => {
     activeConfig = result.data;
     try {
       enforceStellarConfiguration(activeConfig, env);
+      assertBrowserSecurityConfiguration(activeConfig);
     } catch (error) {
       logger.error(
-        'CRITICAL CONFIGURATION ERROR: Inconsistent Stellar network or contract configuration detected!',
+        'CRITICAL CONFIGURATION ERROR: Invalid Stellar network, contract, or browser security configuration detected!',
         error as Error,
       );
       if (isProdOrStaging) {
