@@ -24,6 +24,8 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 - [Staging Seed Runbook](./STAGING_SEED.md) — seeding a staging environment with deterministic fixtures, guards, and reset semantics (#749).
 - [Contracts fmt / clippy Gate](./CONTRACTS_LINT_GATE.md) — the contracts quality gate shared by `make` and CI (#743).
 - [Contract Snapshot Review Policy](./CONTRACT_SNAPSHOT_REVIEW.md) — what a contract upgrade must preserve, and how the upgrade diff is reviewed (#744).
+- [Booking Failure Incident Runbooks](./BOOKING_FAILURE_RUNBOOKS.md): first response for supplier outage, payment delay, contract outage and refund backlog.
+- [Operations Health and Audit Filters](./OPERATIONS_HEALTH_AND_AUDIT.md): health snapshot fields, server-side audit filters and export limits.
 
 ---
 
