@@ -28,8 +28,11 @@
  * ## Guarantees
  *
  * 1. **Redaction is recursive and total.** Any key matching
- *    {@link SENSITIVE_LOG_KEY} is replaced with {@link REDACTED} at any depth,
- *    in objects and arrays alike.
+ *    {@link SENSITIVE_LOG_KEY} (or listed in `EXACT_SENSITIVE_KEYS`) is
+ *    replaced with {@link REDACTED} at any depth, in objects and arrays alike.
+ *    In addition, {@link redactMessageText} removes email addresses and Stellar
+ *    secret seeds embedded inside string values, so interpolated PII in free
+ *    text messages and error messages is covered (issue #1182).
  * 2. **Errors are serialised, not dropped.** `Error` instances (and the values
  *    in `error` / `err` fields) become `{ name, message, stack, cause }`
  *    objects. Plain `JSON.stringify` would emit `{}` because `message` and
@@ -67,15 +70,72 @@ export const CIRCULAR = '[Circular]';
 export const MAX_DEPTH_REACHED = '[MaxDepth]';
 
 /**
- * Keys whose values must never reach a log sink. Matched case-insensitively
- * as a substring so `Authorization`, `x-api-key` and `refreshToken` all match.
+ * Key fragments whose values must never reach a log sink. Matched
+ * case-insensitively as substrings so `Authorization`, `x-api-key` and
+ * `refreshToken` all match.
+ *
+ * Each group maps to a V1 privacy requirement (issue #1182):
+ *  - credentials and tokens;
+ *  - wallet secrets (Stellar signing material);
+ *  - payment secrets (card and bank details);
+ *  - passenger identity (names, government IDs, dates of birth);
+ *  - contact details (email and phone).
+ *
+ * Word boundaries are used for short fragments (`cvv`, `dob`) so ordinary
+ * identifiers such as `flightNumber` or `status` are never caught.
  */
-export const SENSITIVE_LOG_KEY =
-  /authorization|cookie|set-cookie|password|token|secret|api[_-]?key|jwt|refresh_token/i;
+const SENSITIVE_KEY_FRAGMENTS = [
+  // Credentials and tokens
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'password',
+  'token',
+  'secret',
+  'api[_-]?key',
+  'jwt',
+  'refresh[_-]?token',
+  // Wallet secrets (Stellar signing material). Public wallet addresses are
+  // intentionally NOT matched; only key material that can sign is a secret.
+  'mnemonic',
+  'seed[_-]?phrase',
+  'recovery[_-]?phrase',
+  'private[_-]?key',
+  // Payment secrets (card and bank details)
+  'card[_-]?number',
+  '\\bcvv\\b',
+  '\\bcvc\\b',
+  'iban',
+  'bank[_-]?account',
+  // Passenger identity (names, government IDs, dates of birth)
+  'passport',
+  'national[_-]?id',
+  'date[_-]?of[_-]?birth',
+  '\\bdob\\b',
+  'first[_-]?name',
+  'last[_-]?name',
+  'full[_-]?name',
+  'passenger[_-]?name',
+  // Contact details
+  'email',
+  'phone',
+  'mobile',
+] as const;
+
+export const SENSITIVE_LOG_KEY = new RegExp(SENSITIVE_KEY_FRAGMENTS.join('|'), 'i');
+
+/**
+ * Keys that are sensitive only as whole names. A substring match would over-
+ * match (`to` appears in `token`, `total`, and `tolerance`), so these are
+ * compared exactly after trimming and case-folding. `to` is the recipient of
+ * email and SMS log records (an address or phone number).
+ */
+const EXACT_SENSITIVE_KEYS = new Set(['to']);
 
 /**
  * Substring list form of {@link SENSITIVE_LOG_KEY}, kept for the callers that
- * already work with a list (request logging, legacy middleware).
+ * already work with a list (request logging, legacy middleware). This is a
+ * documentation/consumer convenience; {@link isSensitiveKey} is authoritative.
  */
 export const SENSITIVE_LOG_KEYS = [
   'authorization',
@@ -89,6 +149,18 @@ export const SENSITIVE_LOG_KEYS = [
   'api-key',
   'jwt',
   'refresh_token',
+  'mnemonic',
+  'seed_phrase',
+  'private_key',
+  'passport',
+  'card_number',
+  'cvv',
+  'iban',
+  'email',
+  'phone',
+  'first_name',
+  'last_name',
+  'to',
 ];
 
 /** Envelope keys that are part of the documented contract. */
@@ -128,7 +200,32 @@ export function deriveEventName(message: unknown): string {
 
 /** True when `key` names a field that must be redacted. */
 export function isSensitiveKey(key: string): boolean {
-  return SENSITIVE_LOG_KEY.test(key);
+  return EXACT_SENSITIVE_KEYS.has(key.trim().toLowerCase()) || SENSITIVE_LOG_KEY.test(key);
+}
+
+/**
+ * Email addresses embedded in free-text messages, for example the many
+ * `logger.info(\`Invitation sent to ${email}\`)` call sites that cannot use a
+ * structured field. Requires a dot and a two-character TLD to avoid matching
+ * ordinary words that contain `@`.
+ */
+const LOG_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+/**
+ * Stellar secret seeds: 56 base32 characters starting with `S`. Public
+ * addresses start with `G` and are deliberately not matched.
+ */
+const LOG_STELLAR_SECRET_PATTERN = /\bS[2-7A-Z]{55}\b/g;
+
+/**
+ * Redact PII and signing material that appears inside a string value rather
+ * than under a sensitive key. Applied to every string {@link redactValue}
+ * walks, so message, error and structured-field values are all covered.
+ */
+export function redactMessageText(value: string): string {
+  return value
+    .replace(LOG_STELLAR_SECRET_PATTERN, REDACTED)
+    .replace(LOG_EMAIL_PATTERN, REDACTED);
 }
 
 /** Serialised form of an `Error`, safe to place in a JSON record. */
@@ -160,17 +257,19 @@ export function serializeError(value: unknown, depth = 0): SerializedError | nul
   const source = value as unknown as Record<string, unknown>;
   const serialized: SerializedError = {
     name: String(source.name ?? 'Error'),
-    message: String(source.message ?? ''),
+    // Error messages frequently interpolate the value that failed validation
+    // (an email, a phone number, a secret seed), so redact them too.
+    message: redactMessageText(String(source.message ?? '')),
   };
 
-  if (typeof source.stack === 'string') serialized.stack = source.stack;
+  if (typeof source.stack === 'string') serialized.stack = redactMessageText(source.stack);
   if (source.code !== undefined && (typeof source.code === 'string' || typeof source.code === 'number')) {
     serialized.code = source.code;
   }
 
   if (source.cause !== undefined && source.cause !== null) {
     const cause = serializeError(source.cause, depth + 1);
-    serialized.cause = cause ?? String(source.cause);
+    serialized.cause = cause ?? redactMessageText(String(source.cause));
   }
 
   // Preserve own enumerable extras (e.g. `err.code`, `err.statusCode`) minus the
@@ -196,7 +295,8 @@ export function redactValue(value: unknown, seen: WeakSet<object> = new WeakSet(
   if (value === null || value === undefined) return value;
 
   const type = typeof value;
-  if (type === 'string' || type === 'boolean') return value;
+  if (type === 'string') return redactMessageText(value as string);
+  if (type === 'boolean') return value;
   if (type === 'number') return Number.isFinite(value as number) ? value : String(value);
   if (type === 'bigint') return `${(value as bigint).toString()}n`;
   if (type === 'symbol' || type === 'function') return `[${type}]`;
@@ -256,7 +356,11 @@ export function redactValue(value: unknown, seen: WeakSet<object> = new WeakSet(
 export function redactLogRecord<T extends object>(record: T): T {
   const redacted = redactValue(record) as Record<string | symbol, unknown>;
   for (const symbol of Object.getOwnPropertySymbols(record)) {
-    redacted[symbol] = (record as unknown as Record<symbol, unknown>)[symbol];
+    const symbolValue = (record as unknown as Record<symbol, unknown>)[symbol];
+    // winston stores the rendered message under Symbol.for('message'); it must
+    // receive the same in-string redaction as ordinary message fields.
+    redacted[symbol] =
+      typeof symbolValue === 'string' ? redactMessageText(symbolValue) : symbolValue;
   }
   return redacted as unknown as T;
 }
