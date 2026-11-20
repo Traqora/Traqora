@@ -31,4 +31,22 @@ describe('BookingConfirmationScreen', () => {
     expect(screen.getByText('JFK → LAX')).toBeInTheDocument();
     expect(screen.getByText('abc123def456')).toBeInTheDocument();
   });
+
+  it('renders download confirmation button and handles download action', () => {
+    const handleDownload = jest.fn();
+    render(
+      <BookingConfirmationScreen
+        bookingId="12345"
+        itinerary={sampleItinerary}
+        paymentStatus="confirmed"
+        totalAmount="$450.00"
+        onDownloadConfirmation={handleDownload}
+      />
+    );
+
+    const downloadButton = screen.getByRole('button', { name: /Download Confirmation/i });
+    expect(downloadButton).toBeInTheDocument();
+    downloadButton.click();
+    expect(handleDownload).toHaveBeenCalledTimes(1);
+  });
 });
