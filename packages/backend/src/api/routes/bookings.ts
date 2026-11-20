@@ -10,6 +10,12 @@ import {
   getOrCreateIdempotencyKey,
   hashObject,
 } from "../../services/idempotency";
+import {
+  assertCancellationConfirmation,
+  CANCELLATION_TERMS_VERSION,
+} from "../../services/cancellationConfirmation";
+import { runOnceByIdempotencyKey } from "../../services/cancellationIdempotency";
+import { checkoutRateLimiter } from "../../middleware/highRiskRateLimit";
 import { BookingOrchestrationService } from "../../services/bookingOrchestrationService";
 import { getStripe, stripeWebhookSecret } from "../../services/stripe";
 import {
@@ -97,6 +103,7 @@ import { BadRequestError, NotFoundError, ConflictError, InternalServerError } fr
 
 router.post(
   "/",
+  checkoutRateLimiter,
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const parsed = createBookingSchema.safeParse(req.body);
@@ -558,13 +565,48 @@ router.get(
   }),
 );
 
+const cancelBookingSchema = z.object({
+  confirm: z.literal(true, {
+    errorMap: () => ({ message: "Explicit cancellation confirmation is required" }),
+  }),
+  termsVersion: z.literal(CANCELLATION_TERMS_VERSION),
+  expectedNetRefundCents: z.number().int().nonnegative(),
+});
+
 router.post(
   "/:id/cancel",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
+    const parsed = cancelBookingSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const idempotencyKey = req.header("Idempotency-Key");
+    if (!idempotencyKey) {
+      throw new BadRequestError("Missing Idempotency-Key header");
+    }
+
     const orchestrationService = new BookingOrchestrationService();
-    const result = await orchestrationService.processCancellation(req.params.id);
-    return res.json({ success: true, data: result });
+    const quote = await orchestrationService.calculateBookingCancellationRefund(
+      req.params.id,
+    );
+    assertCancellationConfirmation(quote, parsed.data);
+
+    const requestHash = hashObject({ bookingId: req.params.id, ...parsed.data });
+    const idempotencyRepo = AppDataSource.getRepository(IdempotencyKey);
+    const { result, idempotent } = await runOnceByIdempotencyKey(
+      idempotencyRepo,
+      {
+        key: idempotencyKey,
+        method: req.method,
+        path: req.baseUrl + req.path,
+        requestHash,
+      },
+      () => orchestrationService.processCancellation(req.params.id),
+    );
+
+    return res.json({ success: true, data: result, idempotent });
   }),
 );
 

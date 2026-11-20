@@ -7,6 +7,7 @@ import { NotificationService } from './NotificationService';
 import { RefundAuditService } from './refundAuditService';
 import { logger } from '../utils/logger';
 import { withRetries } from './retry';
+import { isDelayedRefundReady } from './refundTiming';
 
 export interface RefundPolicyFactors {
   bookingStatus: string;
@@ -967,7 +968,7 @@ export class RefundService {
       },
       relations: ['booking', 'booking.passenger', 'booking.flight'],
       order: { delayedUntil: 'ASC' },
-    }).then((refunds) => refunds.filter((r) => r.delayedUntil && r.delayedUntil <= now));
+    }).then((refunds) => refunds.filter((r) => isDelayedRefundReady(r, now)));
   }
 
   /**

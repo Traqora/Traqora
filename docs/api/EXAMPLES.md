@@ -238,6 +238,54 @@ The refund completes when the Soroban refund contract executes the payout on Ste
 
 ---
 
+## 5. Cancellation
+
+Cancellation is a two step flow. First quote the exact terms, then submit an explicit confirmation together with an idempotency key. This prevents a traveler from agreeing to stale terms and stops a retried request from cancelling twice.
+
+### Step 5.1 - Quote the cancellation terms
+
+```bash
+curl -s http://localhost:3001/api/v1/bookings/b7e6d5c4-3210-4fed-cba9-876543210fed/cancellation-refund \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..."
+```
+
+Response `200` (abridged) contains `eligible`, `netRefundCents`, `refundPercentage` and a human readable `breakdown`. Show these values to the traveler for review.
+
+### Step 5.2 - Confirm and cancel
+
+```bash
+curl -s -X POST http://localhost:3001/api/v1/bookings/b7e6d5c4-3210-4fed-cba9-876543210fed/cancel \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
+  -H "Idempotency-Key: cancel-b7e6d5c4-3210" \
+  -d '{
+    "confirm": true,
+    "termsVersion": "v1",
+    "expectedNetRefundCents": 34250
+  }'
+```
+
+Rules for this endpoint:
+
+- `confirm` must be `true` and `termsVersion` must be the version returned with the quote.
+- `expectedNetRefundCents` must match the live quote. If the quote changed, the request is rejected with `409` and the traveler must review the new terms.
+- An `Idempotency-Key` header is required. Repeating the same key and payload replays the first response with `"idempotent": true` and performs no second supplier cancellation or refund. Reusing a key with a different payload returns `409`.
+
+---
+
+## 6. Rate limits
+
+High risk endpoints have dedicated limits on top of the global and tiered limits. Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`. When a limit is exceeded the API returns `429` with code `RATE_LIMIT_EXCEEDED` and a `Retry-After` header.
+
+| Endpoint family | Limit | Window | Purpose |
+| --- | --- | --- | --- |
+| `/api/v1/auth/*` and `/api/v1/admin/auth/*` | 10 requests | 15 minutes | Limit wallet authentication brute force attempts per client IP |
+| `POST /api/v1/bookings` | 8 requests | 60 seconds | Limit checkout attempts that start payment and booking work per client IP |
+
+Clients should back off for the number of seconds in `Retry-After` before retrying.
+
+---
+
 ## Regenerating these examples
 
 The OpenAPI document is generated from zod schemas:

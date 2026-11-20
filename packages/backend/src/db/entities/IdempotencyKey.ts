@@ -22,6 +22,10 @@ export class IdempotencyKey {
   @Column({ type: 'varchar', length: 64, nullable: true })
   resourceId?: string | null;
 
+  /** Serialized response replayed for a repeated request with the same key. */
+  @Column({ type: 'text', nullable: true })
+  responseBody?: string | null;
+
   @CreateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   createdAt!: Date;
 }
