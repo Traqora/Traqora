@@ -1258,18 +1258,27 @@ export class BookingOrchestrationService {
     groupName: string;
     flightId: string;
     organizerEmail: string;
+    organizerWalletAddress?: string;
     memberEmails: string[];
     splitMethod: 'equal' | 'custom' | 'percentage';
+    splitConfig?: Record<string, number>;
     corporateAccountId?: string;
     costCenter?: string;
     department?: string;
     bookingPolicyId?: string;
+    notes?: string;
   }): Promise<GroupBooking> {
     const groupService = GroupBookingService.getInstance();
     return groupService.createGroupBooking({
-      ...params,
-      organizerWalletAddress: undefined,
-    });
+      groupName: params.groupName,
+      flightId: params.flightId,
+      organizerEmail: params.organizerEmail,
+      organizerWalletAddress: params.organizerWalletAddress,
+      memberEmails: params.memberEmails,
+      splitMethod: params.splitMethod,
+      splitConfig: params.splitConfig,
+      notes: params.notes,
+    } as any);
   }
 
   async groupCheckIn(

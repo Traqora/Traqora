@@ -5,8 +5,9 @@ import { AppDataSource, initDataSource } from '../src/db/dataSource';
 import { Flight } from '../src/db/entities/Flight';
 import { config } from '../src/config';
 
+const walletAddress = 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZA';
 const validToken = jwt.sign(
-  { walletAddress: 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZA', walletType: 'freighter' },
+  { walletAddress, walletType: 'freighter' },
   config.jwtSecret,
   { expiresIn: '1h' }
 );
@@ -85,7 +86,7 @@ describe('Booking flow', () => {
         email: 'a@example.com',
         firstName: 'A',
         lastName: 'B',
-        sorobanAddress: 'GPASSENGER',
+        sorobanAddress: walletAddress,
       },
     };
 
@@ -124,7 +125,7 @@ describe('Booking flow', () => {
           email: 'c@example.com',
           firstName: 'C',
           lastName: 'D',
-          sorobanAddress: 'GPASSENGER2',
+          sorobanAddress: walletAddress,
         },
       })
       .expect(201);
