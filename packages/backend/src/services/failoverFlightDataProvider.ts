@@ -41,6 +41,8 @@ import {
 } from '../types/flight';
 import { OffchainFlightDataProvider } from './offchainFlightDataProvider';
 
+import { recordSupplierRequest } from './operationsHealthService';
+
 export interface NamedFlightDataProvider {
   /** Stable identifier used in logs and error messages (e.g. "repository"). */
   name: string;
@@ -103,6 +105,7 @@ export class FailoverFlightDataProvider implements OffchainFlightDataProvider {
       try {
         const flights = await provider.search(criteria, pagination);
         const latencyMs = Date.now() - startedAt;
+        recordSupplierRequest(true);
         attempts.push({ provider: name, succeeded: true, latencyMs });
         if (attempts.length > 1) {
           logger.warn('Flight provider failover succeeded (#779)', {
@@ -116,6 +119,7 @@ export class FailoverFlightDataProvider implements OffchainFlightDataProvider {
         return flights;
       } catch (error) {
         const latencyMs = Date.now() - startedAt;
+        recordSupplierRequest(false);
         const message = error instanceof Error ? error.message : String(error);
         attempts.push({
           provider: name,
@@ -160,6 +164,7 @@ export class FailoverFlightDataProvider implements OffchainFlightDataProvider {
       try {
         const result = await provider.search(criteria, pagination);
         const latencyMs = Date.now() - startedAt;
+        recordSupplierRequest(true);
         succeeded += 1;
         attempts.push({ provider: name, succeeded: true, latencyMs });
         for (const flight of result) {
@@ -169,6 +174,7 @@ export class FailoverFlightDataProvider implements OffchainFlightDataProvider {
         }
       } catch (error) {
         const latencyMs = Date.now() - startedAt;
+        recordSupplierRequest(false);
         const raw = error instanceof Error ? error.message : String(error);
         const safeError = redactProviderSecrets(raw);
         failed += 1;

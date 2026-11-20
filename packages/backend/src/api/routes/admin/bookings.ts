@@ -8,6 +8,7 @@ import { auditLog } from '../../../middleware/adminAudit';
 import { adminPaginationSchema } from '../../schemas/common';
 import { BadRequestError, NotFoundError } from '../../../utils/errors';
 import { createPaginationMeta } from '../../../types/pagination';
+import { supportBookingService } from '../../../services/SupportBookingService';
 
 const router = Router();
 
@@ -54,6 +55,22 @@ router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) =
 
     const pagination = createPaginationMeta(page, limit, total);
     return res.json({ success: true, data: bookings, pagination });
+}));
+
+// GET /api/v1/admin/bookings/lookup
+// Authorized support lookup by safe reference, with requester verification.
+// Registered before /:id so "lookup" is not treated as a booking UUID.
+router.get('/lookup', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+    const { reference, contact, reason } = req.query;
+    const summary = await supportBookingService.lookup({
+        reference: typeof reference === 'string' ? reference : '',
+        claimedContact: typeof contact === 'string' ? contact : undefined,
+        reason: typeof reason === 'string' ? reason : '',
+        adminId: req.admin?.adminId ?? 'unknown',
+        adminEmail: req.admin?.email ?? 'unknown',
+        ipAddress: req.ip || req.socket?.remoteAddress,
+    });
+    return res.json({ success: true, data: summary });
 }));
 
 // GET /api/v1/admin/bookings/:id

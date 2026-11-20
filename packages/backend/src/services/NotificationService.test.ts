@@ -189,6 +189,41 @@ describe("NotificationService", () => {
       expect(await service.shouldDeliver("user-dnd", "inapp", "system")).toBe(true);
     });
 
+    it("should deliver a required notice even when the channel is opted out", async () => {
+      await service.updatePreference("user-1", {
+        channel: "email",
+        category: "booking",
+        frequency: "never",
+        enabled: false,
+      });
+
+      expect(
+        await service.shouldDeliver("user-1", "email", "booking", true)
+      ).toBe(true);
+    });
+
+    it("should deliver required categories even when the channel is opted out", async () => {
+      await service.updatePreference("user-1", {
+        channel: "email",
+        category: "payment",
+        frequency: "never",
+        enabled: false,
+      });
+
+      expect(await service.shouldDeliver("user-1", "email", "payment")).toBe(true);
+    });
+
+    it("should still gate optional notices when a required flag is absent", async () => {
+      await service.updatePreference("user-1", {
+        channel: "email",
+        category: "marketing",
+        frequency: "never",
+        enabled: false,
+      });
+
+      expect(await service.shouldDeliver("user-1", "email", "marketing")).toBe(false);
+    });
+
     it("should block non-system channels when DND covers the full day", async () => {
       // Set DND to cover the entire day so it is definitely active right now
       await service.updateUserSettings("user-dnd", {

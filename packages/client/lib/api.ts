@@ -444,6 +444,56 @@ export interface PerformanceSnapshot {
 
 export type ApiResult<T> = { success: true; data: T } | { success: false; error: { message: string } }
 
+export interface AuditLogFilters {
+  action?: string;
+  actorType?: 'user' | 'admin' | 'system' | 'anonymous';
+  userId?: string;
+  adminId?: string;
+  resource?: string;
+  resourceId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  actorType: string;
+  userId: string | null;
+  adminId: string | null;
+  resource: string | null;
+  resourceId: string | null;
+  details: string | null;
+  metadata: Record<string, unknown> | null;
+  ipAddress: string;
+  userAgent: string | null;
+  createdAt: string;
+}
+
+export interface AuditLogPage {
+  data: AuditLogEntry[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}
+
+function buildAuditQuery(filters: AuditLogFilters): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+  return params.toString();
+}
+
 export function getAuthHeader(): Record<string, string> {
   if (typeof window === 'undefined') return {}
   try {
@@ -1197,6 +1247,32 @@ export const apiClient = {
     try {
       const data = await exportSearchData()
       return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getAuditLogs: async (filters: AuditLogFilters = {}): Promise<ApiResult<AuditLogPage>> => {
+    try {
+      const query = buildAuditQuery(filters)
+      const body = await authedFetch(`/api/v1/audit-logs${query ? `?${query}` : ''}`)
+      return { success: true, data: body as AuditLogPage }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  exportAuditLogs: async (filters: AuditLogFilters = {}): Promise<ApiResult<string>> => {
+    try {
+      const query = buildAuditQuery(filters)
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/audit-logs/export${query ? `?${query}` : ''}`,
+        { method: 'GET', headers: getAuthHeader() }
+      )
+      if (!response.ok) {
+        throw new ApiError(`HTTP ${response.status}`, response.status)
+      }
+      return { success: true, data: await response.text() }
     } catch (error: any) {
       return { success: false, error: { message: error.message } }
     }
