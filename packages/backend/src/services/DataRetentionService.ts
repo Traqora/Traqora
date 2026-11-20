@@ -3,6 +3,10 @@ import { SecurityAuditLog } from '../db/entities/SecurityAuditLog';
 import { AdminAuditLog } from '../db/entities/AdminAuditLog';
 import { SensitiveOperationApproval } from '../db/entities/SensitiveOperationApproval';
 import { AccountDeletionRequest } from '../db/entities/AccountDeletionRequest';
+import {
+  TRAVELER_DATA_POLICIES,
+  type TravelerDataRetentionPolicy,
+} from './governance/travelerDataRetention';
 import { logger } from '../utils/logger';
 import { LessThan } from 'typeorm';
 
@@ -64,6 +68,15 @@ export class DataRetentionService {
     }
     
     return merged;
+  }
+
+  /**
+   * Traveler data purpose, retention, erasure and exception mapping (#1185).
+   * The registry is shared with the privacy documentation so operational and
+   * policy views cannot drift apart.
+   */
+  getTravelerDataPolicies(): readonly TravelerDataRetentionPolicy[] {
+    return TRAVELER_DATA_POLICIES;
   }
 
   /**
