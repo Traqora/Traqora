@@ -1,5 +1,4 @@
-# Mobile App
-This directory contains the mobile app source code (iOS and Android).
-- Mobile APIs integrated
-- Push notifications supported
-- Biometric auth implemented
+# Traqora Mobile App
+
+## Booking Detail View
+The BookingDetailScreen component displays the saved itinerary, passenger summary, payment state, supplier reference policy, and cancellation terms. It also supports optional back navigation and self-service booking cancellation requests for pending payments.
