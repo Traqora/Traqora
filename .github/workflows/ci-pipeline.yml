@@ -85,6 +85,9 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
+      - name: Typecheck
+        run: npm run typecheck --workspace=packages/client
+
       - name: Lint
         run: npm run lint --workspace=packages/client || true
 
