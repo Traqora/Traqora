@@ -63,6 +63,7 @@ import { AppError } from './services/ErrorHandlingService';
 import { requestLogger } from './middleware/requestLogger';
 import { analyticsAuditLogger } from './middleware/audit-logger';
 import { auditLog as auditLogger } from './middleware/audit';
+import { authRateLimiter } from './middleware/highRiskRateLimit';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
@@ -193,7 +194,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/analytics', analyticsRoutes);
 
 
-  app.use('/api/v1/auth', validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
+  app.use('/api/v1/auth', authRateLimiter, validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/v1/flight-status', requireAuth, createFlightRoutes(flightSearchService));
@@ -208,7 +209,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/security', requireAuth, securityRoutes);
 
   // Admin routes
-  app.use('/api/v1/admin/auth', adminAuthRoutes);
+  app.use('/api/v1/admin/auth', authRateLimiter, adminAuthRoutes);
   app.use('/api/v1/admin/flights', adminFlightRoutes);
   app.use('/api/v1/admin/users', adminUserRoutes);
   app.use('/api/v1/admin/bookings', adminBookingRoutes);
