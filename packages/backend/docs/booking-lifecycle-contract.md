@@ -63,6 +63,8 @@ Implementation: `packages/backend/src/services/bookingOrchestrationService.ts`
 
 `policy.reason` is a stable code from `CANCEL_REJECTION_REASONS`:
 `already_cancelled`, `booking_failed`, `refund_rejected` (or `cancellable`).
+The full platform and supplier fare decision matrix is documented in
+[V1 Cancellation Eligibility Rules](CANCELLATION_ELIGIBILITY.md).
 
 ### Error cases
 

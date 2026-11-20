@@ -134,6 +134,11 @@ flowchart TB
 
 For deployment procedures see [docs/deployment-guide.md](./docs/deployment-guide.md) and the [Contract Deployment Runbook](./docs/operations/CONTRACT_DEPLOYMENT_RUNBOOK.md).
 
+### V1 booking surface
+
+- [V1 booking detail contract](./packages/client/docs/V1_BOOKING_DETAIL_CONTRACT.md): missing, unauthorized, pending and unavailable detail states, plus supplier schedule change display.
+- [V1 cancellation eligibility rules](./packages/backend/docs/CANCELLATION_ELIGIBILITY.md): decision matrix combining platform status with supplier fare rules.
+
 ## Glossary
 
 | Term | Definition |
