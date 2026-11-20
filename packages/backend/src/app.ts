@@ -7,6 +7,7 @@ import morgan from 'morgan';
 import { securityMiddleware } from './middleware/securityMiddleware';
 import { createFlightRoutes } from './api/routes/flights';
 import { bookingRoutes } from './api/routes/bookings';
+import selfTransferRoutes from './api/routes/selfTransfer';
 import { refundRoutes } from './api/routes/refunds';
 import { insuranceRoutes } from './api/routes/insurance';
 import { groupBookingRoutes } from './api/routes/group-bookings';
@@ -192,6 +193,9 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/v1/flight-status', requireAuth, createFlightRoutes(flightSearchService));
+  app.use('/api/v1/bookings', requireAuth, validateRequest('/api/v1/bookings'), bookingRoutes);
+  app.use('/api/v1/self-transfer', requireAuth, selfTransferRoutes);
+  app.use('/api/v1/refunds', requireAuth, validateRequest('/api/v1/refunds/request'), refundRoutes);
   // Booking routes enforce explicit per-route auth/validation; Stripe webhook remains
   // public and is authenticated by Stripe signature verification in-route.
   app.use('/api/v1/bookings', bookingRoutes);

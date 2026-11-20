@@ -18,6 +18,7 @@ import {
 import { MapPin, Plus, Trash2, ArrowRight, Loader2, Sparkles, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import { apiClient, type MultiCityItinerary, type MultiCitySegmentInput } from "@/lib/api"
+import { formatAirportClock } from "@/lib/airport-time"
 
 const IATA_PATTERN = /^[A-Z]{3}$/
 const MIN_SEGMENTS = 2
@@ -327,6 +328,16 @@ export function JourneyTripPlanner() {
                     <div className="text-xs text-muted-foreground flex items-center justify-between pt-2 border-t">
                       <span>Flight: {res.bestFlight.flightNumber} ({res.bestFlight.airlineCode})</span>
                       <span>Duration: {res.bestFlight.duration}m</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground flex justify-between pt-1 border-t">
+                      <span>
+                        Dep {formatAirportClock(res.bestFlight.departure_time, res.segment.origin).time}{" "}
+                        {formatAirportClock(res.bestFlight.departure_time, res.segment.origin).zoneLabel}
+                      </span>
+                      <span>
+                        Arr {formatAirportClock(res.bestFlight.arrival_time ?? res.bestFlight.departure_time, res.segment.destination).time}{" "}
+                        {formatAirportClock(res.bestFlight.arrival_time ?? res.bestFlight.departure_time, res.segment.destination).zoneLabel}
+                      </span>
                     </div>
                   ) : (
                     <div className="text-xs text-amber-600 pt-2 border-t">
