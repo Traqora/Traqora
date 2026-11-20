@@ -1,27 +1,35 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
-import { BadRequestError } from '../../utils/errors';
 import { CheckInService } from '../../services/checkinService';
 import { getWebSocketServer } from '../../websockets/server';
 import { logger } from '../../utils/logger';
+import { validateBody, validateParams } from '../../middleware/requestValidation';
+import { getBookingForRequester } from '../../middleware/bookingAccess';
 
 const router = Router();
 const checkInService = new CheckInService();
 
-// Updated to include optional timezone string validation
-const checkInSchema = z.object({
-  seatNumber: z.string().min(1).max(8).optional(),
-  timezone: z.string().optional(), // Added for 24-hour boundary timezone check
-});
+const bookingIdParamSchema = z.object({ bookingId: z.string().uuid() }).strict();
 
-const seatSchema = z.object({
-  seatNumber: z.string().min(1).max(8),
-});
+const checkInSchema = z
+  .object({
+    seatNumber: z.string().min(1).max(8).optional(),
+    timezone: z.string().min(1).max(64).optional(),
+  })
+  .strict();
+
+const seatSchema = z
+  .object({
+    seatNumber: z.string().min(1).max(8),
+  })
+  .strict();
 
 router.get(
   '/:bookingId/window',
+  validateParams(bookingIdParamSchema),
   asyncHandler(async (req: Request, res: Response) => {
+    await getBookingForRequester(req.params.bookingId, req);
     const { window } = await checkInService.getWindow(req.params.bookingId);
     return res.json({ success: true, data: window });
   }),
@@ -29,17 +37,14 @@ router.get(
 
 router.post(
   '/:bookingId',
+  validateParams(bookingIdParamSchema),
+  validateBody(checkInSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const parsed = checkInSchema.safeParse(req.body || {});
-    if (!parsed.success) {
-      throw new BadRequestError('Validation error', parsed.error.flatten());
-    }
-
-    // Pass the bookingId, seatNumber, and timezone into the hardened service
+    await getBookingForRequester(req.params.bookingId, req);
     const checkIn = await checkInService.checkIn({
       bookingId: req.params.bookingId,
-      seatNumber: parsed.data.seatNumber,
-      timezone: parsed.data.timezone || 'UTC', // Fallback safely to UTC if missing
+      seatNumber: req.body.seatNumber,
+      timezone: req.body.timezone || 'UTC',
     });
 
     try {
@@ -55,7 +60,9 @@ router.post(
 
 router.get(
   '/:bookingId',
+  validateParams(bookingIdParamSchema),
   asyncHandler(async (req: Request, res: Response) => {
+    await getBookingForRequester(req.params.bookingId, req);
     const checkIn = await checkInService.getCheckIn(req.params.bookingId);
     return res.json({ success: true, data: checkIn });
   }),
@@ -63,20 +70,20 @@ router.get(
 
 router.patch(
   '/:bookingId/seat',
+  validateParams(bookingIdParamSchema),
+  validateBody(seatSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const parsed = seatSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new BadRequestError('Validation error', parsed.error.flatten());
-    }
-
-    const checkIn = await checkInService.reselectSeat(req.params.bookingId, parsed.data.seatNumber);
+    await getBookingForRequester(req.params.bookingId, req);
+    const checkIn = await checkInService.reselectSeat(req.params.bookingId, req.body.seatNumber);
     return res.json({ success: true, data: checkIn });
   }),
 );
 
 router.get(
   '/:bookingId/boarding-pass.pdf',
+  validateParams(bookingIdParamSchema),
   asyncHandler(async (req: Request, res: Response) => {
+    await getBookingForRequester(req.params.bookingId, req);
     const pdfBuffer = await checkInService.generateBoardingPassPdf(req.params.bookingId);
     res.set({
       'Content-Type': 'application/pdf',
@@ -88,7 +95,9 @@ router.get(
 
 router.get(
   '/:bookingId/wallet-pass',
+  validateParams(bookingIdParamSchema),
   asyncHandler(async (req: Request, res: Response) => {
+    await getBookingForRequester(req.params.bookingId, req);
     const pass = await checkInService.generateWalletPass(req.params.bookingId);
     return res.json({ success: true, data: pass });
   }),
@@ -96,7 +105,9 @@ router.get(
 
 router.get(
   '/:bookingId/google-wallet-pass',
+  validateParams(bookingIdParamSchema),
   asyncHandler(async (req: Request, res: Response) => {
+    await getBookingForRequester(req.params.bookingId, req);
     const pass = await checkInService.generateGoogleWalletPass(req.params.bookingId);
     return res.json({ success: true, data: pass });
   }),

@@ -49,7 +49,16 @@ export const requireAdmin = (req: Request, res: Response, next: NextFunction): v
 
     const token = authHeader.slice(7);
     try {
-        const payload = jwt.verify(token, config.jwtSecret) as AdminPayload;
+        const payload = jwt.verify(token, config.jwtSecret) as Partial<AdminPayload>;
+        if (
+            !payload?.adminId ||
+            !payload?.email ||
+            !payload?.role ||
+            !['support', 'admin', 'super_admin'].includes(payload.role)
+        ) {
+            res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid or expired admin token.' } });
+            return;
+        }
         req.admin = { adminId: payload.adminId, email: payload.email, role: payload.role };
         next();
     } catch {

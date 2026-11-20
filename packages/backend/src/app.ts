@@ -192,8 +192,11 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/v1/flight-status', requireAuth, createFlightRoutes(flightSearchService));
-  app.use('/api/v1/bookings', requireAuth, validateRequest('/api/v1/bookings'), bookingRoutes);
-  app.use('/api/v1/refunds', requireAuth, validateRequest('/api/v1/refunds/request'), refundRoutes);
+  // Booking routes enforce explicit per-route auth/validation; Stripe webhook remains
+  // public and is authenticated by Stripe signature verification in-route.
+  app.use('/api/v1/bookings', bookingRoutes);
+  // Refund routes enforce explicit per-route authz/validation (user ownership or admin role).
+  app.use('/api/v1/refunds', refundRoutes);
   app.use('/api/v1/security', requireAuth, securityRoutes);
 
   // Admin routes
@@ -215,7 +218,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/ancillary', ancillaryRoutes);
   app.use('/api/v1/contract-events', contractEventRoutes);
   app.use('/api/v1/stellar-expert', stellarExpertRoutes);
-  app.use('/api/v1/transactions', transactionRoutes);
+  app.use('/api/v1/transactions', requireAuth, transactionRoutes);
   app.use('/api/v1/checkin', requireAuth, checkinRoutes);
   app.use('/api/v1/journeys', journeyRoutes);
   app.use('/api/v1/carbon', carbonRoutes);
