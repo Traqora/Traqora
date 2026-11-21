@@ -5,6 +5,12 @@
 
 import { logger } from "../utils/logger";
 import type { PushSubscription } from "../types/notification";
+import {
+  auditAndLogPushCopy,
+  auditPushCopy,
+  type PushCopyAuditResult,
+} from "./pushCopyAudit";
+import { classifyPushFailure } from './pushTokenLifecycle';
 
 export type PushNotificationType =
   | "booking"
@@ -121,18 +127,22 @@ export class PushNotificationService {
       actions?: Array<{ action: string; title: string; icon?: string }>;
       requireInteraction?: boolean;
     },
-  ): Promise<{ successful: number; failed: number }> {
+  ): Promise<{ successful: number; failed: number; permanentlyFailed: number; transientlyFailed: number }> {
+    auditAndLogPushCopy({ title, body: options.body }, { userId, channel: "push" });
+
     const subscriptions = await this.getSubscriptions(userId);
 
     if (subscriptions.length === 0) {
       logger.warn("No push subscriptions found", { userId });
-      return { successful: 0, failed: 0 };
+      return { successful: 0, failed: 0, permanentlyFailed: 0, transientlyFailed: 0 };
     }
 
     const payload = JSON.stringify({ title, options });
 
     let successful = 0;
     let failed = 0;
+    let permanentlyFailed = 0;
+    let transientlyFailed = 0;
 
     for (const sub of subscriptions) {
       try {
@@ -149,15 +159,18 @@ export class PushNotificationService {
         });
 
         // Mark subscription as inactive if endpoint is permanently gone
-        if (error instanceof Error && error.message.includes("410")) {
+        if (classifyPushFailure(error) === 'permanent') {
           sub.isActive = false;
+          permanentlyFailed++;
+        } else {
+          transientlyFailed++;
         }
       }
     }
 
     logger.info("Push notifications sent", { userId, successful, failed });
 
-    return { successful, failed };
+    return { successful, failed, permanentlyFailed, transientlyFailed };
   }
 
   /**
@@ -170,6 +183,8 @@ export class PushNotificationService {
   ): Promise<{ successful: number; failed: number }> {
     const { title, body } = this.buildTypedMessage(type, data);
 
+    auditAndLogPushCopy({ title, body }, { userId, channel: "push", type });
+
     return this.sendPush(userId, title, {
       body,
       tag: type,
@@ -179,6 +194,17 @@ export class PushNotificationService {
           .map(([k, v]) => [k, String(v)]),
       ) as Record<string, string>,
     });
+  }
+
+  /**
+   * Audit the copy that `sendTypedPush` would deliver for `type`/`data`.
+   *
+   * Useful for template regression checks: the message is built and audited but
+   * nothing is sent.
+   */
+  auditTypedPush(type: PushNotificationType, data: TypedPushData): PushCopyAuditResult {
+    const { title, body } = this.buildTypedMessage(type, data);
+    return auditPushCopy({ title, body });
   }
 
   /**
@@ -377,6 +403,13 @@ export class PushNotificationService {
         }
       }, 10);
     });
+  }
+
+  private async deliverToSubscription(
+    subscription: PushSubscription,
+    payload: string,
+  ): Promise<void> {
+    return this.simulateSend(subscription, payload);
   }
 }
 

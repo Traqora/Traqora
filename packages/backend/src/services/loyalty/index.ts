@@ -10,7 +10,7 @@ export { LoyaltyStore } from './store';
 export { CampaignManager, CreateCampaignInput } from './campaignManager';
 export { TierManager, TierChangeResult } from './tierManager';
 export { PointsCalculator } from './pointsCalculator';
-export { ExpirationHandler, ExpirationResult } from './expirationHandler';
+export { ExpirationHandler, ExpirationResult, ExpirationReminderResult } from './expirationHandler';
 export { RetroactiveCalculator, RetroactiveResult } from './retroactiveCalculator';
 export { ContractSync, SyncResult, OnChainAccount } from './contractSync';
 export {

@@ -1,6 +1,5 @@
 import { Registry, Counter, Histogram, Gauge, collectDefaultMetrics } from 'prom-client';
 import { logger } from '../utils/logger';
-import { performanceMonitor } from '../monitoring/performance';
 
 // Create a Registry to register the metrics
 export const register = new Registry();
@@ -208,6 +207,91 @@ export const walletBalance = new Gauge({
 });
 
 // ============================================================================
+// Flight Offer Freshness Metrics
+// ============================================================================
+
+/**
+ * Bounded provider labels for offer freshness. Unknown provider names collapse
+ * to `other` so a config typo or a new adapter cannot create unbounded
+ * Prometheus time series (#933).
+ */
+export const FLIGHT_PROVIDER_LABELS = [
+  'amadeus',
+  'lufthansa',
+  'air-france',
+  'british-airways',
+  'offchain-repository',
+  'other',
+] as const;
+
+const FLIGHT_PROVIDER_ALIASES: Record<string, string> = {
+  lh: 'lufthansa',
+  lufthansa: 'lufthansa',
+  af: 'air-france',
+  'air-france': 'air-france',
+  ba: 'british-airways',
+  'british-airways': 'british-airways',
+  amadeus: 'amadeus',
+  repository: 'offchain-repository',
+  'offchain-repository': 'offchain-repository',
+  unknown: 'other',
+};
+
+export const normalizeFlightProviderLabel = (provider: string | null | undefined): string => {
+  const slug = String(provider ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (FLIGHT_PROVIDER_ALIASES[slug]) return FLIGHT_PROVIDER_ALIASES[slug];
+  if ((FLIGHT_PROVIDER_LABELS as readonly string[]).includes(slug)) return slug;
+  return 'other';
+};
+
+export const flightOfferIngestionDelay = new Histogram({
+  name: 'traqora_flight_offer_ingestion_delay_seconds',
+  help: 'Delay between a flight offer provider update time and its ingestion time',
+  labelNames: ['provider'],
+  buckets: [0, 5, 15, 30, 60, 300, 900, 1800, 3600, 21600, 86400],
+  registers: [register],
+});
+
+/**
+ * Record the ingestion lag for one provider offer.
+ *
+ * Returns false (and emits nothing) for missing/unparseable timestamps and for
+ * provider clocks that appear to be in the future — a negative delay says
+ * nothing useful about feed staleness and would skew the histogram.
+ */
+export const recordFlightOfferIngestionDelay = (
+  provider: string | null | undefined,
+  providerUpdatedAt: Date | string | number | null | undefined,
+  ingestedAt: Date = new Date(),
+): boolean => {
+  if (providerUpdatedAt === null || providerUpdatedAt === undefined) return false;
+
+  const updatedAt =
+    providerUpdatedAt instanceof Date
+      ? providerUpdatedAt
+      : new Date(providerUpdatedAt);
+
+  if (Number.isNaN(updatedAt.getTime())) return false;
+
+  const delaySeconds = (ingestedAt.getTime() - updatedAt.getTime()) / 1000;
+  if (!Number.isFinite(delaySeconds) || delaySeconds < 0) return false;
+
+  const label = normalizeFlightProviderLabel(provider);
+  flightOfferIngestionDelay.observe({ provider: label }, delaySeconds);
+  logger.debug('Metric recorded: flight offer ingestion delay', {
+    provider: label,
+    delaySeconds,
+  });
+
+  return true;
+};
+
+// ============================================================================
 // Database Metrics
 // ============================================================================
 
@@ -293,55 +377,6 @@ export const uptimeSeconds = new Gauge({
 });
 
 // ============================================================================
-// Rate Limiting Metrics (issue #371)
-// ============================================================================
-
-export const rateLimitDecisions = new Counter({
-  name: 'traqora_rate_limit_decisions_total',
-  help: 'Total number of rate limit decisions, labeled by outcome',
-  labelNames: ['endpoint', 'tier', 'outcome'],
-  registers: [register],
-});
-
-// ============================================================================
-// SLO Metrics (issue #593)
-//
-// SLO-style latency tracking for the booking funnel. Every tracked operation
-// is classified good/bad against its latency target and the ratio feeds the
-// Prometheus recording rules in monitoring/prometheus/slo-rules.yml.
-// ============================================================================
-
-/**
- * Latency SLO targets (seconds) per booking-funnel operation.
- *
- * Thresholds mirror the existing alerting in monitoring/prometheus/alerts.yml
- * (SlowBookingProcessing at 300s, SlowRefundProcessing at 3600s) so dashboards
- * and alerts agree on what "good" means.
- */
-export const SLO_TARGETS = {
-  search: { latencySeconds: 2 },
-  booking: { latencySeconds: 300 },
-  refund: { latencySeconds: 3600 },
-} as const;
-
-export type SloOperation = keyof typeof SLO_TARGETS;
-
-export const sloEventsTotal = new Counter({
-  name: 'traqora_slo_events_total',
-  help: 'Total number of SLO-classified events by operation and result (good|bad)',
-  labelNames: ['operation', 'result'],
-  registers: [register],
-});
-
-export const sloObservedLatency = new Histogram({
-  name: 'traqora_slo_observed_latency_seconds',
-  help: 'Observed latency of SLO-tracked operations (search, booking, refund)',
-  labelNames: ['operation'],
-  buckets: [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 7200],
-  registers: [register],
-});
-
-// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -361,7 +396,6 @@ export const recordBookingConfirmed = (airline: string, amountCents: number, cur
   bookingsConfirmed.inc({ airline });
   bookingRevenue.inc({ currency, airline }, amountCents);
   bookingProcessingDuration.observe({ airline }, durationSeconds);
-  recordSloLatency('booking', durationSeconds);
   logger.debug('Metric recorded: booking confirmed', { airline, amountCents, durationSeconds });
 };
 
@@ -379,7 +413,6 @@ export const recordRefundProcessed = (airline: string, status: string, amountCen
   refundsProcessed.inc({ status, airline });
   refundAmount.inc({ airline }, amountCents);
   refundProcessingDuration.observe({ airline }, durationSeconds);
-  recordSloLatency('refund', durationSeconds);
   logger.debug('Metric recorded: refund processed', { airline, status, amountCents });
 };
 
@@ -444,32 +477,16 @@ export const measureAsync = async <T>(
   operation: string,
   fn: () => Promise<T>
 ): Promise<T> => {
-  const start = Date.now();
   const endTimer = serviceOperationDuration.startTimer({ component, operation });
 
   try {
     const result = await fn();
     endTimer({ status: 'success' });
-    performanceMonitor.recordQuery(component, operation, 'success', (Date.now() - start) / 1000);
     return result;
   } catch (error) {
     endTimer({ status: 'error' });
-    performanceMonitor.recordQuery(component, operation, 'error', (Date.now() - start) / 1000);
     throw error;
   }
-};
-
-/**
- * Classify one completed operation against its latency SLO target and record
- * it as good/bad plus an observation in the SLO histogram.
- */
-export const recordSloLatency = (operation: string, durationSeconds: number) => {
-  const target = SLO_TARGETS[operation as SloOperation];
-  if (!target) return;
-  const result = durationSeconds <= target.latencySeconds ? 'good' : 'bad';
-  sloEventsTotal.inc({ operation, result });
-  sloObservedLatency.observe({ operation }, durationSeconds);
-  logger.debug('Metric recorded: SLO latency', { operation, durationSeconds, result, targetSeconds: target.latencySeconds });
 };
 
 export const recordCacheOperation = (
@@ -481,55 +498,6 @@ export const recordCacheOperation = (
   const labels = { cache, operation, result };
   cacheOperationsTotal.inc(labels);
   cacheOperationDuration.observe(labels, durationSeconds);
-  performanceMonitor.recordCache(cache, result, durationSeconds);
-};
-
-/**
- * In-memory snapshot of rate-limit decisions, keyed by `${endpoint}:${tier}`.
- * The Prometheus counter above is the source of truth for scraping/alerting;
- * this snapshot exists so the admin dashboard (issue #371) can return a
- * structured JSON summary without parsing Prometheus text exposition format.
- */
-interface RateLimitSnapshotEntry {
-  endpoint: string;
-  tier: string;
-  allowed: number;
-  blocked: number;
-  lastBlockedAt: string | null;
-}
-
-const rateLimitSnapshots = new Map<string, RateLimitSnapshotEntry>();
-
-export const recordRateLimitDecision = (
-  endpoint: string,
-  tier: string,
-  outcome: 'allowed' | 'blocked'
-) => {
-  rateLimitDecisions.inc({ endpoint, tier, outcome });
-
-  const key = `${endpoint}:${tier}`;
-  const entry = rateLimitSnapshots.get(key) ?? {
-    endpoint,
-    tier,
-    allowed: 0,
-    blocked: 0,
-    lastBlockedAt: null,
-  };
-  if (outcome === 'allowed') {
-    entry.allowed += 1;
-  } else {
-    entry.blocked += 1;
-    entry.lastBlockedAt = new Date().toISOString();
-  }
-  rateLimitSnapshots.set(key, entry);
-};
-
-export const getRateLimitSnapshot = (): RateLimitSnapshotEntry[] =>
-  Array.from(rateLimitSnapshots.values());
-
-/** Test hook: reset the in-memory snapshot between test cases. */
-export const __resetRateLimitSnapshot = () => {
-  rateLimitSnapshots.clear();
 };
 
 // Update uptime every 10 seconds

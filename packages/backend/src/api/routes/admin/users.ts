@@ -7,6 +7,7 @@ import { requireAdmin } from '../../../middleware/adminAuth';
 import { auditLog } from '../../../middleware/adminAudit';
 import { paginationSchema } from '../../schemas/common';
 import { BadRequestError, NotFoundError } from '../../../utils/errors';
+import { createPaginationMeta } from '../../../types/pagination';
 
 const router = Router();
 
@@ -20,7 +21,7 @@ router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) =
     if (!parsed.success) {
         throw new BadRequestError('Validation Error', parsed.error.flatten());
     }
-    const { limit, offset, email } = parsed.data;
+    const { page, limit, email } = parsed.data;
     const repo = AppDataSource.getRepository(Passenger);
 
     const qb = repo.createQueryBuilder('passenger');
@@ -29,10 +30,11 @@ router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) =
     const [passengers, total] = await qb
         .orderBy('passenger.email', 'ASC')
         .take(limit)
-        .skip(offset)
+        .skip((page - 1) * limit)
         .getManyAndCount();
 
-    return res.json({ success: true, data: { passengers, total, limit, offset } });
+    const pagination = createPaginationMeta(page, limit, total);
+    return res.json({ success: true, data: passengers, pagination });
 }));
 
 // GET /api/v1/admin/users/:id

@@ -1,0 +1,50 @@
+openapi: 3.0.3
+info:
+  title: Traqora Rate-Limit Abuse Metrics API
+  version: 1.0.0
+paths:
+  /api/v1/security/rate-limits/metrics:
+    get:
+      summary: Get rate-limit abuse and throttling metrics
+      security:
+        - AdminApiKey: []
+      responses:
+        '200':
+          description: Successful response returning rate limit metrics summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      totals:
+                        type: object
+                        properties:
+                          allowed:
+                            type: integer
+                          blocked:
+                            type: integer
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            endpoint:
+                              type: string
+                            tier:
+                              type: string
+                            allowed:
+                              type: integer
+                            blocked:
+                              type: integer
+                            lastBlockedAt:
+                              type: string
+                              nullable: true
+        '401':
+          description: Unauthorized due to missing or invalid admin key
+        '500':
+          description: Internal server error

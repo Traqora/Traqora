@@ -10,6 +10,7 @@ import { CorporateBookingPolicy, FareClass } from '../db/entities/CorporateBooki
 import { BookingApproval } from '../db/entities/BookingApproval';
 import { CheckIn } from '../db/entities/CheckIn';
 import { notificationService } from './NotificationService';
+import { seatAvailabilityService } from './seatAvailabilityService';
 import { logger } from '../utils/logger';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors';
 import { v4 as uuidv4 } from 'uuid';
@@ -131,11 +132,12 @@ export class GroupBookingService {
     const flight = await flightRepo.findOne({ where: { id: request.flightId } });
     if (!flight) throw new BadRequestError('Flight not found');
 
-    if (flight.seatsAvailable < request.memberEmails.length + 1) {
+    const requiredSeats = request.memberEmails.length + 1;
+    if (flight.seatsAvailable < requiredSeats) {
       throw new BadRequestError('Not enough seats available for all group members');
     }
 
-    const totalAmountCents = (request.memberEmails.length + 1) * flight.priceCents;
+    const totalAmountCents = requiredSeats * flight.priceCents;
 
     let approvalStatus: GroupApprovalStatus = 'not_required';
 
@@ -176,6 +178,14 @@ export class GroupBookingService {
     });
 
     const savedGroup = await groupBookingRepo.save(groupBooking);
+
+    // Hold seats in the shared seat pool to prevent overcommitting
+    await seatAvailabilityService.holdSeatsForGroup(
+      request.flightId,
+      savedGroup.id,
+      requiredSeats,
+    );
+
     const memberRepo = AppDataSource.getRepository(GroupMember);
     const members: GroupMember[] = [];
 
@@ -318,6 +328,12 @@ export class GroupBookingService {
     }
 
     if (newMembers.length > 0) {
+      const allMembers = [...group.members, ...newMembers];
+      await seatAvailabilityService.updateGroupSeatHold(
+        group.flightId,
+        group.id,
+        allMembers.length,
+      );
       await memberRepo.save(newMembers);
       await this.calculateMemberShares(group.id);
     }
@@ -553,6 +569,9 @@ export class GroupBookingService {
     group.status = 'confirmed';
     await groupBookingRepo.save(group);
 
+    // Release temporary group hold now that individual bookings have been created
+    await seatAvailabilityService.releaseGroupSeatHold(group.flightId, group.id);
+
     logger.info(
       `Group booking ${groupBookingId} confirmed with ${group.members.length} members`,
     );
@@ -627,6 +646,9 @@ export class GroupBookingService {
     group.status = 'cancelled';
     group.notes = reason;
     await groupBookingRepo.save(group);
+
+    // Release group seat hold back into the shared pool
+    await seatAvailabilityService.releaseGroupSeatHold(group.flightId, group.id);
 
     for (const member of group.members) {
       const subject = `Group booking cancelled: ${group.groupName}`;

@@ -8,6 +8,7 @@ export type NotificationCategory =
   | "payment"
   | "itinerary"
   | "collaboration"
+  | "loyalty"
   | "marketing"
   | "system";
 export type NotificationFrequency = "instant" | "daily" | "weekly" | "never";
@@ -17,6 +18,21 @@ export type DeliveryStatus =
   | "delivered"
   | "failed"
   | "bounced";
+
+/**
+ * Categories whose v1 notices are operationally or legally required and must
+ * therefore survive a user disabling an optional channel preference.
+ */
+export const REQUIRED_NOTIFICATION_CATEGORIES: ReadonlySet<NotificationCategory> =
+  new Set<NotificationCategory>(["system", "payment"]);
+
+/** Whether a notice is required regardless of optional channel preferences. */
+export function isRequiredNotice(
+  category: NotificationCategory,
+  required?: boolean
+): boolean {
+  return required === true || REQUIRED_NOTIFICATION_CATEGORIES.has(category);
+}
 
 export interface NotificationPreference {
   id: string;
@@ -55,6 +71,8 @@ export interface NotificationPayload {
   data?: Record<string, any>;
   actionUrl?: string;
   timestamp: Date;
+  /** Marks a legally or operationally required notice that must not be opted out of. */
+  required?: boolean;
 }
 
 export interface ChannelDelivery {

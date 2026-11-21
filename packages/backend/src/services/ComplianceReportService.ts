@@ -339,6 +339,7 @@ Total Consent Changes: ${findings.totalConsentChanges}
 Total Deletion Requests: ${findings.totalDeletionRequests}
 
 Detailed Findings
+
 Data Access by User: ${dataAccessStr}
 Data Export by User: ${dataExportStr}
 Consent Changes by User: ${consentChangesStr}

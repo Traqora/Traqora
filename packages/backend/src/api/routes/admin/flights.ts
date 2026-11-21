@@ -7,6 +7,8 @@ import { requireAdmin } from '../../../middleware/adminAuth';
 import { auditLog } from '../../../middleware/adminAudit';
 import { paginationSchema } from '../../schemas/common';
 import { BadRequestError, NotFoundError } from '../../../utils/errors';
+import { invalidateFlightSearchCacheForFlight } from '../../../services/cache';
+import { createPaginationMeta } from '../../../types/pagination';
 
 const router = Router();
 
@@ -28,12 +30,12 @@ const flightPaginationSchema = paginationSchema.extend({
 
 // GET /api/v1/admin/flights
 router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    
+
     const parsed = flightPaginationSchema.safeParse(req.query);
     if (!parsed.success) {
         throw new BadRequestError('Validation Error', parsed.error.flatten());
     }
-    const { limit, offset, from, to, date } = parsed.data;
+    const { page, limit, from, to, date } = parsed.data;
     const repo = AppDataSource.getRepository(Flight);
 
     const qb = repo.createQueryBuilder('flight');
@@ -49,15 +51,16 @@ router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) =
     const [flights, total] = await qb
         .orderBy('flight.departureTime', 'ASC')
         .take(limit)
-        .skip(offset)
+        .skip((page - 1) * limit)
         .getManyAndCount();
 
-    return res.json({ success: true, data: { flights, total, limit, offset } });
+    const pagination = createPaginationMeta(page, limit, total);
+    return res.json({ success: true, data: flights, pagination });
 }));
 
 // GET /api/v1/admin/flights/:id
 router.get('/:id', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
-    
+
     const flight = await AppDataSource.getRepository(Flight).findOne({ where: { id: req.params.id } });
     if (!flight) {
         throw new NotFoundError('Flight not found.');
@@ -75,11 +78,13 @@ router.post(
         if (!parsed.success) {
             throw new BadRequestError('Validation Error', parsed.error.flatten());
         }
-        
+
         const repo = AppDataSource.getRepository(Flight);
         const flight = repo.create({ ...parsed.data, departureTime: new Date(parsed.data.departureTime) });
         const saved = await repo.save(flight) as unknown as Flight;
         res.locals.resourceId = saved.id;
+        // A new flight changes what this route/date can return.
+        await invalidateFlightSearchCacheForFlight(saved);
         return res.status(201).json({ success: true, data: saved });
     })
 );
@@ -94,7 +99,7 @@ router.put(
         if (!parsed.success) {
             throw new BadRequestError('Validation Error', parsed.error.flatten());
         }
-        
+
         const repo = AppDataSource.getRepository(Flight);
         const flight = await repo.findOne({ where: { id: req.params.id } });
         if (!flight) {
@@ -104,9 +109,14 @@ router.put(
         if (update.departureTime) {
             (update as any).departureTime = new Date(update.departureTime as string);
         }
+        // Snapshot the route/date before the merge: moving a flight's departure
+        // invalidates both the scope it left and the one it now belongs to.
+        const previousScope = { fromAirport: flight.fromAirport, toAirport: flight.toAirport, departureTime: flight.departureTime };
         repo.merge(flight, update as Partial<Flight>);
         const saved = await repo.save(flight) as unknown as Flight;
         res.locals.resourceId = saved.id;
+        await invalidateFlightSearchCacheForFlight(previousScope);
+        await invalidateFlightSearchCacheForFlight(saved);
         return res.json({ success: true, data: saved });
     })
 );
@@ -117,7 +127,7 @@ router.delete(
     requireAdmin,
     auditLog('FLIGHT_DELETED', 'flights'),
     asyncHandler(async (req: Request, res: Response) => {
-        
+
         const repo = AppDataSource.getRepository(Flight);
         const flight = await repo.findOne({ where: { id: req.params.id } });
         if (!flight) {
@@ -125,6 +135,8 @@ router.delete(
         }
         res.locals.resourceId = flight.id;
         await repo.remove(flight);
+        // A removed flight must disappear from cached searches immediately.
+        await invalidateFlightSearchCacheForFlight(flight);
         return res.status(204).send();
     })
 );

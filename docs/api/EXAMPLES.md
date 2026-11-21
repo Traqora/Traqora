@@ -184,6 +184,34 @@ curl -s http://localhost:3001/api/v1/bookings/b7e6d5c4-3210-4fed-cba9-876543210f
 
 ---
 
+## Seat Holds
+
+Read active group seat holds for a flight. The response contains seat numbers,
+hold and expiry timestamps, and an aggregate count; group booking identifiers
+are not exposed.
+
+```bash
+curl -s http://localhost:3001/api/services/seats/3f9a1c2e-8c4f-4b7e-9d2a-1f6e5b4a3c21/holds
+```
+
+Response `200` (abridged):
+
+```json
+{
+  "flightId": "3f9a1c2e-8c4f-4b7e-9d2a-1f6e5b4a3c21",
+  "heldSeats": 2,
+  "holds": [
+    {
+      "seatCount": 2,
+      "seats": ["3A", "3B"],
+      "lockedAt": "2026-08-26T12:00:00.000Z",
+      "expiresAt": "2026-08-26T12:15:00.000Z"
+    }
+  ],
+  "timestamp": "2026-08-26T12:00:00.000Z"
+}
+```
+
 ## 4. Refunds
 
 Refunds may be requested by the passenger and are either auto-approved (policy-eligible) or routed to admin review.

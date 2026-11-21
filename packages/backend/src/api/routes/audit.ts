@@ -1,57 +1,30 @@
 import { Router, Request, Response } from 'express';
-import { z } from 'zod';
 import { queryAuditLogs, verifyAuditChain } from '../../middleware/audit';
 import { requireAdmin, requireRole } from '../../middleware/adminAuth';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { SecurityAuditLog } from '../../db/entities/SecurityAuditLog';
 import { getLogger } from '../../services/logger';
+import { createPaginationMeta } from '../../types/pagination';
+import {
+  auditExportQuerySchema,
+  auditQuerySchema,
+  type AuditFilters,
+} from '../schemas/audit';
 
 const router = Router();
 const logger = getLogger({ component: 'audit-routes' });
 
-const auditQuerySchema = z.object({
-  action: z.string().optional(),
-  actorType: z.enum(['user', 'admin', 'system', 'anonymous']).optional(),
-  userId: z.string().optional(),
-  adminId: z.string().optional(),
-  resource: z.string().optional(),
-  resourceId: z.string().optional(),
-  from: z.string().datetime().optional(),
-  to: z.string().datetime().optional(),
-  limit: z.coerce.number().int().positive().max(500).optional(),
-  offset: z.coerce.number().int().min(0).optional(),
-});
-
 function buildFiltersFromQuery(
   raw: Record<string, unknown>,
   overrides?: Record<string, unknown>,
-): {
-  action?: string;
-  actorType?: 'user' | 'admin' | 'system' | 'anonymous';
-  userId?: string;
-  adminId?: string;
-  resource?: string;
-  resourceId?: string;
-  from?: string;
-  to?: string;
-  limit?: number;
-  offset?: number;
-} {
+): AuditFilters {
   const parsed = auditQuerySchema.parse(raw);
-  return {
-    action: parsed.action,
-    actorType: parsed.actorType,
-    userId: parsed.userId,
-    adminId: parsed.adminId,
-    resource: parsed.resource,
-    resourceId: parsed.resourceId,
-    from: parsed.from,
-    to: parsed.to,
-    limit: parsed.limit,
-    offset: parsed.offset,
-    ...overrides,
-  };
+  return { ...parsed, ...overrides };
+}
+
+function buildExportFilters(raw: Record<string, unknown>): AuditFilters {
+  return auditExportQuerySchema.parse(raw);
 }
 
 router.get(
@@ -67,13 +40,10 @@ router.get(
       resultCount: result.logs.length,
     });
 
+    const pagination = createPaginationMeta(filters.page ?? 1, filters.limit ?? 50, result.total);
     res.json({
       data: result.logs.map(serializeAuditLog),
-      pagination: {
-        total: result.total,
-        limit: filters.limit ?? 50,
-        offset: filters.offset ?? 0,
-      },
+      pagination,
     });
   }),
 );
@@ -83,7 +53,7 @@ router.get(
   requireAdmin,
   requireRole('admin'),
   asyncHandler(async (req: Request, res: Response) => {
-    const filters = buildFiltersFromQuery({ ...req.query, limit: 10_000 });
+    const filters = buildExportFilters({ ...req.query });
     const result = await queryAuditLogs(filters);
     const csv = generateCsv(result.logs);
 
@@ -109,13 +79,10 @@ router.get(
     const filters = buildFiltersFromQuery(req.query, overrides);
     const result = await queryAuditLogs(filters);
 
+    const pagination = createPaginationMeta(filters.page ?? 1, filters.limit ?? 50, result.total);
     res.json({
       data: result.logs.map(serializeAuditLog),
-      pagination: {
-        total: result.total,
-        limit: filters.limit ?? 50,
-        offset: filters.offset ?? 0,
-      },
+      pagination,
     });
   }),
 );

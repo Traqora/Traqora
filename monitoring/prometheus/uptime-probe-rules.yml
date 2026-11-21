@@ -1,0 +1,95 @@
+# -------------------------------------------------------------------
+# External Uptime Probe Alert Rules  (Issue #597)
+# -------------------------------------------------------------------
+# AlertManager configuration for Blackbox Exporter uptime probes.
+# These rules fire when external HTTP probes fail, indicating
+# the public API is unreachable from outside the network.
+#
+# Requires: prometheus-blackbox-exporter configured to probe
+#   - https://traqora.io/health
+#   - https://traqora.io/api/v1/health
+#
+# Runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#4-high-error-rate
+# -------------------------------------------------------------------
+
+groups:
+  - name: uptime_probes
+    rules:
+      # ── Recording rules ──────────────────────────────────────────
+      # Probe availability ratio over 5 minutes
+      - record: traqora:probe_success_ratio:5m
+        expr: avg_over_time(probe_success{job="blackbox-https"}[5m])
+
+      # Probe latency p95 over 5 minutes
+      - record: traqora:probe_duration_p95:5m
+        expr: >
+          histogram_quantile(0.95,
+            sum by (instance, le) (
+              rate(probe_duration_seconds_bucket{job="blackbox-https"}[5m])
+            )
+          )
+
+      # ── Alert rules ──────────────────────────────────────────────
+      # Public endpoint unreachable (probe failed for 2 minutes)
+      - alert: UptimeProbeDown
+        expr: probe_success{job="blackbox-https"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: traqora-api
+        annotations:
+          summary: "Public endpoint {{ $labels.instance }} is DOWN"
+          description: >
+            External uptime probe has been failing for over 2
+            minutes.  The public API endpoint {{ $labels.instance }}
+            is unreachable.  Immediate investigation required.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#4-high-error-rate
+
+      # Public endpoint degraded (probe succeeded but latency > 5s)
+      - alert: UptimeProbeHighLatency
+        expr: traqora:probe_duration_p95:5m > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          service: traqora-api
+        annotations:
+          summary: "Public endpoint {{ $labels.instance }} latency high ({{ $value | humanizeDuration }})"
+          description: >
+            The p95 probe latency for {{ $labels.instance }} has
+            exceeded 5 seconds sustained for 5 minutes.  This may
+            indicate degraded performance or partial outage.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#4-high-error-rate
+
+      # Health endpoint returning non-200 status
+      - alert: UptimeProbeHTTPError
+        expr: probe_http_status_code{job="blackbox-https"} != 200
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          service: traqora-api
+        annotations:
+          summary: "Health endpoint {{ $labels.instance }} returning HTTP {{ $value }}"
+          description: >
+            The external probe detected that {{ $labels.instance }}
+            is returning HTTP status {{ $value }} instead of 200.
+            The endpoint may be misconfigured or experiencing errors.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#4-high-error-rate
+
+      # Probe availability dropped below 99% over 15 minutes
+      - alert: UptimeProbeAvailabilityLow
+        expr: traqora:probe_success_ratio:5m < 0.99
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+          service: traqora-api
+        annotations:
+          summary: "Probe availability below 99% ({{ $value | humanizePercentage }})"
+          description: >
+            External probe availability has dropped below 99% over
+            the last 15 minutes.  This indicates intermittent
+            connectivity issues with the public API.
+          runbook: https://github.com/Traqora/Traqora/blob/main/docs/operations/RUNBOOKS.md#4-high-error-rate

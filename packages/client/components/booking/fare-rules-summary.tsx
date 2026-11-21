@@ -388,6 +388,16 @@ function FareRulesAccordion({ fareRules }: { fareRules: FareRule[] }) {
                 </div>
               </div>
 
+              <div className="rounded-md bg-muted/30 p-3 text-sm" data-testid="cancellation-policy-explainer">
+                <p>
+                  {rule.refundable ? "Refunds are permitted." : "This fare is non-refundable."}{" "}
+                  Cancellation fee: {formatCentsStatic(rule.cancellationFeeCents)} per passenger.
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  No-show: {rule.noShowPenalty}% penalty after {rule.noShowGracePeriodMinutes} minutes.
+                </p>
+              </div>
+
               <Separator />
 
               <div className="space-y-2">

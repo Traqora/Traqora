@@ -1,0 +1,16 @@
+{
+  "contractVersion": "1.0.0",
+  "rules": {
+    "blockDestructiveChanges": true,
+    "allowedResourceTypes": [
+      "aws_instance",
+      "aws_s3_bucket",
+      "aws_iam_role",
+      "google_compute_instance"
+    ],
+    "requireExplicitApprovalFor": [
+      "aws_rds_cluster",
+      "aws_db_instance"
+    ]
+  }
+}

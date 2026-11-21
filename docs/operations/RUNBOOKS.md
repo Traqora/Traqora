@@ -17,7 +17,15 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 
 ## Specialized Runbooks
 - [Flight Sync On-Call Runbook](./FLIGHT_SYNC_RUNBOOK.md) — what to do when flight sync falls behind.
+- [Flight Provider Failover Runbook](./FLIGHT_PROVIDER_FAILOVER_RUNBOOK.md) — flight search provider chain, failover signals, and remediation (#779).
+- [Dependency Audit Schedule](./DEPENDENCY_AUDIT.md) — weekly npm + cargo audits, runner contract, and remediation workflow (#777).
 - [Contract Deployment Runbook](./CONTRACT_DEPLOYMENT_RUNBOOK.md) — deploying and upgrading Soroban contracts on testnet/mainnet.
+- [Structured JSON Logging](./STRUCTURED_LOGGING.md) — the backend log envelope, `event` naming, redaction rules, and `LOG_FORMAT` (#738).
+- [Staging Seed Runbook](./STAGING_SEED.md) — seeding a staging environment with deterministic fixtures, guards, and reset semantics (#749).
+- [Contracts fmt / clippy Gate](./CONTRACTS_LINT_GATE.md) — the contracts quality gate shared by `make` and CI (#743).
+- [Contract Snapshot Review Policy](./CONTRACT_SNAPSHOT_REVIEW.md) — what a contract upgrade must preserve, and how the upgrade diff is reviewed (#744).
+- [Booking Failure Incident Runbooks](./BOOKING_FAILURE_RUNBOOKS.md): first response for supplier outage, payment delay, contract outage and refund backlog.
+- [Operations Health and Audit Filters](./OPERATIONS_HEALTH_AND_AUDIT.md): health snapshot fields, server-side audit filters and export limits.
 
 ---
 

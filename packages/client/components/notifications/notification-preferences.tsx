@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, Check } from "lucide-react";
+import { API_BASE_URL, getAuthHeader } from "@/lib/api";
 import type {
   NotificationChannel,
   NotificationCategory,
@@ -47,8 +48,25 @@ const FREQUENCIES: NotificationFrequency[] = [
   "never",
 ];
 
+/** Build a full default matrix so the table is always renderable. */
+function buildDefaultMatrix(): NotificationPreference[] {
+  const prefs: NotificationPreference[] = [];
+  for (const category of CATEGORIES) {
+    for (const channel of CHANNELS) {
+      prefs.push({
+        channel,
+        category,
+        frequency: "instant",
+        enabled: true,
+      });
+    }
+  }
+  return prefs;
+}
+
 export function NotificationPreferences() {
-  const [preferences, setPreferences] = useState<NotificationPreference[]>([]);
+  const [preferences, setPreferences] =
+    useState<NotificationPreference[]>(buildDefaultMatrix);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -60,29 +78,33 @@ export function NotificationPreferences() {
   const fetchPreferences = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/notifications/preferences");
-      if (!res.ok) throw new Error("Failed to fetch preferences");
+      setError(null);
+      const res = await fetch(`${API_BASE_URL}/api/v1/notifications/preferences`, {
+        headers: { ...getAuthHeader() },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const data = await res.json();
+      const serverPreferences: any[] = Array.isArray(data.preferences)
+        ? data.preferences
+        : [];
 
-      // Build preference matrix
-      const prefs: NotificationPreference[] = [];
-      for (const category of CATEGORIES) {
-        for (const channel of CHANNELS) {
-          const existing = data.preferences.find(
-            (p: any) => p.category === category && p.channel === channel,
+      // Merge server values into the default matrix
+      setPreferences(
+        buildDefaultMatrix().map((cell) => {
+          const existing = serverPreferences.find(
+            (p) => p.category === cell.category && p.channel === cell.channel,
           );
-          prefs.push(
-            existing || {
-              channel,
-              category,
-              frequency: "instant",
-              enabled: true,
-            },
-          );
-        }
-      }
-      setPreferences(prefs);
+          return existing
+            ? {
+                channel: cell.channel,
+                category: cell.category,
+                frequency: existing.frequency ?? cell.frequency,
+                enabled: existing.enabled ?? cell.enabled,
+              }
+            : cell;
+        }),
+      );
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load preferences",
@@ -110,9 +132,9 @@ export function NotificationPreferences() {
       const pref = updated.find(
         (p) => p.channel === channel && p.category === category,
       )!;
-      const res = await fetch("/api/notifications/preferences", {
+      const res = await fetch(`${API_BASE_URL}/api/v1/notifications/preferences`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...getAuthHeader() },
         body: JSON.stringify({
           channel,
           category,
@@ -121,8 +143,9 @@ export function NotificationPreferences() {
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to update preference");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
+      setError(null);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {

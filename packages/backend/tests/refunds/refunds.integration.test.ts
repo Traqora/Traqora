@@ -1,9 +1,18 @@
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import { app } from '../../src/app';
 import { AppDataSource } from '../../src/db/dataSource';
 import { Flight } from '../../src/db/entities/Flight';
 import { Passenger } from '../../src/db/entities/Passenger';
 import { Booking } from '../../src/db/entities/Booking';
+import { config } from '../../src/config';
+
+const ownerWallet = 'GINTEGRATION123';
+const userToken = jwt.sign(
+  { walletAddress: ownerWallet, walletType: 'freighter' },
+  config.jwtSecret,
+  { expiresIn: '1h' },
+);
 
 describe('Refunds API Integration Tests', () => {
   let testBooking: Booking;
@@ -72,6 +81,7 @@ describe('Refunds API Integration Tests', () => {
     it('should create a refund request successfully', async () => {
       const response = await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'customer_request',
@@ -89,6 +99,7 @@ describe('Refunds API Integration Tests', () => {
     it('should return 400 for invalid booking ID', async () => {
       const response = await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: 'invalid-uuid',
           reason: 'customer_request',
@@ -101,6 +112,7 @@ describe('Refunds API Integration Tests', () => {
     it('should return 400 for missing required fields', async () => {
       const response = await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
         });
@@ -114,6 +126,7 @@ describe('Refunds API Integration Tests', () => {
       // Create first refund
       await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'customer_request',
@@ -122,6 +135,7 @@ describe('Refunds API Integration Tests', () => {
       // Try to create duplicate
       const response = await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'customer_request',
@@ -136,6 +150,7 @@ describe('Refunds API Integration Tests', () => {
     it('should get refund details by ID', async () => {
       const createResponse = await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'flight_cancelled',
@@ -166,14 +181,13 @@ describe('Refunds API Integration Tests', () => {
     it('should get all refunds for a booking', async () => {
       await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'customer_request',
         });
 
-      const response = await request(app).get(
-        `/api/v1/refunds/booking/${testBooking.id}`
-      );
+      const response = await request(app).get(`/api/v1/refunds/booking/${testBooking.id}`).set('Authorization', `Bearer ${userToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -182,9 +196,7 @@ describe('Refunds API Integration Tests', () => {
     });
 
     it('should return empty array for booking with no refunds', async () => {
-      const response = await request(app).get(
-        `/api/v1/refunds/booking/${testBooking.id}`
-      );
+      const response = await request(app).get(`/api/v1/refunds/booking/${testBooking.id}`).set('Authorization', `Bearer ${userToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -196,6 +208,7 @@ describe('Refunds API Integration Tests', () => {
     it('should get refund status', async () => {
       const createResponse = await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'customer_request',
@@ -203,7 +216,7 @@ describe('Refunds API Integration Tests', () => {
 
       const refundId = createResponse.body.data.id;
 
-      const response = await request(app).get(`/api/v1/refunds/${refundId}/status`);
+      const response = await request(app).get(`/api/v1/refunds/${refundId}/status`).set('Authorization', `Bearer ${userToken}`);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -215,6 +228,7 @@ describe('Refunds API Integration Tests', () => {
     it('should submit on-chain refund transaction', async () => {
       const createResponse = await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'customer_request',
@@ -238,6 +252,7 @@ describe('Refunds API Integration Tests', () => {
     it('should return 400 for missing signedXdr', async () => {
       const createResponse = await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'customer_request',
@@ -247,6 +262,7 @@ describe('Refunds API Integration Tests', () => {
 
       const response = await request(app)
         .post(`/api/v1/refunds/${refundId}/submit-onchain`)
+        .set('Authorization', `Bearer ${userToken}`)
         .send({});
 
       expect(response.status).toBe(400);
@@ -268,19 +284,19 @@ describe('Refunds API Integration Tests', () => {
         expect(Array.isArray(response.body.data)).toBe(true);
       });
 
-      it('should return 403 without API key', async () => {
+      it('should return 401 without API key', async () => {
         const response = await request(app).get('/api/v1/refunds/admin/review-queue');
 
-        expect(response.status).toBe(403);
+        expect(response.status).toBe(401);
         expect(response.body.error.code).toBe('UNAUTHORIZED');
       });
 
-      it('should return 403 with invalid API key', async () => {
+      it('should return 401 with invalid API key', async () => {
         const response = await request(app)
           .get('/api/v1/refunds/admin/review-queue')
           .set('X-Admin-API-Key', 'invalid-key');
 
-        expect(response.status).toBe(403);
+        expect(response.status).toBe(401);
       });
     });
 
@@ -288,6 +304,7 @@ describe('Refunds API Integration Tests', () => {
       it('should get all refunds with pagination', async () => {
         await request(app)
           .post('/api/v1/refunds/request')
+          .set('Authorization', `Bearer ${userToken}`)
           .send({
             bookingId: testBooking.id,
             reason: 'customer_request',
@@ -307,6 +324,7 @@ describe('Refunds API Integration Tests', () => {
       it('should filter refunds by status', async () => {
         await request(app)
           .post('/api/v1/refunds/request')
+          .set('Authorization', `Bearer ${userToken}`)
           .send({
             bookingId: testBooking.id,
             reason: 'customer_request',
@@ -331,6 +349,7 @@ describe('Refunds API Integration Tests', () => {
 
         const createResponse = await request(app)
           .post('/api/v1/refunds/request')
+          .set('Authorization', `Bearer ${userToken}`)
           .send({
             bookingId: testBooking.id,
             reason: 'customer_request',
@@ -361,6 +380,7 @@ describe('Refunds API Integration Tests', () => {
 
         const createResponse = await request(app)
           .post('/api/v1/refunds/request')
+          .set('Authorization', `Bearer ${userToken}`)
           .send({
             bookingId: testBooking.id,
             reason: 'customer_request',
@@ -399,6 +419,7 @@ describe('Refunds API Integration Tests', () => {
       it('should get audit trail for a refund', async () => {
         const createResponse = await request(app)
           .post('/api/v1/refunds/request')
+          .set('Authorization', `Bearer ${userToken}`)
           .send({
             bookingId: testBooking.id,
             reason: 'customer_request',
@@ -429,6 +450,7 @@ describe('Refunds API Integration Tests', () => {
     it('should check automated eligibility for a booking', async () => {
       const response = await request(app)
         .post('/api/v1/refunds/auto-eligible')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
         });
@@ -442,6 +464,7 @@ describe('Refunds API Integration Tests', () => {
     it('should return 400 for invalid booking ID', async () => {
       const response = await request(app)
         .post('/api/v1/refunds/auto-eligible')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: 'invalid-id',
         });
@@ -468,6 +491,7 @@ describe('Refunds API Integration Tests', () => {
     it('should return 401 without admin auth', async () => {
       const response = await request(app)
         .post('/api/v1/refunds/batch')
+        .set('X-Admin-Api-Key', adminApiKey)
         .send({
           bookingIds: [testBooking.id],
         });
@@ -480,6 +504,7 @@ describe('Refunds API Integration Tests', () => {
     it('should submit a dispute for a refund', async () => {
       const createResponse = await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'customer_request',
@@ -489,6 +514,7 @@ describe('Refunds API Integration Tests', () => {
 
       const response = await request(app)
         .post(`/api/v1/refunds/${refundId}/dispute`)
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           reason: 'Incorrect refund amount',
           details: 'The refund amount does not match the booking total',
@@ -503,6 +529,7 @@ describe('Refunds API Integration Tests', () => {
     it('should return 400 for missing reason', async () => {
       const response = await request(app)
         .post('/api/v1/refunds/00000000-0000-0000-0000-000000000000/dispute')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({});
 
       expect(response.status).toBe(400);
@@ -513,6 +540,7 @@ describe('Refunds API Integration Tests', () => {
     it('should resolve a dispute as admin', async () => {
       const createResponse = await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'customer_request',
@@ -551,12 +579,13 @@ describe('Refunds API Integration Tests', () => {
     it('should return refund statistics', async () => {
       await request(app)
         .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
         .send({
           bookingId: testBooking.id,
           reason: 'customer_request',
         });
 
-      const response = await request(app).get('/api/v1/refunds/stats');
+      const response = await request(app).get('/api/v1/refunds/stats').set('X-Admin-Api-Key', adminApiKey);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -568,11 +597,140 @@ describe('Refunds API Integration Tests', () => {
     it('should return stats even with no refunds', async () => {
       await AppDataSource.query('DELETE FROM refunds WHERE 1=1');
 
-      const response = await request(app).get('/api/v1/refunds/stats');
+      const response = await request(app).get('/api/v1/refunds/stats').set('X-Admin-Api-Key', adminApiKey);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.data.totalRefunds).toBe(0);
+    });
+  });
+
+  describe('POST /api/v1/refunds/partial-calculation', () => {
+    it('should calculate partial refund breakdown', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/partial-calculation')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          bookingId: testBooking.id,
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveProperty('originalAmountCents');
+      expect(response.body.data).toHaveProperty('baseRefundPercentage');
+      expect(response.body.data).toHaveProperty('finalRefundAmountCents');
+      expect(response.body.data).toHaveProperty('appliedRules');
+      expect(Array.isArray(response.body.data.appliedRules)).toBe(true);
+    });
+
+    it('should return 404 for non-existent booking', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/partial-calculation')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          bookingId: '00000000-0000-0000-0000-000000000000',
+        });
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('should return 400 for invalid booking ID', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/partial-calculation')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          bookingId: 'invalid-id',
+        });
+
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe('Partial refund requests', () => {
+    it('should accept partial refund by percentage', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 50,
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.requestedAmountCents).toBe(Math.floor(testBooking.amountCents * 0.5));
+    });
+
+    it('should accept partial refund by amount', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundAmountCents: 10000,
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.requestedAmountCents).toBe(10000);
+    });
+
+    it('should reject both percentage and amount together', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 50,
+          requestedRefundAmountCents: 10000,
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('should reject percentage out of range', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 150,
+        });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('should reject negative amount', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundAmountCents: -1000,
+        });
+
+      expect(response.status).toBe(400);
+    });
+
+    it('should handle 0% refund request', async () => {
+      const response = await request(app)
+        .post('/api/v1/refunds/request')
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({
+          bookingId: testBooking.id,
+          reason: 'customer_request',
+          requestedRefundPercentage: 0,
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.data.requestedAmountCents).toBe(0);
     });
   });
 });

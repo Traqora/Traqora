@@ -13,6 +13,7 @@ fn test_register_and_verify_airline() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
 
     contracts.airline.initialize(&actors.admin);
     contracts.airline.register_airline(
@@ -35,6 +36,7 @@ fn test_create_flight_requires_verified_airline_and_reserve_seat() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
     register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
 
     let flight_id = contracts.airline.create_flight(
@@ -59,10 +61,124 @@ fn test_create_flight_requires_verified_airline_and_reserve_seat() {
 }
 
 #[test]
+fn test_reserve_journey_decrements_each_connected_leg() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
+
+    let connecting_airline = Address::generate(&env);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &connecting_airline);
+
+    let first_leg = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ601"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1_700_000_000,
+        &1_700_100_000,
+        &2,
+        &250_0000000i128,
+        &Symbol::new(&env, "USDC"),
+    );
+    let second_leg = contracts.airline.create_flight(
+        &connecting_airline,
+        &Symbol::new(&env, "TQ602"),
+        &Symbol::new(&env, "LAX"),
+        &Symbol::new(&env, "SFO"),
+        &1_700_100_000,
+        &1_700_200_000,
+        &2,
+        &250_0000000i128,
+        &Symbol::new(&env, "USDC"),
+    );
+
+    contracts.airline.reserve_journey(
+        &actors.passenger,
+        &Vec::from_array(&env, [first_leg, second_leg]),
+    );
+
+    assert_eq!(
+        contracts
+            .airline
+            .get_flight(&first_leg)
+            .unwrap()
+            .available_seats,
+        1
+    );
+    assert_eq!(
+        contracts
+            .airline
+            .get_flight(&second_leg)
+            .unwrap()
+            .available_seats,
+        1
+    );
+}
+
+#[test]
+fn test_reserve_journey_does_not_partially_decrement_when_a_leg_is_full() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
+
+    let first_leg = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ701"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1_700_000_000,
+        &1_700_100_000,
+        &1,
+        &250_0000000i128,
+        &Symbol::new(&env, "USDC"),
+    );
+    let second_leg = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ702"),
+        &Symbol::new(&env, "LAX"),
+        &Symbol::new(&env, "SFO"),
+        &1_700_100_000,
+        &1_700_200_000,
+        &1,
+        &250_0000000i128,
+        &Symbol::new(&env, "USDC"),
+    );
+    contracts.airline.reserve_seat(&actors.airline, &second_leg);
+
+    let flight_ids = Vec::from_array(&env, [first_leg, second_leg]);
+    assert!(contracts
+        .airline
+        .try_reserve_journey(&actors.passenger, &flight_ids)
+        .is_err());
+
+    assert_eq!(
+        contracts
+            .airline
+            .get_flight(&first_leg)
+            .unwrap()
+            .available_seats,
+        1
+    );
+    assert_eq!(
+        contracts
+            .airline
+            .get_flight(&second_leg)
+            .unwrap()
+            .available_seats,
+        0
+    );
+}
+
+#[test]
 fn test_cancel_flight_and_unauthorized_changes() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
     register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
 
     let flight_id = contracts.airline.create_flight(
@@ -88,6 +204,7 @@ fn test_batch_create_flights_partial_failure() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
     register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
 
     let mut batch = Vec::new(&env);
@@ -146,6 +263,7 @@ fn test_batch_update_flight_status_partial_failure() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
     register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
 
     let other_airline = Address::generate(&env);
@@ -205,6 +323,7 @@ fn test_batch_create_flights_enforces_max_batch_size() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
     register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
 
     let mut batch = Vec::new(&env);
@@ -226,4 +345,49 @@ fn test_batch_create_flights_enforces_max_batch_size() {
     contracts
         .airline
         .batch_create_flights(&actors.airline, &batch);
+}
+
+#[test]
+fn test_reconcile_and_reserve_seat_timeout_recovery() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
+
+    let flight_id = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ801"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1_700_000_000,
+        &1_700_100_000,
+        &10,
+        &250_0000000i128,
+        &Symbol::new(&env, "USDC"),
+    );
+
+    let request_ref = Symbol::new(&env, "req_timeout_123");
+
+    // First attempt (simulates timeout outcome uncertainty -> reconcile and reserve)
+    let res1 = contracts.airline.reconcile_and_reserve_seat(
+        &actors.airline,
+        &flight_id,
+        request_ref.clone(),
+    );
+    assert_eq!(res1, flight_id);
+
+    let flight_after_first = contracts.airline.get_flight(&flight_id).unwrap();
+    assert_eq!(flight_after_first.available_seats, 9);
+
+    // Retry with same request reference after timeout (should reconcile and return existing mapping without decrementing again)
+    let res2 = contracts.airline.reconcile_and_reserve_seat(
+        &actors.airline,
+        &flight_id,
+        request_ref,
+    );
+    assert_eq!(res2, flight_id);
+
+    let flight_after_retry = contracts.airline.get_flight(&flight_id).unwrap();
+    assert_eq!(flight_after_retry.available_seats, 9);
 }

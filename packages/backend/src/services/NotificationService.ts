@@ -7,8 +7,9 @@ import { logger } from "../utils/logger";
 import { emailService } from "./EmailService";
 import { smsService } from "./SMSService";
 import { pushNotificationService } from "./PushNotificationService";
-import type {
-  NotificationPreference,
+import {
+  isRequiredNotice,
+  type NotificationPreference,
   UserNotificationSettings,
   NotificationPayload,
   Notification,
@@ -173,26 +174,31 @@ export class NotificationService {
   /**
    * Returns true when a notification should be delivered on the given channel.
    * Checks:
-   *   1. Per-channel / per-category preference (enabled + frequency != "never")
-   *   2. Do-Not-Disturb window (skips non-system channels during quiet hours)
+   *   1. Required notices (explicit flag or required category) always pass
+   *   2. Per-channel / per-category preference (enabled + frequency != "never")
+   *   3. Do-Not-Disturb window (skips non-required notices during quiet hours)
    */
   async shouldDeliver(
     userId: string,
     channel: NotificationChannel,
     category: NotificationCategory,
+    required?: boolean,
   ): Promise<boolean> {
-    const prefs = await this.getPreferences(userId, channel, category);
+    const isRequired = isRequiredNotice(category, required);
 
-    if (prefs.length > 0) {
-      const pref = prefs[0];
-      if (!pref.enabled || pref.frequency === "never") return false;
+    if (!isRequired) {
+      const prefs = await this.getPreferences(userId, channel, category);
+
+      if (prefs.length > 0) {
+        const pref = prefs[0];
+        if (!pref.enabled || pref.frequency === "never") return false;
+      }
+      // Default: enabled if no preference stored yet
+      return !this.isDoNotDisturbActive(userId);
     }
-    // Default: enabled if no preference stored yet
 
-    // System notifications bypass Do-Not-Disturb
-    if (category === "system") return true;
-
-    return !this.isDoNotDisturbActive(userId);
+    // Legally or operationally required notices are never opted out of.
+    return true;
   }
 
   /**
@@ -244,12 +250,43 @@ export class NotificationService {
   /**
    * Queue a notification for the user and immediately dispatch to all
    * enabled channels (email, sms, push, inapp).
+   *
+   * De-duplication: if a notification with the same `payload.id` is already
+   * stored for this user, the existing record is returned and no new deliveries
+   * are added.  When the notification exists but a requested channel has no
+   * delivery entry yet (and passes preference gating), a new delivery is appended
+   * so the caller can extend an existing notification to additional channels
+   * without creating a full duplicate.
    */
   async queueNotification(
     userId: string,
     payload: NotificationPayload,
     channels: NotificationChannel[],
   ): Promise<Notification> {
+    const userNotifs = this.notifications.get(userId) || [];
+
+    // --- Deduplication: return existing notification if the ID is already known ---
+    const existing = userNotifs.find((n) => n.id === payload.id);
+    if (existing) {
+      logger.info("Notification already queued – skipping duplicate", {
+        userId,
+        notificationId: payload.id,
+      });
+      // Still add missing channel deliveries that pass preference gating.
+      for (const channel of channels) {
+        const alreadyScheduled = existing.deliveries.some(
+          (d) => d.channel === channel && d.status !== "failed",
+        );
+        if (
+          !alreadyScheduled &&
+          (await this.shouldDeliver(userId, channel, payload.category, payload.required))
+        ) {
+          existing.deliveries.push({ channel, status: "pending", retryCount: 0 });
+        }
+      }
+      return existing;
+    }
+
     const notification: Notification = {
       id: payload.id,
       userId,
@@ -264,7 +301,12 @@ export class NotificationService {
     };
 
     for (const channel of channels) {
-      const gate = await this.shouldDeliver(userId, channel, payload.category);
+      const gate = await this.shouldDeliver(
+        userId,
+        channel,
+        payload.category,
+        payload.required,
+      );
       if (gate) {
         notification.deliveries.push({
           channel,
@@ -274,7 +316,6 @@ export class NotificationService {
       }
     }
 
-    const userNotifs = this.notifications.get(userId) || [];
     userNotifs.push(notification);
     this.notifications.set(userId, userNotifs);
 
@@ -400,7 +441,7 @@ export class NotificationService {
             data: payload.data as Record<string, string> | undefined,
           },
         );
-        if (result.successful === 0 && result.failed > 0) {
+        if (result.transientlyFailed > 0 || (result.successful === 0 && result.failed > 0 && result.permanentlyFailed === 0)) {
           throw new Error("All push deliveries failed");
         }
         break;

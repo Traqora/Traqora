@@ -5,12 +5,38 @@ import { Config } from '../config/schema';
 import { logger } from '../utils/logger';
 import { sanitizeObject } from '../middleware/requestLogger';
 
+const PACKAGE_VERSION = process.env.npm_package_version || '0.1.0';
+
+/**
+ * Get the release version for Sentry from the package config.
+ */
+export function getSentryRelease(): string {
+  return `traqora-backend@${PACKAGE_VERSION}`;
+}
+
+/**
+ * Check if Sentry release health is configured and valid.
+ * Returns the release health status including the release identifier.
+ */
+export function checkSentryReleaseHealth(runtimeConfig: Config): { healthy: boolean; release?: string; error?: string } {
+  if (!runtimeConfig.sentryDsn) {
+    return { healthy: false, error: 'SENTRY_DSN not configured' };
+  }
+  try {
+    const release = getSentryRelease();
+    return { healthy: true, release };
+  } catch (error) {
+    return { healthy: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /**
  * Scrubs request data, extra context, and breadcrumbs before an event
  * leaves the process for Sentry. Reuses requestLogger's
  * sanitizeObject (the same redaction already applied to our own request
  * logs) rather than maintaining a second, divergent scrub list.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function scrubEvent(event: ErrorEvent, _hint: EventHint): ErrorEvent {
   if (event.request) {
     if (event.request.headers) {
@@ -69,6 +95,7 @@ export const initializeErrorTracking = (runtimeConfig: Config): boolean => {
   Sentry.init({
     dsn: runtimeConfig.sentryDsn,
     environment: runtimeConfig.environment,
+    release: getSentryRelease(),
     tracesSampleRate: runtimeConfig.sentryTracesSampleRate,
     profilesSampleRate: runtimeConfig.sentryProfilesSampleRate,
     integrations: [nodeProfilingIntegration()],
@@ -81,6 +108,7 @@ export const initializeErrorTracking = (runtimeConfig: Config): boolean => {
   initialized = true;
   logger.info('Sentry error tracking initialized', {
     environment: runtimeConfig.environment,
+    release: getSentryRelease(),
     tracesSampleRate: runtimeConfig.sentryTracesSampleRate,
   });
 

@@ -1,3 +1,5 @@
+# Production compose contract. Validated by scripts/check-compose-prod-parity.js
+# (required services, NODE_ENV=production, JWT_SECRET, healthchecks, no DB host ports).
 services:
   api:
     profiles:

@@ -207,3 +207,38 @@ fn test_register_airline_emits_event_and_add_flight_is_stored() {
     assert_eq!(flight.airline_id, airline_id);
     assert_eq!(flight.airline_admin, airline_admin);
 }
+
+#[test]
+#[should_panic(expected = "Out-of-order provider snapshot")]
+fn test_delayed_sync_response_rejected_integration() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let owner = Address::generate(&env);
+    let client = setup_registry(&env, &owner);
+    let airline_admin = Address::generate(&env);
+    let airline_id = Symbol::new(&env, "SYNC");
+    let flight_id = Symbol::new(&env, "SYNC999");
+
+    client.register_airline(
+        &owner,
+        &airline_admin,
+        &airline_id,
+        &Symbol::new(&env, "SyncAir"),
+    );
+
+    env.ledger().set_timestamp(10000);
+    client.add_flight(
+        &airline_admin,
+        &flight_id,
+        &sample_metadata(&env, "LOS-JFK", "B777"),
+    );
+
+    // Attempt to update with a delayed sync response having an older timestamp
+    env.ledger().set_timestamp(5000);
+    client.add_flight(
+        &airline_admin,
+        &flight_id,
+        &sample_metadata(&env, "LOS-JFK", "B777"),
+    );
+}

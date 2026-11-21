@@ -1,244 +1,25 @@
-/**
- * SMS Notification Service
- * Handles SMS delivery via Twilio, AWS SNS, or Vonage
- */
+import twilio from 'twilio';
+import { config } from '../config';
 
-import { logger } from "../utils/logger";
-import { BadRequestError } from "../utils/errors";
-import { config } from "../config";
-import type { SMSDelivery, DeliveryStatus } from "../types/notification";
-
-// Twilio SDK – only imported when provider is "twilio" so the module load
-// does not fail in environments where credentials are absent.
-let twilioClient: any = null;
-
-export type SMSNotificationType =
-  | "booking_confirmation"
-  | "booking_cancelled"
-  | "flight_delayed"
-  | "flight_cancelled"
-  | "gate_changed"
-  | "boarding_reminder"
-  | "refund_processed"
-  | "refund_initiated"
-  | "payment_received"
-  | "otp"
-  | "general";
-
-export interface SMSTemplateData {
-  flightNumber?: string;
-  bookingReference?: string;
-  refundAmount?: string;
-  from?: string;
-  to?: string;
-  delayMinutes?: number;
-  cancellationReason?: string;
-  previousGate?: string;
-  newGate?: string;
-  gate?: string;
-  terminal?: string;
-  otpCode?: string;
-  message?: string;
-  [key: string]: string | number | undefined;
-}
-
-export class SMSService {
-  private deliveries: Map<string, SMSDelivery[]> = new Map();
-  private provider: "twilio" | "aws-sns" | "vonage";
+class SMSService {
+  private client: twilio.Twilio | null = null;
+  private fromPhoneNumber: string;
 
   constructor() {
-    this.provider = ((config as any).smsProvider as any) || "twilio";
+    if (config.twilioAccountSid && config.twilioAuthToken) {
+      this.client = twilio(config.twilioAccountSid, config.twilioAuthToken);
+    }
+    this.fromPhoneNumber = config.twilioPhoneNumber;
   }
 
-  /**
-   * Send an SMS using a pre-defined notification template
-   */
-  async sendTypedSMS(
-    phoneNumber: string,
-    type: SMSNotificationType,
-    data: SMSTemplateData,
-    userId?: string,
-  ): Promise<SMSDelivery> {
-    const message = this.buildTemplateMessage(type, data);
-    return this.sendSMS(phoneNumber, message, userId);
-  }
-
-  /**
-   * Send SMS message
-   */
-  async sendSMS(
-    phoneNumber: string,
-    message: string,
-    userId?: string,
-  ): Promise<SMSDelivery> {
-    if (!this.validatePhoneNumber(phoneNumber)) {
-      throw new BadRequestError("Invalid phone number format");
+  public async send(to: string, type: string, data: any) {
+    if (!this.client) {
+      console.warn('Twilio credentials not configured. Skipping SMS send.');
+      return;
     }
 
-    const truncated = message.length > 160 ? message.substring(0, 157) + "..." : message;
-
-    if (message.length > 160) {
-      logger.warn("SMS message exceeds 160 characters, truncating", {
-        originalLength: message.length,
-        userId,
-      });
-    }
-
-    const delivery: SMSDelivery = {
-      id: `sms-${Date.now()}-${Math.random()}`,
-      phoneNumber: this.maskPhoneNumber(phoneNumber),
-      message: truncated,
-      status: "pending",
-      provider: this.provider,
-      sentAt: new Date(),
-    };
-
-    try {
-      const externalId = await this.providerSend(phoneNumber, truncated);
-      delivery.externalId = externalId;
-      delivery.status = "sent";
-
-      logger.info("SMS sent", {
-        phoneNumber: this.maskPhoneNumber(phoneNumber),
-        provider: this.provider,
-        userId,
-      });
-    } catch (error) {
-      delivery.status = "failed";
-      delivery.failureReason =
-        error instanceof Error ? error.message : "Unknown error";
-
-      logger.error("SMS send failed", {
-        phoneNumber: this.maskPhoneNumber(phoneNumber),
-        error,
-        userId,
-      });
-    }
-
-    const userDeliveries = this.deliveries.get(userId || "unknown") || [];
-    userDeliveries.push(delivery);
-    this.deliveries.set(userId || "unknown", userDeliveries);
-
-    return delivery;
-  }
-
-  /**
-   * Send SMS to multiple recipients
-   */
-  async sendBulkSMS(
-    phoneNumbers: string[],
-    message: string,
-    userId?: string,
-  ): Promise<{
-    successful: number;
-    failed: number;
-    deliveries: SMSDelivery[];
-  }> {
-    const deliveries: SMSDelivery[] = [];
-    let successful = 0;
-    let failed = 0;
-
-    for (const phone of phoneNumbers) {
-      try {
-        const delivery = await this.sendSMS(phone, message, userId);
-        deliveries.push(delivery);
-
-        if (delivery.status === "sent") {
-          successful++;
-        } else {
-          failed++;
-        }
-      } catch (error) {
-        failed++;
-        logger.error("Bulk SMS item failed", { error });
-      }
-    }
-
-    logger.info("Bulk SMS completed", {
-      successful,
-      failed,
-      total: phoneNumbers.length,
-      userId,
-    });
-
-    return { successful, failed, deliveries };
-  }
-
-  /**
-   * Get SMS delivery status (queries provider if Twilio)
-   */
-  async getDeliveryStatus(_externalId: string): Promise<DeliveryStatus> {
-    // In production, query provider API
-    return "delivered";
-  }
-
-  /**
-   * Update delivery status via webhook callback
-   */
-  async updateDeliveryStatus(
-    externalId: string,
-    status: DeliveryStatus,
-  ): Promise<void> {
-    for (const deliveries of this.deliveries.values()) {
-      const delivery = deliveries.find((d) => d.externalId === externalId);
-      if (delivery) {
-        delivery.status = status;
-        if (status === "delivered") {
-          delivery.deliveredAt = new Date();
-        }
-        break;
-      }
-    }
-
-    logger.info("SMS delivery status updated", { externalId, status });
-  }
-
-  /**
-   * Get delivery history for a user
-   */
-  async getDeliveryHistory(
-    userId: string,
-    limit: number = 50,
-  ): Promise<SMSDelivery[]> {
-    const deliveries = this.deliveries.get(userId) || [];
-    return deliveries.slice(-limit);
-  }
-
-  /**
-   * Get aggregate delivery statistics
-   */
-  async getStatistics(): Promise<{
-    totalSent: number;
-    totalDelivered: number;
-    totalFailed: number;
-    successRate: number;
-  }> {
-    let totalSent = 0;
-    let totalDelivered = 0;
-    let totalFailed = 0;
-
-    for (const deliveries of this.deliveries.values()) {
-      totalSent += deliveries.length;
-      totalDelivered += deliveries.filter(
-        (d) => d.status === "delivered",
-      ).length;
-      totalFailed += deliveries.filter((d) => d.status === "failed").length;
-    }
-
-    const successRate = totalSent > 0 ? (totalDelivered / totalSent) * 100 : 0;
-
-    return {
-      totalSent,
-      totalDelivered,
-      totalFailed,
-      successRate: Math.round(successRate * 100) / 100,
-    };
-  }
-
-  /**
-   * Build a human-readable SMS message from a template type and data payload
-   */
-  buildTemplateMessage(type: SMSNotificationType, data: SMSTemplateData): string {
+    let messageBody = '';
+    // Basic text generation for SMS
     switch (type) {
       case "booking_confirmation":
         return `Traqora: Booking confirmed! Flight ${data.flightNumber ?? ""} (${data.from ?? ""} → ${data.to ?? ""}). Ref: ${data.bookingReference ?? ""}. Have a great trip!`;
@@ -335,17 +116,17 @@ export class SMSService {
           to: e164,
         });
 
-        return msg.sid;
-      }
+    try {
+      await this.client.messages.create({
+        body: messageBody,
+        from: this.fromPhoneNumber,
+        to,
+      });
+      console.log(`SMS sent successfully to ${to} for type ${type}`);
+    } catch (error: any) {
+      console.error('Error sending SMS:', error.message);
+      throw error;
     }
-
-    // Stub path – used when provider credentials are not configured
-    logger.debug("SMS provider not fully configured, using stub delivery", {
-      provider: this.provider,
-      to: this.maskPhoneNumber(phoneNumber),
-    });
-
-    return `mock-${Date.now()}`;
   }
 }
 

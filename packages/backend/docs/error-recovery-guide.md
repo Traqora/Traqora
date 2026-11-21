@@ -24,7 +24,8 @@ All middleware-driven failures return this envelope:
 ## Retry and Circuit Breaker Policy
 
 - External calls use exponential backoff retries.
-- Circuit opens after 5 consecutive failures.
+- Amadeus requests retry on transient network and timeout failures, using a short base delay with capped jitter before a final failure.
+- The Amadeus circuit breaker opens after the configured failure threshold and remains open until the cooldown expires, then probes in half-open mode.
 - When open, API responds with `503` and `code: CIRCUIT_OPEN`.
 - Retry delayed until `retryAfterMs` expires.
 
@@ -50,6 +51,22 @@ All middleware-driven failures return this envelope:
 2. Ensure seat compensation happened (`seatsAvailable` incremented).
 3. Re-run booking only with a new idempotency key after user confirmation.
 4. Audit by `requestId`, `bookingId`, and `sorobanTxHash` fields.
+
+## Partial flight-search provider results
+
+`GET /api/flights/search` asks every configured upstream provider. When at least one provider returns flights and another fails, the response is still `200` and keeps the flights that succeeded.
+
+```json
+{
+  "data": [],
+  "pagination": { "next_cursor": null, "has_more": false, "page_size": 20 },
+  "provider_results": { "complete": false, "succeeded": 1, "failed": 1 }
+}
+```
+
+`provider_results` is counts only. Provider names, API keys, bearer tokens, and upstream error text are not included. Those strings are redacted before they are written to logs. `complete: true` means every provider that was asked succeeded.
+
+If every provider fails, the route does not invent an empty success. The error message is redacted the same way. A later search is a retry: a provider that failed once can succeed on the next request, and that response is `complete: true` when nothing else failed.
 
 ## Safe Rollback Actions
 

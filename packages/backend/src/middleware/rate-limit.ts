@@ -2,6 +2,7 @@
 import { Request, Response, NextFunction } from 'express';
 import Redis from 'ioredis';
 import ms from 'ms';
+import { logger } from '../utils/logger';
 
 /**
  * Simple Redis‑backed rate limiter.
@@ -17,8 +18,8 @@ const maxRequests = parseInt(process.env.RATE_LIMIT_MAX ?? '100', 10);
 const windowMs = ms((process.env.RATE_LIMIT_WINDOW ?? '1m') as Parameters<typeof ms>[0]);
 
 export async function rateLimitMiddleware(req: Request, res: Response, next: NextFunction) {
+  const identifier = req.ip; // could be expanded to user ID if authenticated
   try {
-    const identifier = req.ip; // could be expanded to user ID if authenticated
     const key = `rl:${identifier}`;
     let current: number | null = null;
     if (redisClient) {
@@ -57,7 +58,7 @@ export async function rateLimitMiddleware(req: Request, res: Response, next: Nex
     next();
   } catch (err) {
     // on error, fail open – allow request
-    console.error('Rate limiter error:', err);
+    logger.error('Rate limiter error', { event: 'rate_limiter_error', error: err, identifier });
     next();
   }
 }

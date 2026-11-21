@@ -15,6 +15,29 @@ fn create_receipt_contract<'a>(env: &Env, admin: &Address) -> BookingReceiptCont
     client
 }
 
+fn assert_receipt_rejected(
+    client: &BookingReceiptContractClient<'_>,
+    passenger: &Address,
+    booking_id: u64,
+    flight_number: &Symbol,
+    from_airport: &Symbol,
+    to_airport: &Symbol,
+    seat: &String,
+    price: i128,
+) {
+    assert!(client
+        .try_mint_receipt(
+            passenger,
+            &booking_id,
+            flight_number,
+            from_airport,
+            to_airport,
+            seat,
+            &price,
+        )
+        .is_err());
+}
+
 #[test]
 fn test_mint_receipt() {
     let env = Env::default();
@@ -119,4 +142,167 @@ fn test_token_metadata() {
     assert_eq!(client.sbt_name(), String::from_str(&env, "Traqora Receipt"));
     assert_eq!(client.sbt_symbol(), Symbol::new(&env, "TREC"));
     assert_eq!(client.sbt_decimals(), 0);
+}
+
+#[test]
+fn test_booking_receipt_schema_validation_and_consistency() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1672531200);
+
+    let admin = Address::generate(&env);
+    let passenger = Address::generate(&env);
+    let client = create_receipt_contract(&env, &admin);
+
+    let flight_number = Symbol::new(&env, "TRQ999");
+    let from_airport = Symbol::new(&env, "JFK");
+    let to_airport = Symbol::new(&env, "LAX");
+    let seat = String::from_str(&env, "14C");
+    let price = 750_0000000i128;
+    let booking_id = 9001u64;
+
+    let receipt_id = client.mint_receipt(
+        &passenger,
+        &booking_id,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &seat,
+        &price,
+    );
+
+    let metadata = client.get_receipt_metadata(&receipt_id);
+    assert_eq!(metadata.booking_id, booking_id);
+    assert_eq!(metadata.flight_number, flight_number);
+    assert_eq!(metadata.from_airport, from_airport);
+    assert_eq!(metadata.to_airport, to_airport);
+    assert_eq!(metadata.seat, seat);
+    assert_eq!(metadata.price, price);
+    assert_eq!(metadata.timestamp, 1672531200);
+
+    assert!(client.verify_receipt(&passenger, &receipt_id));
+
+}
+
+#[test]
+fn test_mint_receipt_rejects_invalid_schema() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let passenger = Address::generate(&env);
+    let client = create_receipt_contract(&env, &admin);
+    let flight_number = Symbol::new(&env, "TRQ101");
+    let from_airport = Symbol::new(&env, "JFK");
+    let to_airport = Symbol::new(&env, "LHR");
+    let seat = String::from_str(&env, "12A");
+    let price = 500_0000000i128;
+
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        0,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &seat,
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &Symbol::new(&env, "TRQFLIGHT123456789"),
+        &from_airport,
+        &to_airport,
+        &seat,
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &Symbol::new(&env, "JF"),
+        &to_airport,
+        &seat,
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &Symbol::new(&env, "JfK"),
+        &to_airport,
+        &seat,
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &from_airport,
+        &from_airport,
+        &seat,
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &String::from_str(&env, ""),
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &String::from_str(&env, "SEATNUMBER"),
+        price,
+    );
+    assert_receipt_rejected(
+        &client,
+        &passenger,
+        1001,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &seat,
+        0,
+    );
+
+    assert_eq!(client.sbt_balance(&passenger), 0);
+    assert_eq!(client.get_passenger_receipts(&passenger).len(), 0);
+
+    let receipt_id = client.mint_receipt(
+        &passenger,
+        &1001,
+        &flight_number,
+        &from_airport,
+        &to_airport,
+        &seat,
+        &price,
+    );
+    assert_eq!(receipt_id, 1);
+}
+
+#[test]
+#[should_panic(expected = "Receipt not found")]
+fn test_missing_receipt_metadata_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let passenger = Address::generate(&env);
+    let client = create_receipt_contract(&env, &admin);
+
+    let _metadata = client.get_receipt_metadata(&9999);
 }

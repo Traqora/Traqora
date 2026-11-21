@@ -8,12 +8,10 @@
  * good/bad against the latency target defined in `services/metrics.ts`.
  *
  * Instrumented operations:
- *   - search  : end-to-end flight search latency (cache hit or miss) — see
- *               services/flightSearchService.ts
- *   - booking : booking creation → confirmation — recorded inside
- *               recordBookingConfirmed() in services/metrics.ts
- *   - refund  : refund processing — recorded inside recordRefundProcessed()
- *               in services/metrics.ts
+ *   - search  : end-to-end flight search latency (cache hit or miss)
+ *   - booking : asynchronous on-chain confirmation polling, through a terminal
+ *               confirmation or failure
+ *   - refund  : refund processing through completion or rejection
  */
 
 import { recordSloLatency, SloOperation } from '../services/metrics';
@@ -30,7 +28,7 @@ export async function sloMeasure<T>(operation: SloOperation, fn: () => Promise<T
     recordSloLatency(operation, (Date.now() - start) / 1000);
     return result;
   } catch (error) {
-    recordSloLatency(operation, (Date.now() - start) / 1000);
+    recordSloLatency(operation, (Date.now() - start) / 1000, true);
     throw error;
   }
 }

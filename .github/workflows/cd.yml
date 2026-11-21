@@ -78,10 +78,39 @@ jobs:
           echo "run_migrations=$RUN_MIGRATIONS" >> "$GITHUB_OUTPUT"
           echo "skip_verify=$SKIP_VERIFY" >> "$GITHUB_OUTPUT"
 
+  # ─── Provider sandbox smoke (#916) ────────────────────────────────
+  # Credential-safe auth + one-offer search against configured airline
+  # sandboxes. Runs before image build / deploy promotion. Unconfigured
+  # providers are skipped so forks without secrets still pass.
+  provider-sandbox-smoke:
+    name: Provider sandbox smoke
+    needs: [environment]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Unit tests for sandbox smoke
+        run: npm test --workspace=packages/backend -- --runInBand src/services/__tests__/providerSandboxSmoke.test.ts
+
+      - name: Live sandbox smoke (skipped without credentials)
+        env:
+          AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
+          AMADEUS_CLIENT_SECRET: ${{ secrets.AMADEUS_CLIENT_SECRET }}
+          AMADEUS_BASE_URL: ${{ secrets.AMADEUS_BASE_URL }}
+        run: npm run smoke:providers --workspace=packages/backend
+
   # ─── Docker Images ─────────────────────────────────────────────────
   docker-build:
     name: Docker Build & Push
-    needs: [environment]
+    needs: [environment, provider-sandbox-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -141,6 +170,25 @@ jobs:
           provenance: true
           sbom: true
 
+      # Issue #590: an explicit SPDX SBOM file per image, attached to the
+      # GitHub Release below — distinct from `sbom: true` on the build step
+      # above, which embeds a buildkit attestation rather than a
+      # downloadable artifact auditors can pull independently.
+      - name: Generate SPDX SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service.name }}:${{ env.IMAGE_TAG }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.service.name }}.spdx.json
+          upload-artifact: false
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service.name }}
+          path: sbom-${{ matrix.service.name }}.spdx.json
+          retention-days: 90
+
       - name: Install Trivy (retry)
         run: |
           for i in 1 2 3; do
@@ -197,6 +245,8 @@ jobs:
         env:
           STELLAR_SECRET_KEY: ${{ secrets.STELLAR_SECRET_KEY }}
           NETWORK: ${{ needs.environment.outputs.is_production == 'true' && 'mainnet' || 'testnet' }}
+          # Explicit opt-in for the mainnet guard (scripts/lib/network-guard.sh).
+          CONFIRM_MAINNET: ${{ needs.environment.outputs.is_production == 'true' && 'mainnet' || 'testnet' }}
         run: |
           chmod +x scripts/deploy-contracts.sh
           ./scripts/deploy-contracts.sh "$NETWORK" "${{ github.sha }}" "true"
@@ -214,6 +264,80 @@ jobs:
           name: deployment-${{ needs.environment.outputs.name }}
           path: .deployments/
           retention-days: 30
+
+  # ─── Gas Snapshot per Release (issue #602) ─────────────────────────
+  # Captures the compiled byte-size footprint of every contract for this
+  # release tag and diffs it against the most recent committed snapshot,
+  # failing the release if any contract regressed beyond the threshold.
+  gas-snapshot:
+    name: Gas Snapshot
+    needs: [environment]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            contracts/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('contracts/Cargo.lock') }}
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libudev-dev
+
+      - name: Build release WASM
+        working-directory: contracts
+        run: cargo build --locked --target wasm32-unknown-unknown --release
+
+      - name: Capture gas snapshot
+        run: |
+          chmod +x scripts/gas-snapshot.sh
+          RELEASE="${GITHUB_REF_NAME}"
+          ./scripts/gas-snapshot.sh capture \
+            contracts/target/wasm32-unknown-unknown/release \
+            "contracts/gas-snapshots/${RELEASE}.json" \
+            --release "$RELEASE" \
+            --timestamp "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+      - name: Compare against previous snapshot
+        run: |
+          shopt -s nullglob
+          # Most recent committed snapshot that is not this release.
+          BASELINE=$(ls -1 contracts/gas-snapshots/*.json 2>/dev/null | sort -V | grep -v "${GITHUB_REF_NAME}.json" | tail -1 || true)
+          if [ -z "$BASELINE" ]; then
+            echo "### Gas Snapshot: $GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
+            echo "No prior snapshot to compare against; recorded a new baseline." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "### Gas Snapshot: $GITHUB_REF_NAME vs $(basename "$BASELINE")" >> "$GITHUB_STEP_SUMMARY"
+          if ! ./scripts/gas-snapshot.sh compare \
+            "contracts/gas-snapshots/${GITHUB_REF_NAME}.json" \
+            "$BASELINE" --threshold 5; then
+            echo "❌ Contract gas regression detected" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "✅ No contract gas regression beyond 5%" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gas snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-snapshot-${{ github.ref_name }}
+          path: contracts/gas-snapshots/${{ github.ref_name }}.json
+          retention-days: 90
 
   # ─── Database Migrations ───────────────────────────────────────────
   run-migrations:
@@ -428,10 +552,13 @@ jobs:
             echo "No previous successful run found, using 'latest' tag"
           fi
 
-      - name: Rollback stack
+      # See docs/DEPLOYMENT_CHECKLIST.md "Phase 4: Rollback Runbook" for the
+      # full decision tree this step implements, and the dry-run drill that
+      # exercises this exact script in .github/workflows/rollback-drill.yml
+      # (issue #589).
+      - name: Rollback stack (scripts/rollback-backend.sh)
         env:
           ENVIRONMENT: ${{ needs.environment.outputs.name }}
-          IMAGE_TAG: ${{ steps.previous.outputs.tag }}
           REGISTRY: ${{ env.REGISTRY }}
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
@@ -440,28 +567,20 @@ jobs:
           CORS_ORIGIN: ${{ secrets.CORS_ORIGIN }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
+          set -o pipefail
           echo "## ⚠️ Rolling Back ${{ needs.environment.outputs.name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Redeploying with previous image tag: ${{ steps.previous.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
 
-          docker compose -f docker-compose.prod.yml \
-            --profile ${{ needs.environment.outputs.name }} \
-            up -d --wait --wait-timeout 120
-
-      - name: Verify rollback
-        run: |
-          echo "### Rollback Verification" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if curl -sf --max-time 10 "http://localhost:3001/health"; then
-            echo "✅ Rollback health check passed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ Rollback health check failed" >> $GITHUB_STEP_SUMMARY
-            exit 1
-          fi
-
-          echo "Rollback completed successfully" >> $GITHUB_STEP_SUMMARY
+          chmod +x scripts/rollback-backend.sh
+          ./scripts/rollback-backend.sh \
+            "${{ needs.environment.outputs.name }}" \
+            "${{ steps.previous.outputs.tag }}" \
+            --api-url "http://localhost:3001" \
+            --force \
+          | tee -a $GITHUB_STEP_SUMMARY
 
       - name: Execute rollback script
         env:
@@ -480,6 +599,7 @@ jobs:
       - environment
       - docker-build
       - deploy-contracts
+      - gas-snapshot
       - run-migrations
       - deploy-app
       - smoke-tests
@@ -526,6 +646,7 @@ jobs:
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| Docker Build | ${{ needs.docker-build.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Contract Deploy | ${{ needs.deploy-contracts.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Gas Snapshot | ${{ needs.gas-snapshot.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| DB Migrations | ${{ needs.run-migrations.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| App Deploy | ${{ needs.deploy-app.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Smoke Tests | ${{ needs.smoke-tests.result }} |" >> $GITHUB_STEP_SUMMARY
@@ -580,3 +701,36 @@ jobs:
       - name: Fail on deployment failure
         if: needs.deploy-app.result == 'failure' && needs.rollback.result != 'success'
         run: exit 1
+
+  # ─── SBOM Publication (issue #590) ─────────────────────────────────
+  # Attaches the SPDX SBOMs generated in docker-build to the GitHub Release
+  # for this tag, so third-party component lists for the exact images that
+  # shipped in a release stay independently auditable.
+  publish-sbom:
+    name: Publish SBOMs to Release
+    needs: [docker-build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download backend SBOM
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-backend
+          path: sboms/
+
+      - name: Download client SBOM
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-client
+          path: sboms/
+
+      - name: Attach SBOMs to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            sboms/sbom-backend.spdx.json
+            sboms/sbom-client.spdx.json
+          fail_on_unmatched_files: true
+          generate_release_notes: true

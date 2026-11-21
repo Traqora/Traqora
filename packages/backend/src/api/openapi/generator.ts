@@ -1,31 +1,9 @@
-import { z } from 'zod';
+// @ts-ignore
+import { generateOpenApiDocument } from 'zod-to-openapi';
 import { challengeSchema, verifySchema, refreshSchema, createBookingSchema, createRefundSchema } from '../schemas';
 
-export type OpenAPIObject = any;
-
-function generateOpenApiDocument(config: any): any {
-  const traverse = (obj: any): any => {
-    if (obj === null || obj === undefined) return obj;
-    if (obj instanceof z.ZodType) {
-      return { type: 'object' };
-    }
-    if (Array.isArray(obj)) {
-      return obj.map(traverse);
-    }
-    if (typeof obj === 'object') {
-      const result: any = {};
-      for (const key of Object.keys(obj)) {
-        result[key] = traverse(obj[key]);
-      }
-      return result;
-    }
-    return obj;
-  };
-
-  const document = traverse(config);
-  document.openapi = '3.0.0';
-  return document;
-}
+// @ts-ignore
+import type { OpenAPIObject } from 'zod-to-openapi';
 
 // Define OpenAPI document configuration
 const openApiDocument = generateOpenApiDocument({

@@ -1,4 +1,8 @@
-# Smart Contract Test Suite Documentation
+# Smart Contract Test Guide
+
+This guide explains how the Traqora Soroban contracts are tested, and how to add a new contract test that runs in CI. It is written for contributors who have not worked with the contract test harness before.
+
+---
 
 ## Overview
 
@@ -36,6 +40,8 @@ The Traqora smart contract test suite provides comprehensive coverage of all con
 - **`admin_multisig_test.rs`**: Admin multisig contract (149 tests, from PR #81)
 - **`booking_test.rs`**: Booking contract operations
 - **`refund_automation_integration_test.rs`**: Automated refund flow
+  - Refund tier boundaries (full/partial/no-refund) and settlement balances
+  - Policy automation idempotency: repeated `cancel_booking` / `automate_refund` panics with `Booking already cancelled` (no double settlement)
 - **`dispute_resolution_test.rs`**: Basic dispute resolution
 - **`dispute_resolution_advanced_test.rs`**: Enhanced dispute handling
   - Multiple arbiter scenarios
@@ -86,149 +92,542 @@ The Traqora smart contract test suite provides comprehensive coverage of all con
 cd contracts
 cargo test
 ```
+The contracts in this repository are Soroban smart contracts written in Rust. They are tested with the **soroban-sdk testutils** environment (`soroban-sdk` built with the `testutils` feature), which provides an in-memory ledger that lets tests exercise contract calls without a network, Stellar RPC, or real wallet signatures.
 
-### Run Specific Test File
-```bash
-cargo test --test comprehensive_integration_test
+Tests live in the dedicated crates:
+
+| Location | Purpose |
+| --- | --- |
+| `contracts/packages/integration-tests/src/lib.rs` | Shared test harness: env/fixture builders, contract registration, token initialization. |
+| `contracts/packages/integration-tests/tests/*.rs` | Every `*.rs` file here is a Cargo **integration test binary**; each `#[test]` fn is one test case. |
+
+CI (`.github/workflows/ci.yml`) runs `cargo fmt -- --check`, `cargo clippy` (wasm32, `-D warnings`), `cargo test --locked`, and a line-coverage gate (`cargo llvm-cov --summary-only --fail-under-lines 90`).
+
+---
+
+## Prerequisites
+
+- **Rust toolchain**: `rustup update stable` (CI pins its own toolchain via `RUST_TOOLCHAIN`).
+- **wasm32 target** (only needed for the `cargo clippy --target wasm32-unknown-unknown` check):
+  ```bash
+  rustup target add wasm32-unknown-unknown
+  ```
+- **cargo-llvm-cov** (only needed when computing coverage locally):
+  ```bash
+  cargo install cargo-llvm-cov
+  ```
+- The contracts use `soroban-sdk` **22.x** (see `contracts/Cargo.toml`). The integration-tests crate enables the `testutils` feature.
+
+---
+
+## How the test harness works
+
+Every test builds a `soroban_sdk::Env` — an in-memory Soroban runtime — then registers contracts into it and calls them through generated client types.
+
+### The shared helper crate
+
+`packages/integration-tests/src/lib.rs` exports fixtures so tests do not repeat setup boilerplate. The most commonly used helpers:
+
+| Helper | What it does |
+| --- | --- |
+| `new_env()` | Returns an `Env::default()` with `env.mock_all_auths()` applied. |
+| `generate_actors(&env)` | Generates `admin`, `passenger`, and `airline` addresses (`Actors`). |
+| `register_contracts(&env)` | Registers token, booking, airline, loyalty, governance, refund, refund-automation, and booking-receipt contracts and returns typed clients (`Contracts`). |
+| `initialize_token(&env, &token, &admin)` | Initializes the TRQ token (7-decimal, symbol `TRQ`). |
+| `register_and_verify_airline(&env, &airline_client, &owner, &airline)` | Registers and verifies an airline so flight/booking flows succeed. |
+| `time::*` | Ledger time helpers (`advance_time`, `advance_ledgers`, `set_time`, `advance_past`). See [Time-dependent behavior](#time-dependent-behavior). |
+
+A typical integration test therefore looks like:
+
+```rust
+use integration_tests::{generate_actors, initialize_token, new_env, register_contracts};
+
+#[test]
+fn my_test() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    // ... call contracts via contracts.booking / contracts.token / ...
+}
 ```
 
-### Run with Verbose Output
-```bash
-cargo test -- --nocapture
+### Authorizations
+
+- `new_env()` calls `env.mock_all_auths()`, which makes the host **pre-authorize every call**. Most workflow tests rely on this so they do not need to construct authorization entries.
+- To assert that a "wrong" caller is rejected by business rules, call the `try_<fn>` variant of the method and assert `res.is_err()` (see the access-control example below).
+- To test *signature-level* authorization, do **not** call `mock_all_auths()`; drive the call from an explicit `SourceAccount`/`Address::set_auth` as provided by the `soroban-sdk` testutils (see the `Envelope`/`AuthorizationContext` helpers in soroban-sdk). Most contract tests in this repo cover the business-rule layer via `try_*`.
+
+### Important conventions
+
+- **Token amounts use 7-decimal scaling.** `100_0000000i128` is 100 units; a token with 7 decimals stores it as the raw integer `1000000000`. Use the `_0000000` suffix to keep amounts readable.
+- **`Symbol` vs `symbol_short!`.** `Symbol::new(&env, "...")` holds arbitrary (≤ 32-byte) strings. Event topics that fit in 9 characters use `soroban_sdk::symbol_short!("...")`.
+- **Timestamps.** Set ledger time with `use soroban_sdk::testutils::Ledger;` and `env.ledger().set_timestamp(secs)` (or `env.ledger().with_mut(|li| li.timestamp += delta)`). Without the trait import, `set_timestamp` does not resolve.
+- **Addresses.** Generate test addresses with `soroban_sdk::Address::generate(&env)` (requires `use soroban_sdk::testutils::Address as _;`).
+
+---
+
+## Writing your first test (worked example)
+
+The steps below produce a complete, runnable booking-lifecycle test. It follows the exact API usage of `tests/booking_test.rs` and `tests/event_assertions_test.rs`.
+
+### 1. Create the file
+
+Add a new file under `packages/integration-tests/tests/`, e.g. `tests/booking_lifecycle_test.rs`. Cargo discovers integration tests automatically; nothing needs to be added to `Cargo.toml`.
+
+### 2. Write the test
+
+```rust
+// tests/booking_lifecycle_test.rs
+use soroban_sdk::testutils::Ledger;
+
+use integration_tests::{generate_actors, initialize_token, new_env, register_contracts};
+
+#[test]
+fn test_full_booking_lifecycle() {
+    // 1. Build the environment, actors, and contracts.
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128; // 100 TRQ (7-decimal scaling)
+    let departure_time = 1_705_000_000u64;
+    env.ledger().set_timestamp(1_700_000_000);
+
+    // 2. Passenger creates a booking (booking id is auto-incremented).
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &soroban_sdk::Symbol::new(&env, "FL456"),
+        &soroban_sdk::Symbol::new(&env, "JFK"),
+        &soroban_sdk::Symbol::new(&env, "LAX"),
+        &departure_time,
+        &price,
+        &contracts.token.address,
+    );
+
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.status, soroban_sdk::Symbol::new(&env, "pending"));
+    assert_eq!(booking.amount_escrowed, 0);
+
+    // 3. Fund the passenger and pay for the booking (escrows the price).
+    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts.booking.pay_for_booking(&booking_id);
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.status, soroban_sdk::Symbol::new(&env, "confirmed"));
+    assert_eq!(booking.amount_escrowed, price);
+    assert_eq!(contracts.token.balance_of(&actors.passenger), 0);
+    assert_eq!(contracts.token.balance_of(&contracts.booking.address), price);
+    assert_eq!(
+        contracts.token.balance_of(&actors.airline),
+        0,
+        "payment must not reach the airline before release"
+    );
+
+    // 4. Release payment to the airline once the trip is fulfilled.
+    contracts.booking.release_payment_to_airline(&booking_id);
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.status, soroban_sdk::Symbol::new(&env, "completed"));
+    assert_eq!(booking.amount_escrowed, 0);
+    assert_eq!(contracts.token.balance_of(&contracts.booking.address), 0);
+    assert_eq!(contracts.token.balance_of(&actors.airline), price);
+}
 ```
 
-### Run Property-Based Tests Only
-```bash
-cargo test --test fuzz_property_test
-cargo test --test advanced_property_tests
-```
+### 3. Run it
 
-## Coverage Measurement
-
-### View Summary Report
 ```bash
 cd contracts
-./coverage.sh
+cargo test -p integration-tests --test booking_lifecycle_test -- --nocapture
 ```
 
-### Generate HTML Report
+Expected output ends with something like `test test_full_booking_lifecycle ... ok` and a summary of `1 passed`.
+
+### What each part does
+
+- `new_env()` + `generate_actors()` + `register_contracts()` + `initialize_token()` set up a clean, self-contained ledger with a funded admin.
+- `create_booking(...)` returns a `u64` booking id; state is read back with `get_booking(...)`, which returns `Option<Booking>`.
+- `mint(...)` funds the passenger from the admin; `pay_for_booking(...)` transfers the price into the booking contract and changes the booking to `confirmed`.
+- `release_payment_to_airline(...)` transfers the full escrow to the airline and changes the booking to `completed`; the assertions verify both balances and booking state at each transition.
+
+> When you add a new contract, define an analogous helper in `packages/integration-tests/src/lib.rs` (e.g. `register_<name>(&env) -> <Name>ContractClient`) so all test files share it. A test file should only ever call `integration_tests::...` helpers and the contract clients.
+
+---
+
+## Testing different behaviors
+
+### Automated cross-contract refunds
+
+`RefundAutomationContract::automate_refund(caller, booking_id, cancellation_reason)` accepts the
+registered booking symbol, an authenticated caller authorized by the booking contract, and a
+reason. It loads the booking from the configured booking contract, asks the configured refund
+contract for the airline's policy-based refund percentage, settles the escrow through the booking
+contract, and creates a refund request for the passenger when the settled refund is greater than
+zero. Because the refund contract requires passenger authorization for that request, a
+positive-refund call must be authorized by the passenger; an airline caller can complete a
+no-refund cancellation, but cannot create a positive-refund request alone. The result contains the
+`full`, `partial`, or `no_refund` tier plus passenger and airline amounts;
+`full` means the policy returns 10,000 basis points, while any positive lower percentage is
+`partial`.
+
+The call fails if the automation contract is not initialized, the booking symbol is unregistered,
+the booking or airline policy is missing, the caller cannot cancel that booking, the refund
+percentage is invalid for booking settlement, or a positive-refund call lacks passenger
+authorization at the refund contract. A failed cross-contract call rolls back the escrow
+settlement. Tests for the configured-policy happy path
+and missing-policy rollback are in `tests/refund_automation_integration_test.rs`; run them with:
+
 ```bash
-cd contracts
-./coverage.sh --html
+cargo test -p integration-tests --test refund_automation_integration_test
 ```
 
-### Open HTML Report in Browser
-```bash
-cd contracts
-./coverage.sh --html --open
+### Recording and asserting events
+
+Workflow contracts (booking, governance, loyalty) publish events as `(contract, action)` topics with an `(actor, timestamp, id, ...payload)` data payload; the token contract uses `(action, status)` topics with `(from, to, amount)` data. Collect and inspect events with `env.events().all()`:
+
+```rust
+use soroban_sdk::testutils::Events;
+use soroban_sdk::{IntoVal, TryIntoVal, Val, Address};
+
+fn find_events(
+    env: &Env,
+    topic0: soroban_sdk::Symbol,
+    topic1: soroban_sdk::Symbol,
+) -> std::vec::Vec<(Address, soroban_sdk::Vec<Val>, Val)> {
+    let t0 = topic0.to_val().get_payload();
+    let t1 = topic1.to_val().get_payload();
+    env.events()
+        .all()
+        .iter()
+        .filter(|(_, topics, _)| {
+            topics.len() == 2
+                && topics.get(0).unwrap().get_payload() == t0
+                && topics.get(1).unwrap().get_payload() == t1
+        })
+        .collect()
+}
 ```
 
-### Manual Coverage with cargo-llvm-cov
+Full examples are in `tests/event_assertions_test.rs` (booking created/paid/released/refunded, refund requested/approved/rejected, loyalty points earned/redeemed).
+
+### Expecting an operation to fail
+
+Two options, depending on whether the failure is a panic or a rejected business rule:
+
+```rust
+// Business-rule rejection: use the try_* variant and inspect the Result.
+let res = contracts.booking.try_create_booking(/* wrong caller args */);
+assert!(res.is_err());
+
+// Panic (e.g. invalid input): mark the test with should_panic.
+#[test]
+#[should_panic(expected = "Seat already reserved")]
+fn test_double_booking_rejected() { /* ... */ }
+```
+
+See `tests/access_test.rs` and `tests/flight_booking_test.rs` for these patterns.
+
+### Authorization / roles
+
+```rust
+let owner = Address::generate(&env);
+let attacker = Address::generate(&env);
+contracts.governance.init_governance(&owner, &3600);
+
+let res = contracts.governance.try_transfer_ownership(&attacker, &owner);
+assert!(res.is_err());
+```
+
+## Gas Snapshots
+
+Per-release gas/byte-size snapshots guard against per-contract cost regressions.
+Soroban charges CPU budget in proportion to the executed WASM, so the compiled
+contract byte size is used as a stable, environment-independent gas proxy.
+
+### Capture a snapshot
+```bash
+./scripts/gas-snapshot.sh capture \
+  contracts/target/wasm32-unknown-unknown/release \
+  contracts/gas-snapshots/v0.1.0.json --release v0.1.0
+```
+
+### Compare against the previous release
+```bash
+./scripts/gas-snapshot.sh compare \
+  contracts/gas-snapshots/v0.2.0.json \
+  contracts/gas-snapshots/v0.1.0.json --threshold 5
+```
+
+`compare` exits non-zero when a contract grows beyond the threshold percentage
+(default 5) or is missing relative to the baseline. New contracts and size
+reductions are accepted. The `gas-snapshot` job in `.github/workflows/cd.yml`
+runs this automatically on `v*` tags. See `gas-snapshots/README.md` for details.
+
+### Test the gas-snapshot tool
 ```bash
 cd contracts
-cargo llvm-cov --html --output-dir target/coverage
+cargo test -p gas-snapshot
+```
+
+## Event Documentation Drift Check
+
+`contracts/EVENTS.md` is the operator-facing reference for every event the
+contracts emit. It is hand-maintained and silently drifts whenever an event is
+added, renamed, or removed. The `events-docs-check` tool extracts every event
+topic pair from the contract sources and diffs it against the tables in
+`EVENTS.md`, reporting both **undocumented** events (emitted but missing from the
+doc) and **stale** docs (documented but no longer emitted).
+
+### Run the check
+```bash
+./scripts/check-events-docs.sh
+```
+
+It exits non-zero when `EVENTS.md` drifts from the sources, so it can gate CI.
+
+### Test the events-docs-check tool
+```bash
+cd contracts
+cargo test -p events-docs-check
 ```
 
 ## Key Testing Patterns
+Note that with `mock_all_auths()` the host authorizes every call; the `try_*` pattern asserts the *contract's* role/ownership checks, not signature failures.
 
-### 1. Setup Pattern
+### Time-dependent behavior
+
+Use the helpers in `integration_tests::time` (`packages/integration-tests/src/time.rs`) rather
+than changing the ledger by hand:
+
 ```rust
-let env = new_env();  // Mock all auths
-let actors = generate_actors(&env);  // Admin, passenger, airline
-let contracts = register_contracts(&env);  // All contracts
-initialize_token(&env, &contracts.token, &actors.admin);
+use integration_tests::time::{advance_past, advance_time, set_time, HOUR};
+
+set_time(&env, 1_700_000_000);            // absolute; must not be earlier than now
+advance_time(&env, 48 * HOUR + 1);        // relative, in seconds
+advance_past(&env, proposal.vote_deadline); // now = deadline + 1, for `now > deadline` checks
 ```
 
-### 2. Property-Based Testing
+**Contract**
+
+| Helper | Input | Effect / return value |
+| --- | --- | --- |
+| `advance_time(env, seconds)` | `u64` seconds | `timestamp += seconds`. Returns the new timestamp. `0` does nothing |
+| `advance_ledgers(env, n)` | `u32` ledgers | `sequence += n`, `timestamp += n * SECONDS_PER_LEDGER` |
+| `set_time(env, ts)` | Absolute `u64` | `timestamp = ts`. `ts` must be `>= now` |
+| `advance_past(env, deadline)` | `u64` deadline | `timestamp = deadline + 1`. Does nothing if `now` is already past the deadline |
+| `now(env)` / `ledgers_for(seconds)` | — | Current timestamp / `ceil(seconds / 5)` |
+
+- Only `timestamp` and `sequence_number` change. `network_id`, `base_reserve`, `protocol_version`
+  and the entry TTL settings are kept as they are.
+- The sequence number moves with time at `SECONDS_PER_LEDGER = 5` seconds per ledger (rounded up).
+- Time only moves forward.
+
+**Error cases.** Each helper has a `try_*` form (`try_advance_time`, `try_set_time`, and so on).
+It returns a `TimeError` and **leaves the ledger unchanged**. The plain forms panic with the
+same message, so you can use `#[should_panic(expected = ...)]`:
+
+| `TimeError` | Panic message | Cause |
+| --- | --- | --- |
+| `Backwards { current, requested }` | `cannot move ledger time backwards (current C, requested R)` | `set_time` was given a timestamp earlier than `now` |
+| `TimestampOverflow` | `ledger timestamp overflow` | The new timestamp would be larger than `u64::MAX` |
+| `SequenceOverflow` | `ledger sequence overflow` | The new sequence would be larger than `u32::MAX` |
+
+Avoid `env.ledger().set(LedgerInfo { .. })` for moving time. It overwrites every ledger field, so
+it is easy to reset the network ID or the TTLs by accident. The old `advance_ledger` helper in
+`dispute_test.rs` had exactly this problem, and it now calls `time::advance_time`.
+
+Tests that depend on booking departure times, vote deadlines or escrow windows must set the
+ledger time explicitly. Regression tests for the helpers are in `time_helpers_test.rs`:
+
+```bash
+cargo test -p integration-tests --test time_helpers_test
+```
+
+### Property-based tests
+
+`proptest` (a dev-dependency of the integration-tests crate) verifies invariants across many inputs:
+
 ```rust
+use proptest::prelude::*;
+
 proptest! {
     #[test]
-    fn prop_invariant_name(param in range) {
-        // Setup
-        // Exercise property
-        prop_assert!(condition);
+    fn token_transfer_conserves_total_supply(x in 1i128..10_000i128, y in 1i128..10_000i128) {
+        let env = new_env();
+        let actors = generate_actors(&env);
+        let contracts = register_contracts(&env);
+        initialize_token(&env, &contracts.token, &actors.admin);
+
+        contracts.token.mint(&actors.admin, &actors.passenger, &x);
+        contracts.token.mint(&actors.admin, &actors.airline, &y);
+        contracts.token.transfer(&actors.passenger, &actors.airline, &1i128);
+
+        prop_assert_eq!(
+            contracts.token.balance_of(&actors.passenger) + contracts.token.balance_of(&actors.airline),
+            x + y
+        );
+        prop_assert_eq!(contracts.token.total_supply(), x + y);
     }
 }
 ```
 
-### 3. Integration Flow Testing
-1. Setup contracts and actors
-2. Initialize token and airline
-3. Create flight
-4. Create booking
-5. Process payment
-6. Verify state transitions
-7. Assert final balances
+See `tests/fuzz_property_test.rs` (token) and `tests/advanced_property_tests.rs` (booking/refund/loyalty bounds).
 
-## Critical Invariants to Test
+### Upgrade / storage-version tests
 
-### Token Invariant
-- Total supply = sum of all account balances
-- Transfer conserves total supply
-- Mint increases total supply correctly
-- Burn decreases total supply correctly
+Contracts that implement upgrades or storage versioning are covered in `tests/upgrade_mechanism_test.rs` and `tests/storage_version_test.rs`. Upgrade helpers are exposed through the contract clients in the same way as ordinary methods.
 
-### Booking Invariant
-- Booking IDs are unique and sequential
-- Payment state transitions are monotonic
-- Only authorized parties can modify booking state
-- Refund amount ≤ original price
+---
 
-### Loyalty Invariant
-- Points awarded scales with booking price
-- Points cannot be negative
-- Points awarded only after payment
+## Running the tests
 
-### Dispute Invariant
-- Only designated arbiters can resolve disputes
-- Escrow is released only after resolution
-- Disputes cannot be reopened after resolution
-- Winner is set correctly based on resolution
+Run everything from the `contracts` directory:
 
-## CI Integration
+| Command | Scope |
+| --- | --- |
+| `cargo test --workspace` | Every contract and the integration-tests crate. |
+| `cargo test -p integration-tests` | Only the integration-test suite. |
+| `cargo test -p integration-tests --test booking_test` | A single test binary (file). |
+| `cargo test -p integration-tests --test booking_test test_refund_flow` | A single test by name. |
+| `cargo test -p integration-tests -- --nocapture` | Show `println!`/`dbg!` output. |
 
-### Coverage Requirement
-- Minimum 90% line coverage across all modules
-- CI fails if coverage drops below threshold
-- Coverage report generated for all PRs
-- Trend visualization available in workflow artifacts
+CI uses `cargo test --locked` from the `contracts` directory, so keep `Cargo.lock` up to date when dependency versions change.
 
-### Test Execution
-- All tests run on every PR to `main`
-- Tests cached for faster execution
-- Coverage check happens after compilation
+Formatting and linting (also gated in CI):
 
-## Future Enhancements
+```bash
+cargo fmt -- --check
+cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
+```
 
-1. **Fuzzing**: Integrate cargo-fuzz for deeper fuzzing
-2. **Snapshot Testing**: Add snapshot assertions for complex state
-3. **Formal Verification**: Use Soroban prover for critical invariants
-4. **Performance Benchmarks**: Add criterion for contract performance
-5. **Mutation Testing**: Verify test quality with mutation testing
+The test inventory below is checked by `scripts/check-test-guide-parity.sh`, which runs in CI:
+
+| Script | What it checks |
+| --- | --- |
+| `scripts/check-test-guide-parity.sh` | Every file in `packages/integration-tests/tests/` is listed in the inventory below, and no listed file is missing. |
+
+---
+
+## Coverage
+
+The contracts require **>= 90% line coverage** on contract code (CI runs `cargo llvm-cov --summary-only --fail-under-lines 90`). Coverage is measured over the contract crates themselves, not the integration-test crate.
+
+Locally, use the wrapper script in `contracts/`. It runs the same gate as CI
+(`cargo test --locked` followed by `cargo llvm-cov --fail-under-lines 90`) and
+exits non-zero when line coverage drops below the threshold:
+
+```bash
+./coverage.sh                    # text summary, fails below 90% line coverage
+./coverage.sh --threshold 95     # enforce a different threshold
+./coverage.sh --no-fail          # report coverage without failing
+./coverage.sh --html             # HTML report in target/coverage/
+./coverage.sh --html --open      # HTML report, opened in a browser
+./coverage.sh --dry-run          # print the cargo commands without running
+```
+
+Positional/unknown-option mistakes exit with code `2`, so the script never
+silently skips the gate. `scripts/test-coverage.sh` covers this behavior and
+runs in CI.
+
+Or invoke cargo-llvm-cov directly:
+
+```bash
+cargo llvm-cov --summary-only --fail-under-lines 90
+```
+
+> Coverage gates apply to whole crates. When adding a new contract, add enough tests to keep the aggregated line coverage at or above 90%; the CI step prints a per-file table when the threshold is missed.
+
+---
+
+## Navigating the existing tests
+
+| File | Focus |
+| --- | --- |
+| `integration_test.rs` | Full booking → loyalty → refund workflow across contracts. |
+| `comprehensive_integration_test.rs` | Extended workflows (payments, disputes, refund policy, multi-airline loyalty, governance refs). |
+| `booking_test.rs`, `booking_errors_test.rs` | Booking creation, escrow, payment, refunds, error paths. |
+| `contract_errors_test.rs` | Contract error paths and rejection handling. |
+| `booking_receipt_test.rs` | Booking receipt generation. |
+| `flight_booking_test.rs`, `flight_registry_test.rs`, `airline_test.rs` | Flight booking, registry data, airline registration/verification. |
+| `architecture_regression_test.rs` | Cross-contract architecture happy paths and failure modes. |
+| `token_test.rs`, `fuzz_property_test.rs` | Token behavior and invariant testing. |
+| `refund_test.rs`, `refund_automation_integration_test.rs` | Refund flows and automation. |
+| `dispute_test.rs`, `dispute_resolution_test.rs`, `dispute_resolution_advanced_test.rs` | Disputes, arbiters, escrow security, jury rotation. |
+| `loyalty_test.rs`, `loyalty_expiry_test.rs` | Loyalty points, tiers, and points expiry. |
+| `governance_test.rs`, `access_test.rs` | Governance proposals, roles, ownership, access control. |
+| `contract_snapshot_review_test.rs` | Snapshot review policy and durable-ledger regression checks. |
+| `oracle_test.rs` | Price/data oracle integration. |
+| `proxy_test.rs`, `proxy_access_test.rs`, `proxy_delegate_upgrade_test.rs` | Proxy contract behavior, access patterns, and delegate/upgrade flows. |
+| `upgrade_mechanism_test.rs`, `storage_version_test.rs` | Contract upgrades and storage versioning. |
+| `admin_multisig_test.rs` | Admin multisig operations. |
+| `event_assertions_test.rs` | Event schema validation across contracts. |
+| `advanced_property_tests.rs` | Critical invariant checks (supply, refund bounds, id sequencing, points scaling). |
+| `proptest_invariant_test.rs` | Scoped proptest invariant test for token supply conservation. |
+| `time_helpers_test.rs`, `upgrade_quickref_test.rs` | Ledger-time helper regressions and upgrade quick-reference coverage. |
+
+`packages/integration-tests/test_snapshots/` and `contracts/test_snapshots/` hold stored ledger snapshots (`Env`-serialized JSON). They are written by `soroban-sdk` relative to the current working directory, so **run the suite from `contracts/`** (`cargo test --locked`) to keep them in one place. They are diagnostic artifacts, not golden assertions — nothing reads them back.
+
+The suite's assertions are functional (in-process state checks). For upgrade work, the enforced check is the snapshot *review policy* in the `packages/integration-tests/src/snapshot_review` module, which asserts that a change removes no durable ledger entry and does not rewrite the authorization log. See [docs/operations/CONTRACT_SNAPSHOT_REVIEW.md](../docs/operations/CONTRACT_SNAPSHOT_REVIEW.md).
+
+---
+
+## Checklist for adding a test
+
+1. Create `packages/integration-tests/tests/<module>_test.rs` (naming: `<feature>_test.rs`).
+2. Name each test `test_<operation>_<expected_outcome>` (e.g. `test_refund_flow`, `test_double_booking_rejected`).
+3. Reuse `integration_tests::{new_env, generate_actors, register_contracts, initialize_token, ...}` — do not reimplement env/register logic.
+4. Use 7-decimal amount literals (`100_0000000i128`), `Symbol::new`/`symbol_short!`, and set ledger timestamps explicitly where time matters.
+5. Cover at least: happy path, an error/boundary case, and any authorization-sensitive operation (`try_*` with `assert!(res.is_err())`).
+6. Run locally:
+   ```bash
+   cargo test -p integration-tests --test <module>_test -- --nocapture
+   ./scripts/fmt-clippy-check.sh
+   cargo llvm-cov --summary-only --fail-under-lines 90
+   ```
+7. If you added a new test file, add it to the inventory table in this guide and run `bash scripts/check-test-guide-parity.sh`.
+8. It will run in CI (`cargo test --locked` + coverage gate + guide parity check) automatically on your PR to `main`.
+
+---
 
 ## Troubleshooting
 
-### Coverage Tool Installation Issues
-```bash
-cargo install cargo-llvm-cov
-```
+**`register_and_verify_airline` / helpers no longer compile at call sites.**
+The shared helpers in `packages/integration-tests/src/lib.rs` are the single source of truth. When a contract changes, helpers change with it; update every caller in `tests/*.rs`. If you see a compile error about a helper's argument count, check `src/lib.rs` for the current signature and fix the call sites.
 
-### Test Failures Related to Auth/Env
-- Ensure `env.mock_all_auths()` is called in test setup
-- Check that all contract calls are properly authorized
-- Verify address generation in tests
+**`set_timestamp` / `with_mut` does not exist.**
+Add `use soroban_sdk::testutils::Ledger;` — these methods come from the `Ledger` test trait.
 
-### Flaky Tests
-- Property-based tests may have rare failures; re-run to verify
-- Check timestamp-dependent tests for ledger sequencing issues
-- Ensure proper test isolation (no shared state)
+**`Address::generate` not found.**
+Add `use soroban_sdk::testutils::Address as _;`.
 
-## Contributing
+**A call that should succeed panics with an `Auth`/`Authorized` error.**
+You are probably not using `new_env()` (which calls `mock_all_auths()`); use `let env = new_env()` or call `env.mock_all_auths()` after `Env::default()`.
 
-When adding new tests:
-1. Add to appropriate test file or create new one if module-specific
-2. Follow naming convention: `test_<operation>_<expected_outcome>`
-3. Use `new_env()` and `common.rs` utils for setup
-4. Add property-based tests for critical invariants
-5. Document complex test scenarios
-6. Ensure new tests help reach 90%+ coverage target
+**Token balance assertions are off by a factor of 10^7.**
+Amounts are transmitted as raw integers with 7 implied decimals. `1_000_0000` is 1 token — use the `_0000000` grouping to read amounts as whole units.
+
+**An operation I expected to fail returned `Ok`.**
+Call the `try_<fn>` variant and assert `.is_err()`; only `#[should_panic]` tests assert on panics. Make sure the rejection is a business-rule failure (roles/ownership/state) rather than auth, since `mock_all_auths()` bypasses signature checks.
+
+**Property tests rarely fail but sometimes do.**
+`proptest` shrinks counterexamples; re-run with `PROPTEST_CASES=1000 cargo test -p integration-tests --test fuzz_property_test -- --nocapture` to reproduce, and `dbg!` the inputs inside the property function.
+
+**The whole suite will not compile locally.**
+Run `cargo check --tests -p integration-tests` first; fix compile errors in *your* file only. If a pre-existing test file fails to compile (for example after a contract API change), address it in a separate change so this test addition stays reviewable.
+
+---
+
+## Reference: contract surface used in tests
+
+Most tests interact with the `Contracts` struct from `integration-tests::lib`:
+
+- `token`: `init_token`, `mint`, `transfer`, `approve`, `transfer_from`, `balance_of`, `total_supply`
+- `booking`: `create_booking`, `get_booking`, `pay_for_booking`, `release_payment_to_airline`, `refund_passenger`
+- `airline`: `register_airline`, `verify_airline`, `get_airline`, `create_flight`
+- `loyalty`: `init_loyalty`, `award_points`, `redeem_points`
+- `governance`: `init_governance`, `create_proposal`, `execute_proposal`, `get_proposal`, `transfer_ownership`, `set_role`, `has_role`
+- `refund`: `request_refund`, `process_refund`, `reject_refund`
+
+Every client also exposes `try_<fn>` variants for the failure/authorization patterns described above.

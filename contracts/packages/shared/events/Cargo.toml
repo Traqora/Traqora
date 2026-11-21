@@ -1,0 +1,11 @@
+[package]
+name = "contract-events"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+soroban-sdk.workspace = true
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

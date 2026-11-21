@@ -1,392 +1,234 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  apiClient,
+  type AuditLogEntry,
+  type AuditLogFilters,
+} from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Download, Filter, Search, Shield, AlertTriangle, CheckCircle, XCircle, Clock } from 'lucide-react';
 
-interface AuditLog {
-  id: string;
-  logType: 'security' | 'admin' | 'approval';
-  userId?: string;
-  adminId?: string;
+interface FormFilters {
+  from: string;
+  to: string;
+  reference: string;
+  resource: string;
   action: string;
-  resource?: string;
-  resourceId?: string;
-  details?: string;
-  ipAddress: string;
-  createdAt: string;
-  isFlagged?: boolean;
-  flagReason?: string;
+  actorType: string;
 }
 
-interface Filters {
-  logType: string;
-  action: string;
-  userId: string;
-  adminId: string;
-  ipAddress: string;
-  startDate: string;
-  endDate: string;
+const EMPTY_FILTERS: FormFilters = {
+  from: '',
+  to: '',
+  reference: '',
+  resource: '',
+  action: '',
+  actorType: '',
+};
+
+const ACTOR_TYPES = [
+  ['', 'All actors'],
+  ['user', 'Traveler'],
+  ['admin', 'Admin'],
+  ['system', 'System'],
+] as const;
+
+function toIso(value: string): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function toApiFilters(filters: FormFilters): AuditLogFilters {
+  return {
+    from: toIso(filters.from),
+    to: toIso(filters.to),
+    resourceId: filters.reference.trim() || undefined,
+    resource: filters.resource.trim() || undefined,
+    action: filters.action.trim() || undefined,
+    actorType: (filters.actorType || undefined) as AuditLogFilters['actorType'],
+    page: 1,
+    limit: 50,
+  };
 }
 
 export default function AuditLogsPage() {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [filteredLogs, setFilteredLogs] = useState<AuditLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState<Filters>({
-    logType: 'all',
-    action: '',
-    userId: '',
-    adminId: '',
-    ipAddress: '',
-    startDate: '',
-    endDate: '',
-  });
-  const [activeTab, setActiveTab] = useState('all');
+  const [form, setForm] = useState<FormFilters>(EMPTY_FILTERS);
+  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [exporting, setExporting] = useState(false);
 
-  // Mock data - in production, this would come from API
-  useEffect(() => {
-    const mockLogs: AuditLog[] = [
-      {
-        id: '1',
-        logType: 'security',
-        userId: 'user-123',
-        action: 'login_success',
-        ipAddress: '192.168.1.100',
-        createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-      },
-      {
-        id: '2',
-        logType: 'admin',
-        adminId: 'admin-456',
-        action: 'user_update',
-        resource: 'user',
-        resourceId: 'user-123',
-        details: 'Updated user email',
-        ipAddress: '192.168.1.50',
-        createdAt: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-      },
-      {
-        id: '3',
-        logType: 'security',
-        userId: 'user-789',
-        action: 'login_failure',
-        ipAddress: '192.168.1.200',
-        createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-        isFlagged: true,
-        flagReason: 'Multiple failed login attempts',
-      },
-      {
-        id: '4',
-        logType: 'approval',
-        adminId: 'admin-456',
-        action: 'payment_approval',
-        resource: 'payment',
-        resourceId: 'payment-999',
-        details: 'Approved payment processing',
-        ipAddress: '192.168.1.50',
-        createdAt: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-      },
-      {
-        id: '5',
-        logType: 'security',
-        userId: 'user-123',
-        action: 'password_change',
-        ipAddress: '192.168.1.100',
-        createdAt: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-      },
-    ];
-
-    setLogs(mockLogs);
-    setFilteredLogs(mockLogs);
-    setLoading(false);
+  const load = useCallback(async (filters: FormFilters) => {
+    setLoadState('loading');
+    const result = await apiClient.getAuditLogs(toApiFilters(filters));
+    if (!result.success) {
+      setLoadState('error');
+      setLogs([]);
+      setTotal(0);
+      return;
+    }
+    setLogs(result.data.data);
+    setTotal(result.data.pagination.total);
+    setLoadState('ready');
   }, []);
 
-  // Apply filters
   useEffect(() => {
-    let filtered = [...logs];
+    void load(EMPTY_FILTERS);
+  }, [load]);
 
-    if (filters.logType !== 'all') {
-      filtered = filtered.filter(log => log.logType === filters.logType);
-    }
-
-    if (filters.action) {
-      filtered = filtered.filter(log => 
-        log.action.toLowerCase().includes(filters.action.toLowerCase())
-      );
-    }
-
-    if (filters.userId) {
-      filtered = filtered.filter(log => 
-        log.userId?.toLowerCase().includes(filters.userId.toLowerCase())
-      );
-    }
-
-    if (filters.adminId) {
-      filtered = filtered.filter(log => 
-        log.adminId?.toLowerCase().includes(filters.adminId.toLowerCase())
-      );
-    }
-
-    if (filters.ipAddress) {
-      filtered = filtered.filter(log => 
-        log.ipAddress.toLowerCase().includes(filters.ipAddress.toLowerCase())
-      );
-    }
-
-    if (filters.startDate) {
-      filtered = filtered.filter(log => new Date(log.createdAt) >= new Date(filters.startDate));
-    }
-
-    if (filters.endDate) {
-      filtered = filtered.filter(log => new Date(log.createdAt) <= new Date(filters.endDate));
-    }
-
-    setFilteredLogs(filtered);
-  }, [filters, logs]);
-
-  const handleExport = async (format: 'json' | 'csv') => {
-    // In production, this would call the export API
-    console.log(`Exporting logs as ${format}`);
-    alert(`Exporting ${filteredLogs.length} logs as ${format.toUpperCase()}`);
+  const update = (key: keyof FormFilters, value: string) => {
+    setForm((current) => ({ ...current, [key]: value }));
   };
 
-  const getActionIcon = (action: string) => {
-    if (action.includes('login')) return <Shield className="h-4 w-4" />;
-    if (action.includes('failure') || action.includes('error')) return <XCircle className="h-4 w-4 text-red-500" />;
-    if (action.includes('success') || action.includes('approval')) return <CheckCircle className="h-4 w-4 text-green-500" />;
-    return <Clock className="h-4 w-4" />;
+  const applyFilters = (event: React.FormEvent) => {
+    event.preventDefault();
+    void load(form);
   };
 
-  const getLogTypeBadge = (logType: string) => {
-    const variants: Record<string, string> = {
-      security: 'bg-blue-500',
-      admin: 'bg-purple-500',
-      approval: 'bg-orange-500',
-    };
-    return variants[logType] || 'bg-gray-500';
+  const clearFilters = () => {
+    setForm(EMPTY_FILTERS);
+    void load(EMPTY_FILTERS);
   };
 
-  if (loading) {
-    return <div className="p-8">Loading audit logs...</div>;
-  }
+  const downloadCsv = async () => {
+    setExporting(true);
+    try {
+      const result = await apiClient.exportAuditLogs(toApiFilters(form));
+      if (!result.success) return;
+      const url = URL.createObjectURL(new Blob([result.data], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'audit-log.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
-    <div className="container mx-auto p-8 space-y-6">
-      <div className="flex justify-between items-center">
+    <main className="container mx-auto p-8 space-y-6" aria-labelledby="audit-heading">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Security Audit Logs</h1>
-          <p className="text-muted-foreground">View and filter all security and admin audit events</p>
+          <h1 id="audit-heading" className="text-2xl font-semibold">Security audit logs</h1>
+          <p className="text-sm text-muted-foreground">
+            Filter security and booking lifecycle events by time and reference. Values are matched exactly.
+          </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => handleExport('csv')}>
-            <Download className="h-4 w-4 mr-2" />
-            Export CSV
-          </Button>
-          <Button variant="outline" onClick={() => handleExport('json')}>
-            <Download className="h-4 w-4 mr-2" />
-            Export JSON
-          </Button>
-        </div>
+        <Button variant="outline" onClick={() => void downloadCsv()} disabled={exporting}>
+          {exporting ? 'Preparing export...' : 'Export CSV'}
+        </Button>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="all">All Logs ({logs.length})</TabsTrigger>
-          <TabsTrigger value="security">Security ({logs.filter(l => l.logType === 'security').length})</TabsTrigger>
-          <TabsTrigger value="admin">Admin ({logs.filter(l => l.logType === 'admin').length})</TabsTrigger>
-          <TabsTrigger value="approval">Approvals ({logs.filter(l => l.logType === 'approval').length})</TabsTrigger>
-          <TabsTrigger value="flagged">Flagged ({logs.filter(l => l.isFlagged).length})</TabsTrigger>
-        </TabsList>
+      <form className="grid grid-cols-1 gap-4 md:grid-cols-3" onSubmit={applyFilters}>
+        <div className="space-y-2">
+          <Label htmlFor="audit-from">From</Label>
+          <Input
+            id="audit-from"
+            type="datetime-local"
+            value={form.from}
+            onChange={(event) => update('from', event.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="audit-to">To</Label>
+          <Input
+            id="audit-to"
+            type="datetime-local"
+            value={form.to}
+            onChange={(event) => update('to', event.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="audit-reference">Booking reference</Label>
+          <Input
+            id="audit-reference"
+            placeholder="TQ-ABC123"
+            value={form.reference}
+            onChange={(event) => update('reference', event.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="audit-resource">Resource</Label>
+          <Input
+            id="audit-resource"
+            placeholder="bookings"
+            value={form.resource}
+            onChange={(event) => update('resource', event.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="audit-action">Action</Label>
+          <Input
+            id="audit-action"
+            placeholder="support_booking_access"
+            value={form.action}
+            onChange={(event) => update('action', event.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="audit-actor">Actor type</Label>
+          <select
+            id="audit-actor"
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+            value={form.actorType}
+            onChange={(event) => update('actorType', event.target.value)}
+          >
+            {ACTOR_TYPES.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-end gap-2">
+          <Button type="submit">Apply filters</Button>
+          <Button type="button" variant="outline" onClick={clearFilters}>Clear filters</Button>
+        </div>
+      </form>
 
-        <TabsContent value={activeTab} className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="h-5 w-5" />
-                Filters
-              </CardTitle>
-              <CardDescription>Filter audit logs by various criteria</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="logType">Log Type</Label>
-                  <Select
-                    value={filters.logType}
-                    onValueChange={(value) => setFilters({ ...filters, logType: value })}
-                  >
-                    <SelectTrigger id="logType">
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Types</SelectItem>
-                      <SelectItem value="security">Security</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="approval">Approval</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+      <div aria-live="polite">
+        {loadState === 'loading' && <p>Loading audit logs...</p>}
+        {loadState === 'error' && (
+          <div role="alert" className="space-y-2">
+            <p>Unable to load audit logs.</p>
+            <Button variant="outline" onClick={() => void load(form)}>Retry</Button>
+          </div>
+        )}
+        {loadState === 'ready' && <p>{total} matching events</p>}
+      </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="action">Action</Label>
-                  <Input
-                    id="action"
-                    placeholder="Search actions..."
-                    value={filters.action}
-                    onChange={(e) => setFilters({ ...filters, action: e.target.value })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="userId">User ID</Label>
-                  <Input
-                    id="userId"
-                    placeholder="Filter by user ID..."
-                    value={filters.userId}
-                    onChange={(e) => setFilters({ ...filters, userId: e.target.value })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="adminId">Admin ID</Label>
-                  <Input
-                    id="adminId"
-                    placeholder="Filter by admin ID..."
-                    value={filters.adminId}
-                    onChange={(e) => setFilters({ ...filters, adminId: e.target.value })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="ipAddress">IP Address</Label>
-                  <Input
-                    id="ipAddress"
-                    placeholder="Filter by IP..."
-                    value={filters.ipAddress}
-                    onChange={(e) => setFilters({ ...filters, ipAddress: e.target.value })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="startDate">Start Date</Label>
-                  <Input
-                    id="startDate"
-                    type="datetime-local"
-                    value={filters.startDate}
-                    onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="endDate">End Date</Label>
-                  <Input
-                    id="endDate"
-                    type="datetime-local"
-                    value={filters.endDate}
-                    onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
-                  />
-                </div>
-
-                <div className="flex items-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => setFilters({
-                      logType: 'all',
-                      action: '',
-                      userId: '',
-                      adminId: '',
-                      ipAddress: '',
-                      startDate: '',
-                      endDate: '',
-                    })}
-                    className="w-full"
-                  >
-                    Clear Filters
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Audit Log Entries</span>
-                <Badge variant="secondary">{filteredLogs.length} records</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Action</TableHead>
-                      <TableHead>User ID</TableHead>
-                      <TableHead>Admin ID</TableHead>
-                      <TableHead>IP Address</TableHead>
-                      <TableHead>Details</TableHead>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredLogs.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8">
-                          No audit logs found matching the current filters
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredLogs.map((log) => (
-                        <TableRow key={log.id}>
-                          <TableCell>
-                            <Badge className={getLogTypeBadge(log.logType)}>
-                              {log.logType}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="flex items-center gap-2">
-                            {getActionIcon(log.action)}
-                            <span className="capitalize">{log.action.replace(/_/g, ' ')}</span>
-                          </TableCell>
-                          <TableCell>{log.userId || '-'}</TableCell>
-                          <TableCell>{log.adminId || '-'}</TableCell>
-                          <TableCell className="font-mono text-sm">{log.ipAddress}</TableCell>
-                          <TableCell className="max-w-xs truncate">{log.details || '-'}</TableCell>
-                          <TableCell className="text-sm">
-                            {new Date(log.createdAt).toLocaleString()}
-                          </TableCell>
-                          <TableCell>
-                            {log.isFlagged ? (
-                              <Badge variant="destructive" className="flex items-center gap-1">
-                                <AlertTriangle className="h-3 w-3" />
-                                Flagged
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="flex items-center gap-1">
-                                <CheckCircle className="h-3 w-3" />
-                                Normal
-                              </Badge>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
+      {loadState === 'ready' && logs.length > 0 && (
+        <div className="rounded-md border">
+          <Table>
+            <caption className="sr-only">Security and booking lifecycle audit events</caption>
+            <TableHeader>
+              <TableRow>
+                <TableHead scope="col">Time</TableHead>
+                <TableHead scope="col">Action</TableHead>
+                <TableHead scope="col">Actor</TableHead>
+                <TableHead scope="col">Resource</TableHead>
+                <TableHead scope="col">Reference</TableHead>
+                <TableHead scope="col">IP address</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.map((log) => (
+                <TableRow key={log.id}>
+                  <TableCell>{new Date(log.createdAt).toLocaleString()}</TableCell>
+                  <TableCell>{log.action.replaceAll('_', ' ')}</TableCell>
+                  <TableCell>{log.adminId ?? log.userId ?? log.actorType}</TableCell>
+                  <TableCell>{log.resource ?? '-'}</TableCell>
+                  <TableCell>{log.resourceId ?? '-'}</TableCell>
+                  <TableCell className="font-mono text-sm">{log.ipAddress}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </main>
   );
 }

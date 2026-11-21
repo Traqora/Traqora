@@ -19,6 +19,47 @@ export interface FlightSearchParams {
 
 export type SearchFlightsRequest = FlightSearchParams
 
+export type CabinClass = "economy" | "premium_economy" | "business" | "first"
+
+export interface MultiCitySegmentInput {
+  origin: string
+  destination: string
+  date: string
+  passengers: number
+  travelClass?: CabinClass
+}
+
+export interface MultiCitySearchRequest {
+  segments: MultiCitySegmentInput[]
+  passengers: number
+  sortBy?: "total_price" | "total_duration"
+  sortOrder?: "asc" | "desc"
+}
+
+export interface MultiCityFlight extends Flight {
+  flightNumber?: string
+  airlineCode?: string
+}
+
+export interface MultiCitySegmentResult {
+  segment: MultiCitySegmentInput
+  flights: MultiCityFlight[]
+  bestFlight: MultiCityFlight | null
+}
+
+export interface MultiCityItinerary {
+  segments: MultiCitySegmentResult[]
+  totalPrice: number
+  totalDuration: number
+  isOpenJaw: boolean
+  baggageAllowance?: {
+    checkIn: number
+    carryOn: number
+    currency: string
+    note: string
+  }
+}
+
 export type InsuranceCoverageType = "basic" | "standard" | "premium"
 
 export interface InsuranceCoverageDetails {
@@ -90,6 +131,14 @@ export interface Flight {
   fromCity?: string
   toCity?: string
   airline_name?: string
+  segments?: Array<{ origin: string; destination: string }>
+  date?: string
+  provenance?: {
+    source: string
+    imported_at: string
+    source_updated_at?: string
+    freshness: "fresh" | "stale" | "unknown"
+  }
 }
 
 export interface FlightSearchResponse {
@@ -98,6 +147,11 @@ export interface FlightSearchResponse {
     next_cursor: string | null
     has_more: boolean
     page_size: number
+  }
+  provider_results?: {
+    complete: boolean
+    succeeded: number
+    failed: number
   }
 }
 
@@ -131,6 +185,17 @@ export interface SavedSearch {
   cabinClass: SearchMemoryQuery["class"]
   createdAt: string
   updatedAt: string
+}
+
+export interface SearchDataExport {
+  exportedAt: string
+  userId: string
+  history: SearchHistoryEntry[]
+  savedSearches: SavedSearch[]
+}
+
+export interface ClearSearchDataResult {
+  deletedCount: number
 }
 
 export interface CreateBookingRequest {
@@ -379,7 +444,57 @@ export interface PerformanceSnapshot {
 
 export type ApiResult<T> = { success: true; data: T } | { success: false; error: { message: string } }
 
-function getAuthHeader(): Record<string, string> {
+export interface AuditLogFilters {
+  action?: string;
+  actorType?: 'user' | 'admin' | 'system' | 'anonymous';
+  userId?: string;
+  adminId?: string;
+  resource?: string;
+  resourceId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  actorType: string;
+  userId: string | null;
+  adminId: string | null;
+  resource: string | null;
+  resourceId: string | null;
+  details: string | null;
+  metadata: Record<string, unknown> | null;
+  ipAddress: string;
+  userAgent: string | null;
+  createdAt: string;
+}
+
+export interface AuditLogPage {
+  data: AuditLogEntry[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}
+
+function buildAuditQuery(filters: AuditLogFilters): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+  return params.toString();
+}
+
+export function getAuthHeader(): Record<string, string> {
   if (typeof window === 'undefined') return {}
   try {
     const raw = window.localStorage.getItem('traqora-auth')
@@ -590,6 +705,30 @@ export async function deleteSavedSearch(id: string): Promise<void> {
   await authedFetch(`/api/v1/flights/saved-searches/${id}`, { method: 'DELETE' })
 }
 
+export async function clearSearchHistory(): Promise<ClearSearchDataResult> {
+  const body = await authedFetch('/api/v1/flights/search/history', { method: 'DELETE' })
+  return body.data as ClearSearchDataResult
+}
+
+export async function clearSavedSearches(): Promise<ClearSearchDataResult> {
+  const body = await authedFetch('/api/v1/flights/saved-searches', { method: 'DELETE' })
+  return body.data as ClearSearchDataResult
+}
+
+export async function exportSearchData(): Promise<SearchDataExport> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/flights/search/history/export`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeader(),
+    },
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    throw new ApiError(errorData.error?.message || `HTTP ${response.status}`, response.status)
+  }
+  return (await response.json()) as SearchDataExport
+}
+
 export async function getInsuranceQuotes(
   tripCostCents: number,
   destination: string,
@@ -677,11 +816,38 @@ export async function getCarbonStats(userId: string): Promise<SustainabilityStat
   return apiGet<SustainabilityStats>(`/api/v1/carbon/stats?userId=${userId}`)
 }
 
+export interface Airport {
+  code: string;
+  city: string;
+  name: string;
+}
+
 export const apiClient = {
+  searchAirports: async (query: string): Promise<ApiResult<Airport[]>> => {
+    try {
+      const response = await apiGet<Airport[]>(`/api/flights/airports?q=${encodeURIComponent(query)}`);
+      return { success: true, data: response };
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } };
+    }
+  },
+
   searchFlights: async (params: FlightSearchParams) => {
     try {
       const response = await searchFlights(params)
       return { success: true, data: response.data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  searchMultiCity: async (request: MultiCitySearchRequest): Promise<ApiResult<MultiCityItinerary>> => {
+    try {
+      const body = await authedFetch('/api/v1/flights/multi-city', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      })
+      return { success: true, data: body.data as MultiCityItinerary }
     } catch (error: any) {
       return { success: false, error: { message: error.message } }
     }
@@ -1057,5 +1223,58 @@ export const apiClient = {
     } catch (error: any) {
       return { success: false, error: { message: error.message } }
     }
-  }
+  },
+
+  clearSearchHistory: async (): Promise<ApiResult<ClearSearchDataResult>> => {
+    try {
+      const data = await clearSearchHistory()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  clearSavedSearches: async (): Promise<ApiResult<ClearSearchDataResult>> => {
+    try {
+      const data = await clearSavedSearches()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  exportSearchData: async (): Promise<ApiResult<SearchDataExport>> => {
+    try {
+      const data = await exportSearchData()
+      return { success: true, data }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  getAuditLogs: async (filters: AuditLogFilters = {}): Promise<ApiResult<AuditLogPage>> => {
+    try {
+      const query = buildAuditQuery(filters)
+      const body = await authedFetch(`/api/v1/audit-logs${query ? `?${query}` : ''}`)
+      return { success: true, data: body as AuditLogPage }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
+
+  exportAuditLogs: async (filters: AuditLogFilters = {}): Promise<ApiResult<string>> => {
+    try {
+      const query = buildAuditQuery(filters)
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/audit-logs/export${query ? `?${query}` : ''}`,
+        { method: 'GET', headers: getAuthHeader() }
+      )
+      if (!response.ok) {
+        throw new ApiError(`HTTP ${response.status}`, response.status)
+      }
+      return { success: true, data: await response.text() }
+    } catch (error: any) {
+      return { success: false, error: { message: error.message } }
+    }
+  },
 }

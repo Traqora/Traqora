@@ -8,6 +8,10 @@ import {
   SUPPORTED_CURRENCIES,
   currencySymbolMap,
   SUPPORTED_CURRENCY_CODES,
+  getGasFee,
+  getPlatformFee,
+  formatGasFee,
+  isStablecoin,
 } from '../lib/currency'
 
 describe('currency utilities', () => {
@@ -159,6 +163,72 @@ describe('currency utilities', () => {
       for (const code of SUPPORTED_CURRENCY_CODES) {
         expect(SUPPORTED_CURRENCIES[code]).toBeDefined()
       }
+    })
+  })
+
+  describe('getGasFee', () => {
+    it('returns XLM gas fee for XLM', () => {
+      expect(getGasFee('XLM')).toBe('0.00001')
+    })
+
+    it('returns USDC gas fee for USDC', () => {
+      expect(getGasFee('USDC')).toBe('0.0001')
+    })
+
+    it('returns USDT gas fee for USDT', () => {
+      expect(getGasFee('USDT')).toBe('0.0001')
+    })
+
+    it('returns ETH gas fee for ETH', () => {
+      expect(getGasFee('ETH')).toBe('0.001')
+    })
+
+    it('returns default gas fee for unknown currency', () => {
+      expect(getGasFee('USD' as any)).toBe('0.001')
+    })
+  })
+
+  describe('getPlatformFee', () => {
+    it('returns 0 for stablecoins', () => {
+      expect(getPlatformFee('USDC', 100)).toBe(0)
+      expect(getPlatformFee('USDT', 100)).toBe(0)
+    })
+
+    it('returns percentage fee for non-stablecoins', () => {
+      expect(getPlatformFee('USD', 100)).toBe(1)
+    })
+
+    it('returns 0 for zero amount', () => {
+      expect(getPlatformFee('USD', 0)).toBe(0)
+    })
+  })
+
+  describe('formatGasFee', () => {
+    it('formats XLM gas fee with symbol', () => {
+      expect(formatGasFee('XLM')).toBe('0.00001 XLM')
+    })
+
+    it('formats USDC gas fee with symbol', () => {
+      expect(formatGasFee('USDC')).toBe('0.0001 USDC')
+    })
+
+    it('returns currency code as fallback for unknown currency', () => {
+      expect(formatGasFee('XYZ' as any)).toBe('0.001 XYZ')
+    })
+  })
+
+  describe('isStablecoin', () => {
+    it('returns true for USDC', () => {
+      expect(isStablecoin('USDC')).toBe(true)
+    })
+
+    it('returns true for USDT', () => {
+      expect(isStablecoin('USDT')).toBe(true)
+    })
+
+    it('returns false for non-stablecoins', () => {
+      expect(isStablecoin('XLM')).toBe(false)
+      expect(isStablecoin('USD')).toBe(false)
     })
   })
 })

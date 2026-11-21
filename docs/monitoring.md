@@ -79,8 +79,12 @@ sum by (jobName, outcome) (rate(traqora_loki_job_events_total[5m]))
 
 ## SLO Monitoring for the Booking Funnel (issue #593)
 
-The backend classifies every booking-funnel operation (search, booking, refund)
-against a latency SLO target and exposes them as Prometheus metrics:
+The backend records one terminal SLO event for each measured operation
+(`search`, `booking`, or `refund`). A fulfilled operation is `good` when its
+elapsed time is at or below the configured target; an operation that exceeds
+the target or rejects is `bad`, even when the rejection is fast. Rejected calls
+are rethrown unchanged after recording. The event counter and latency histogram
+are exposed as Prometheus metrics:
 
 | Metric | Meaning |
 | --- | --- |
@@ -92,9 +96,15 @@ Latency targets (keep in sync with `SLO_TARGETS` in
 
 | Operation | Target | Instrumented at |
 | --- | --- | --- |
-| `search` | 2s (p95, 95% of events) | `services/flightSearchService.ts` (whole-search latency incl. cache hits) |
-| `booking` | 300s (p95, 95% of events) | `recordBookingConfirmed()` in `services/metrics.ts` |
-| `refund` | 3600s (p95, 95% of events) | `recordRefundProcessed()` in `services/metrics.ts` |
+| `search` | 2s (95% of events) | `services/flightSearchService.ts` (whole search, including cache hits) |
+| `booking` | 300s (95% of events) | `BookingOrchestrationService.pollTransactionStatus()` (confirmation polling through terminal confirmation or failure) |
+| `refund` | 3600s (95% of events) | `RefundService.processRefund()` (processing through completion or rejection) |
+
+Contract: `sloMeasure(operation, fn)` accepts a configured operation and an
+async function, returns the function's value on success, and records one event
+with the elapsed seconds. It records an event as `bad` and rethrows the same
+error when the function rejects. Booking's asynchronous poll records once at
+confirmation, terminal transaction failure, or exhausted polling retries.
 
 Recording rules and burn-rate alerts live in
 `monitoring/prometheus/slo-rules.yml` (loaded via `prometheus.yml`):
@@ -113,6 +123,36 @@ The Grafana dashboard `monitoring/grafana/dashboards/traqora-slo.json` shows
 **Traqora - Booking Funnel SLO**: the booking funnel (searches → created →
 confirmed with conversion rates), p95 latency vs target per operation, and
 remaining error budget per operation.
+
+## Flight Offer Ingestion Delay (#933)
+
+Flight synchronization publishes how stale a provider's offer was when it was
+ingested:
+
+| Metric | Meaning |
+| --- | --- |
+| `traqora_flight_offer_ingestion_delay_seconds{provider}` | Histogram of `ingestion_time - provider_updated_at` for each offer that carries a provider timestamp |
+
+The backend only observes offers whose adapter sets `providerUpdatedAt` on
+`AirlineFlightData`. Missing or unparseable timestamps and timestamps in the
+future are skipped rather than recorded as fresh. Provider names are
+normalized to a bounded set (`amadeus`, `lufthansa`, `air-france`,
+`british-airways`, `offchain-repository`); anything else collapses to `other`
+so a new/typo'd provider cannot create unbounded Prometheus cardinality.
+
+Example stale-feed alert (p95 ingestion delay over 15 minutes):
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, provider) (
+    rate(traqora_flight_offer_ingestion_delay_seconds_bucket[15m])
+  )
+) > 1800
+```
+
+Implementation: `packages/backend/src/services/metrics.ts`
+(`recordFlightOfferIngestionDelay`) and
+`packages/backend/src/services/amadeus/flightSyncService.ts`.
 
 ## Distributed Tracing
 
