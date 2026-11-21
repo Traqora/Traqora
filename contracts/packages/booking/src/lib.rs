@@ -127,6 +127,63 @@ impl BookingContract {
         BookingStorage::set_receipt_contract(&env, &receipt_contract);
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_booking_with_ref(
+        env: Env,
+        passenger: Address,
+        airline: Address,
+        flight_number: Symbol,
+        from_airport: Symbol,
+        to_airport: Symbol,
+        departure_time: u64,
+        price: i128,
+        token: Address,
+        supplier_ref: Symbol,
+    ) -> u64 {
+        passenger.require_auth();
+
+        let ref_key = (airline.clone(), supplier_ref);
+        if let Some(existing_id) = env.storage().persistent().get::<_, u64>(&ref_key) {
+            return existing_id;
+        }
+
+        let booking_id = BookingStorage::next_id(&env);
+
+        let booking = Booking {
+            booking_id,
+            passenger,
+            airline: airline.clone(),
+            flight_number,
+            from_airport,
+            to_airport,
+            departure_time,
+            price,
+            token,
+            amount_escrowed: 0,
+            status: symbol_short!("pending"),
+            created_at: env.ledger().timestamp(),
+        };
+
+        BookingStorage::set(&env, booking_id, &booking);
+        env.storage().persistent().set(&ref_key, &booking_id);
+
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Created,
+            (
+                booking.passenger.clone(),
+                env.ledger().timestamp(),
+                booking_id,
+                booking.airline.clone(),
+                booking.flight_number.clone(),
+                booking.price,
+            ),
+        );
+
+        booking_id
+    }
+
     // Initialize booking - starts in "pending" status until paid
     #[allow(clippy::too_many_arguments)]
     pub fn create_booking(
