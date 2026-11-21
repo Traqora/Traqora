@@ -20,7 +20,7 @@ pub struct ReceiptMetadata {
 }
 
 fn is_valid_airport_code(env: &Env, airport: &Symbol) -> bool {
-    let bytes = airport.to_string(env).to_bytes();
+    let bytes = airport.to_val().to_string();
     let length = bytes.len();
     if !(3..=4).contains(&length) {
         return false;
@@ -106,11 +106,11 @@ impl ReceiptStorage {
     // # Arguments
     // * `receipt_id` - The receipt ID whose TTL should be renewed
     pub fn renew_receipt_ttl(env: Env, receipt_id: u64) {
-        let owner = env.storage().persistent().get(&(symbol_short!("owner"), receipt_id)).expect("Receipt not found");
+        let owner: Address = env.storage().persistent().get(&(symbol_short!("owner"), receipt_id)).expect("Receipt not found");
         owner.require_auth();
         env.storage()
             .persistent()
-            .extend_ttl(&(symbol_short!("owner"), receipt_id), /* delta = */ 0);
+            .extend_ttl(&(symbol_short!("owner"), receipt_id), 0, 0);
     }
 
     pub fn set_owner(env: &Env, receipt_id: u64, owner: &Address) {
@@ -184,7 +184,7 @@ impl BookingReceiptContract {
         admin.require_auth();
 
         assert!(booking_id > 0, "Invalid booking id");
-        let flight_number_length = flight_number.to_string(&env).len();
+        let flight_number_length = flight_number.to_val().to_string().len();
         assert!(
             (1..=16).contains(&flight_number_length),
             "Invalid flight number"
