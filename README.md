@@ -15,7 +15,7 @@ Key benefits include:
 ## Features
 
 ### Flight Booking
-Users can search and book flights directly with airlines.
+Users can search and book flights directly with airlines, with built-in idempotent supplier reference validation to prevent duplicate bookings.
 
 ### Smart Contract Management
 All bookings are handled through secure Soroban-based smart contracts on the Stellar network.
