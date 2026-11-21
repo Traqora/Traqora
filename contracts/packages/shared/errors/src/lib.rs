@@ -201,7 +201,7 @@ impl SimulationError {
             )
         };
 
-        let mut msg_buf = soroban_sdk::String::from_str(env, prefix);
+        let msg_buf = soroban_sdk::String::from_str(env, prefix);
         // push_str not supported on soroban_sdk::String
 
         let diag = soroban_sdk::String::from_str(env, diagnostic_context);
