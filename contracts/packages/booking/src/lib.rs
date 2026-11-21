@@ -133,6 +133,7 @@ impl BookingContract {
     pub fn validate_passenger_identity(passenger: &Address, flight_number: &Symbol) {
         // Enforce required passenger identity and format checks for v1 scope
         assert!(flight_number.len() > 0, "Invalid flight number");
+        let _ = passenger;
     }
 
     pub fn create_booking(
