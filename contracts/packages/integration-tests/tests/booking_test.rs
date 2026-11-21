@@ -112,7 +112,7 @@ fn test_supplier_booking_reference_flow_and_redaction() {
     assert!(booking.supplier_booking_reference.is_none());
 
     // Unauthorized user cannot set supplier booking reference
-    let unauthorized = Address::generate(&env);
+    let unauthorized = soroban_sdk::Address::generate(&env);
     let res = contracts.booking.try_set_supplier_booking_reference(
         &unauthorized,
         &booking_id,
