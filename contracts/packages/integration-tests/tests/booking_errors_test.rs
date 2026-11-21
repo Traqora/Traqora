@@ -320,13 +320,22 @@ fn test_batch_complete_bookings_partial_failure() {
     assert_eq!(result.failures.len(), 3);
     assert_eq!(result.total_released, price_ok);
 
-    let completed = contracts.booking.get_booking(&booking_ok).unwrap();
+    let completed = contracts
+        .booking
+        .get_booking(&actors.passenger, &booking_ok)
+        .unwrap();
     assert_eq!(completed.status, Symbol::new(&env, "completed"));
 
-    let pending = contracts.booking.get_booking(&booking_pending).unwrap();
+    let pending = contracts
+        .booking
+        .get_booking(&actors.passenger, &booking_pending)
+        .unwrap();
     assert_eq!(pending.status, Symbol::new(&env, "pending"));
 
-    let untouched_other = contracts.booking.get_booking(&other_booking).unwrap();
+    let untouched_other = contracts
+        .booking
+        .get_booking(&actors.passenger, &other_booking)
+        .unwrap();
     assert_eq!(untouched_other.status, Symbol::new(&env, "confirmed"));
 }
 

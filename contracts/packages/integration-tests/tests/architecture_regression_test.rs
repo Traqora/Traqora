@@ -39,6 +39,7 @@ fn test_architecture_happy_path_and_failure_mode() {
 #[should_panic(expected = "Booking not found")]
 fn test_architecture_failure_mode_nonexistent_booking() {
     let env = new_env();
+    let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
     contracts.booking.pay_for_booking(&999999u64);
 }
