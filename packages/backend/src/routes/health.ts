@@ -57,9 +57,12 @@ async function checkStellar(horizonUrl: string): Promise<{ healthy: boolean; err
 }
 
 router.get('/', async (_req, res) => {
-  const db = AppDataSource.isInitialized ? 'ok' : 'unavailable';
-  const status = db === 'ok' ? 200 : 503;
-  res.status(status).json({ status: db === 'ok' ? 'ok' : 'degraded', db });
+  const database = await checkDatabase();
+  const status = database.healthy ? 200 : 503;
+  res.status(status).json({
+    status: database.healthy ? 'ok' : 'degraded',
+    db: database.healthy ? 'ok' : 'unavailable',
+  });
 });
 
 router.get('/performance', async (_req, res) => {

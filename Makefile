@@ -34,7 +34,7 @@ test:
 	cd contracts && cargo test --workspace
 
 fmt:
-	cd contracts && cargo fmt --check
+	cd contracts && cargo fmt --all -- --check
 
 clippy:
 	cd contracts && cargo clippy -- -D warnings

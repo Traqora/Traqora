@@ -1,8 +1,4 @@
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::Env;
-use soroban_sdk::Symbol;
-use soroban_sdk::{Address, Env, Symbol};
+use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
 
 use flight_booking::{FlightBookingContract, FlightBookingContractClient};
 
@@ -15,7 +11,7 @@ fn test_reserve_seat_happy_path() {
     let contract_id = env.register(FlightBookingContract, ());
     let client = FlightBookingContractClient::new(&env, &contract_id);
 
-    let flight_id = Symbol::new(&env, "FL-100");
+    let flight_id = Symbol::new(&env, "FL100");
     let seat = Symbol::new(&env, "12A");
     let booking_id = client.reserve_seat(&passenger, &flight_id, &seat, &1_000i128);
 
@@ -36,7 +32,7 @@ fn test_double_booking_rejected() {
     let contract_id = env.register(FlightBookingContract, ());
     let client = FlightBookingContractClient::new(&env, &contract_id);
 
-    let flight_id = Symbol::new(&env, "FL-100");
+    let flight_id = Symbol::new(&env, "FL100");
     let seat = Symbol::new(&env, "12A");
     client.reserve_seat(&passenger, &flight_id, &seat, &1_000i128);
     client.reserve_seat(&passenger, &flight_id, &seat, &1_000i128);

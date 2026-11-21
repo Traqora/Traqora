@@ -918,6 +918,7 @@ dependencies = [
  "refund",
  "refund-automation",
  "soroban-sdk",
+ "storage-version",
  "token",
  "upgrade",
 ]

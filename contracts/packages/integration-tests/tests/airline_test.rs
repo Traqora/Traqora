@@ -14,6 +14,7 @@ fn test_register_and_verify_airline() {
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
 
+    contracts.airline.initialize(&actors.admin);
     contracts.airline.register_airline(
         &actors.airline,
         &Symbol::new(&env, "TraqoraAir"),
@@ -34,7 +35,7 @@ fn test_create_flight_requires_verified_airline_and_reserve_seat() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
-    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
 
     let flight_id = contracts.airline.create_flight(
         &actors.airline,
@@ -62,7 +63,7 @@ fn test_cancel_flight_and_unauthorized_changes() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
-    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
 
     let flight_id = contracts.airline.create_flight(
         &actors.airline,
@@ -87,7 +88,7 @@ fn test_batch_create_flights_partial_failure() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
-    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
 
     let mut batch = Vec::new(&env);
     batch.push_back(FlightInput {
@@ -145,10 +146,10 @@ fn test_batch_update_flight_status_partial_failure() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
-    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
 
     let other_airline = Address::generate(&env);
-    register_and_verify_airline(&env, &contracts.airline, &other_airline);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &other_airline);
 
     let my_flight = contracts.airline.create_flight(
         &actors.airline,
@@ -204,7 +205,7 @@ fn test_batch_create_flights_enforces_max_batch_size() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
-    register_and_verify_airline(&env, &contracts.airline, &actors.airline);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
 
     let mut batch = Vec::new(&env);
     let mut i = 0;

@@ -10,6 +10,8 @@ export type BookingStatus =
   | 'onchain_pending'
   | 'onchain_submitted'
   | 'confirmed'
+  | 'cancelled'
+  | 'CANCELED'
   | 'failed'
   | 'refunded'
   | 'refund_rejected';

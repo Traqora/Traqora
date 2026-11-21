@@ -76,6 +76,9 @@ pub fn register_and_verify_airline(
     owner: &Address,
     airline: &Address,
 ) {
+    if airline_client.try_get_owner().is_err() {
+        airline_client.initialize(owner);
+    }
     airline_client.register_airline(
         airline,
         &Symbol::new(env, "TraqoraAir"),

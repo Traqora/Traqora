@@ -124,7 +124,11 @@ jobs:
 
       - name: Format check
         working-directory: contracts
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
+
+      - name: Compile contracts for WASM
+        working-directory: contracts
+        run: cargo check --locked --target wasm32-unknown-unknown --workspace --exclude integration-tests
 
       - name: Clippy
         run: |
@@ -224,6 +228,13 @@ jobs:
         working-directory: contracts
         run: cargo test --locked
 
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+
+      - name: Audit contract dependencies
+        working-directory: contracts
+        run: cargo audit
+
       - name: Install cargo-llvm-cov (if not cached)
         run: cargo install cargo-llvm-cov --locked 2>/dev/null || true
 
@@ -258,6 +269,19 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Verify PostgreSQL backup and restore
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: password
+        run: bash packages/backend/scripts/verify-postgres-restore.sh
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

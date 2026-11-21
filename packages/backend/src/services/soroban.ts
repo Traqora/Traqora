@@ -85,9 +85,15 @@ export const buildBatchBookingActionUnsignedXdr = async (params: {
     throw new Error(`Simulation failed: ${(simulated as any).error || 'Unknown error'}`);
   } catch (error: any) {
     logger.error('Error building batch Soroban transaction', { error: error.message, params });
-    const payload = JSON.stringify({ contract: config.contracts.booking || 'mock', ...params });
-    const xdr = Buffer.from(payload, 'utf8').toString('base64');
-    return { xdr, networkPassphrase: getNetworkPassphrase() };
+    if (isTransientError(error)) {
+      throw new AppError('Stellar RPC is temporarily unavailable', {
+        statusCode: 503,
+        code: 'STELLAR_RPC_UNAVAILABLE',
+        retryable: true,
+        context: { operation: 'build_batch_booking_action' },
+      });
+    }
+    throw error;
   }
 };
 
@@ -212,10 +218,15 @@ export const buildCreateBookingUnsignedXdr = async (params: {
     }
   } catch (error: any) {
     logger.error('Error building Soroban transaction', { error: error.message, params });
-    // Fallback to mock XDR for development
-    const payload = JSON.stringify({ contract: config.contracts.booking || 'mock', ...params });
-    const xdr = Buffer.from(payload, 'utf8').toString('base64');
-    return { xdr, networkPassphrase: getNetworkPassphrase() };
+    if (isTransientError(error)) {
+      throw new AppError('Stellar RPC is temporarily unavailable', {
+        statusCode: 503,
+        code: 'STELLAR_RPC_UNAVAILABLE',
+        retryable: true,
+        context: { operation: 'build_create_booking' },
+      });
+    }
+    throw error;
   }
 };
 
@@ -304,6 +315,14 @@ export const signAndSubmitCreateBooking = async (params: {
     };
   } catch (error: any) {
     logger.error('Error in signAndSubmitCreateBooking', { error: error.message });
+    if (isTransientError(error)) {
+      throw new AppError('Stellar RPC is temporarily unavailable', {
+        statusCode: 503,
+        code: 'STELLAR_RPC_UNAVAILABLE',
+        retryable: true,
+        context: { operation: 'sign_and_submit_create_booking' },
+      });
+    }
     throw error;
   }
 };
@@ -342,9 +361,15 @@ export const submitSignedSorobanXdr = async (signedXdr: string): Promise<{ txHas
     }
   } catch (error: any) {
     logger.error('Error submitting Soroban transaction', { error: error.message });
-    // Fallback for development
-    const txHash = '0x' + Buffer.from(signedXdr, 'utf8').toString('hex').slice(0, 64);
-    return { txHash };
+    if (isTransientError(error)) {
+      throw new AppError('Stellar RPC is temporarily unavailable', {
+        statusCode: 503,
+        code: 'STELLAR_RPC_UNAVAILABLE',
+        retryable: true,
+        context: { operation: 'submit_signed_transaction' },
+      });
+    }
+    throw error;
   }
 };
 
@@ -391,7 +416,10 @@ export const getTransactionStatus = async (txHash: string): Promise<TransactionS
     }
   } catch (error: any) {
     logger.error('Error getting transaction status', { error: error.message, txHash });
-    if (error instanceof AppError && error.code === 'CIRCUIT_OPEN') {
+    if (
+      (error instanceof AppError && error.code === 'CIRCUIT_OPEN') ||
+      isTransientError(error)
+    ) {
       return {
         status: 'pending',
         txHash,

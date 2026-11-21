@@ -219,6 +219,7 @@ impl UpgradeContract {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use access::Role;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::testutils::Ledger;
 

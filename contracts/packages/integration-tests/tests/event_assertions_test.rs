@@ -247,6 +247,10 @@ fn test_refund_approved_event() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
+    contracts.refund.initialize(&actors.admin);
+    contracts
+        .refund
+        .set_role(&actors.admin, &actors.admin, &2, &true);
 
     let amount = 80_0000000i128;
     let request_id = contracts.refund.request_refund(
@@ -284,6 +288,10 @@ fn test_refund_rejected_event() {
     let env = new_env();
     let actors = generate_actors(&env);
     let contracts = register_contracts(&env);
+    contracts.refund.initialize(&actors.admin);
+    contracts
+        .refund
+        .set_role(&actors.admin, &actors.admin, &2, &true);
 
     let request_id = contracts.refund.request_refund(
         &actors.passenger,

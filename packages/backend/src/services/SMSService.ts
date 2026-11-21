@@ -307,33 +307,13 @@ export class SMSService {
   }
 
   /**
-   * Map Twilio message status string to internal DeliveryStatus
-   */
-  private mapTwilioStatus(twilioStatus: string): DeliveryStatus {
-    switch (twilioStatus) {
-      case "delivered":
-        return "delivered";
-      case "sent":
-        return "sent";
-      case "failed":
-      case "undelivered":
-        return "failed";
-      case "queued":
-      case "sending":
-        return "pending";
-      default:
-        return "sent";
-    }
-  }
-
-  /**
    * Dispatch to the configured SMS provider.
    * Twilio is wired when credentials are present; otherwise falls back to a
    * stub that logs and returns a mock message ID (safe for test/CI environments).
    */
   private async providerSend(
-    _phoneNumber: string,
-    _message: string,
+    phoneNumber: string,
+    message: string,
   ): Promise<string> {
     const e164 = this.normalisePhoneNumber(phoneNumber);
 
