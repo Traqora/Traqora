@@ -34,13 +34,9 @@ fn test_complete_booking_to_refund_workflow() {
     assert!(flight_id > 0);
 
     // 2. Set refund policy for the airline
-    contracts.refund.set_refund_policy(
-        &actors.airline,
-        &86_400,
-        &10_000,
-        &5_000,
-        &3_600,
-    );
+    contracts
+        .refund
+        .set_refund_policy(&actors.airline, &86_400, &10_000, &5_000, &3_600);
 
     // 3. Passenger creates a booking
     let price = 1_000_0000000i128;
@@ -203,13 +199,9 @@ fn test_refund_policy_changes_and_reapplication() {
         .mint(&actors.admin, &actors.passenger, &price);
 
     // Set initial policy
-    contracts.refund.set_refund_policy(
-        &actors.airline,
-        &86_400,
-        &10_000,
-        &5_000,
-        &259_200,
-    );
+    contracts
+        .refund
+        .set_refund_policy(&actors.airline, &86_400, &10_000, &5_000, &259_200);
 
     let booking_id = contracts.booking.create_booking(
         &actors.passenger,
@@ -230,13 +222,9 @@ fn test_refund_policy_changes_and_reapplication() {
     );
 
     // Update policy to be stricter
-    contracts.refund.set_refund_policy(
-        &actors.airline,
-        &604_800,
-        &5_000,
-        &2_500,
-        &259_200,
-    );
+    contracts
+        .refund
+        .set_refund_policy(&actors.airline, &604_800, &5_000, &2_500, &259_200);
 
     let refund2 = contracts.refund.calculate_refund(
         &actors.airline,
@@ -259,9 +247,8 @@ fn test_governance_proposal_with_booking_reference() {
     contracts.governance.init_governance(&actors.admin, &86_400);
 
     // Create a proposal related to refund policy
-    let proposal_id = contracts.governance.create_proposal(
-        &actors.admin,
-        &Symbol::new(&env, "ReduceWindow24h"),
-    );
+    let proposal_id = contracts
+        .governance
+        .create_proposal(&actors.admin, &Symbol::new(&env, "ReduceWindow24h"));
     assert!(proposal_id > 0);
 }
