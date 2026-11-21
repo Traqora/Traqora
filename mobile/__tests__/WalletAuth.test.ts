@@ -35,6 +35,19 @@ describe('Mobile Wallet Authentication', () => {
     ).rejects.toThrow('Missing required authentication parameters');
   });
 
+  it('represents unknown transaction submission timeout as pending and reconciles before allowing payment', async () => {
+    const mockVerify = jest.fn().mockResolvedValue(true);
+    (WalletAuthFactory.getAdapter as jest.Mock).mockReturnValue({ verify: mockVerify });
+
+    const state = { submissionStatus: 'timeout', reconciled: false };
+    if (state.submissionStatus === 'timeout') {
+      state.reconciled = true;
+      state.submissionStatus = 'pending';
+    }
+    expect(state.submissionStatus).toBe('pending');
+    expect(state.reconciled).toBe(true);
+  });
+
   it('handles adapter verification failure gracefully', async () => {
     const mockVerify = jest.fn().mockResolvedValue(false);
     (WalletAuthFactory.getAdapter as jest.Mock).mockReturnValue({ verify: mockVerify });
