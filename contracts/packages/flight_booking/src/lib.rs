@@ -29,6 +29,7 @@ pub struct Booking {
 enum DataKey {
     NextId,
     Booking(u64),
+    SupplierRef(Symbol),
 }
 
 #[contract]
@@ -43,7 +44,33 @@ impl FlightBookingContract {
         seat: Symbol,
         amount: i128,
     ) -> u64 {
+        Self::reserve_seat_with_ref(
+            env,
+            passenger,
+            flight_id,
+            seat,
+            amount,
+            symbol_short!("default"),
+        )
+    }
+
+    pub fn reserve_seat_with_ref(
+        env: Env,
+        passenger: Address,
+        flight_id: Symbol,
+        seat: Symbol,
+        amount: i128,
+        supplier_ref: Symbol,
+    ) -> u64 {
         passenger.require_auth();
+
+        if let Some(existing_id) = env
+            .storage()
+            .persistent()
+            .get::<_, u64>(&DataKey::SupplierRef(supplier_ref.clone()))
+        {
+            return existing_id;
+        }
         assert!(amount > 0, "Invalid amount");
 
         let seat_key = (symbol_short!("seat"), flight_id.clone(), seat.clone());
@@ -69,6 +96,9 @@ impl FlightBookingContract {
             .persistent()
             .set(&DataKey::Booking(booking_id), &booking);
         env.storage().persistent().set(&seat_key, &booking_id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::SupplierRef(supplier_ref), &booking_id);
         env.storage()
             .instance()
             .set(&DataKey::NextId, &(booking_id + 1));
