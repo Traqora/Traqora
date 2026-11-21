@@ -23,6 +23,9 @@ All bookings are handled through secure Soroban-based smart contracts on the Ste
 ### Crypto Payments
 Payments can be made using stablecoins or native tokens on the Stellar platform.
 
+### Booking Lifecycle Recovery & Refund Automation
+Detailed operational documentation for booking failure recovery (supplier timeout, payment pending, contract pending, and partial completion) is available in [docs/operations/BOOKING_LIFECYCLE_RECOVERY.md](docs/operations/BOOKING_LIFECYCLE_RECOVERY.md).
+
 ### Refund Automation
 Cancellations and refund processes are automatically executed via smart contracts, ensuring fast and fair resolutions.
 
