@@ -28,7 +28,10 @@ fn test_architecture_happy_path_and_failure_mode() {
         .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id);
 
-    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    let booking = contracts
+        .booking
+        .get_booking(&actors.passenger, &booking_id)
+        .unwrap();
     assert_eq!(booking.status, Symbol::new(&env, "confirmed"));
 }
 
