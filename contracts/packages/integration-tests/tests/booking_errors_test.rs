@@ -92,6 +92,27 @@ fn test_release_payment_invalid_status_should_panic() {
 }
 
 #[test]
+#[should_panic(expected = "Invalid flight number")]
+fn test_create_booking_invalid_flight_number_should_panic() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+    contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, ""),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+}
+
+#[test]
 fn test_release_payment_success() {
     let env = new_env();
     let actors = generate_actors(&env);
