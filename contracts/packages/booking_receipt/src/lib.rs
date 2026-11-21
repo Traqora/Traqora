@@ -19,7 +19,7 @@ pub struct ReceiptMetadata {
     pub price: i128,
 }
 
-fn is_valid_airport_code(env: &Env, airport: &Symbol) -> bool {
+fn is_valid_airport_code(_env: &Env, airport: &Symbol) -> bool {
     let bytes = airport.to_val().get_payload().to_ne_bytes();
     let length = bytes.len();
     if !(3..=4).contains(&length) {
@@ -30,7 +30,7 @@ fn is_valid_airport_code(env: &Env, airport: &Symbol) -> bool {
         let Some(character) = bytes.get(index) else {
             return false;
         };
-        if !(b'A'..=b'Z').contains(&character) {
+        if !character.is_ascii_uppercase() {
             return false;
         }
     }

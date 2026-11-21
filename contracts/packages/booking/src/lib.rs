@@ -386,7 +386,7 @@ impl BookingContract {
         booking.passenger.require_auth();
         env.storage()
             .persistent()
-            .extend_ttl(&booking_id, /* delta = */ 0);
+            .extend_ttl(&booking_id, 0, 0);
     }
 
     // Helper to get booking details
