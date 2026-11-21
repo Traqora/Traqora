@@ -15,6 +15,7 @@ fn test_register_and_verify_airline() {
     let contracts = register_contracts(&env);
     contracts.airline.initialize(&actors.admin);
 
+    contracts.airline.initialize(&actors.admin);
     contracts.airline.register_airline(
         &actors.airline,
         &Symbol::new(&env, "TraqoraAir"),

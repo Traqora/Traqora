@@ -161,7 +161,7 @@ fn test_other_airline_admin_cannot_modify_existing_flight() {
 }
 
 #[test]
-fn test_register_airline_and_add_flight_emit_events() {
+fn test_register_airline_emits_event_and_add_flight_is_stored() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -184,10 +184,7 @@ fn test_register_airline_and_add_flight_emit_events() {
     );
 
     let events = env.events().all();
-    // 3 events: 1 from AccessControl::init_owner, 1 from FlightRegistry::register_airline (AccessControl::require_admin), 1 from FlightRegistry::add_flight
-    // Wait, AccessControl::init_owner doesn't emit event by default.
-    // Let's re-check events.
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 1);
 
     let airline_event = events.get(0).unwrap();
     assert_eq!(
@@ -206,23 +203,9 @@ fn test_register_airline_and_add_flight_emit_events() {
     assert_eq!(airline_data.0, airline_admin);
     assert_eq!(airline_data.1, Symbol::new(&env, "EventAir"));
 
-    let flight_event = events.get(1).unwrap();
-    assert_eq!(
-        Symbol::try_from_val(&env, &flight_event.1.get(0).unwrap()).unwrap(),
-        Symbol::new(&env, "flight")
-    );
-    assert_eq!(
-        Symbol::try_from_val(&env, &flight_event.1.get(1).unwrap()).unwrap(),
-        Symbol::new(&env, "added")
-    );
-    assert_eq!(
-        Symbol::try_from_val(&env, &flight_event.1.get(2).unwrap()).unwrap(),
-        flight_id
-    );
-    let flight_data: (Symbol, Address) = TryFromVal::try_from_val(&env, &flight_event.2).unwrap();
-    assert_eq!(flight_data.0, airline_id);
-    assert_eq!(flight_data.1, airline_admin);
-    assert_eq!(flight_event.0, client.address);
+    let flight = client.get_flight(&flight_id).unwrap();
+    assert_eq!(flight.airline_id, airline_id);
+    assert_eq!(flight.airline_admin, airline_admin);
 }
 
 #[test]

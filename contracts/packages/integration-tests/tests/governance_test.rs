@@ -1,5 +1,8 @@
 use governance::{GovernanceContract, GovernanceContractClient, Proposal};
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, Vec};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env, Symbol,
+};
 
 use integration_tests::{new_env, register_contracts};
 
@@ -28,8 +31,8 @@ fn test_create_proposal() {
 
     let proposal = client.get_proposal(&1).unwrap();
     assert_eq!(proposal.description, description);
-    assert_eq!(proposal.proposer, voter1);
-    assert!(!proposal.executed);
+    assert_eq!(proposal.creator, voter1);
+    assert_eq!(proposal.status, Symbol::new(&env, "open"));
 }
 
 #[test]
@@ -42,13 +45,13 @@ fn test_vote_on_proposal() {
     let proposal_id = client.create_proposal(&voter1, &Symbol::new(&env, "desc"));
 
     // Vote YES
-    client.vote(&voter1, &proposal_id, &true);
+    client.cast_vote(&voter1, &proposal_id, &true);
     // Vote NO
-    client.vote(&voter2, &proposal_id, &false);
+    client.cast_vote(&voter2, &proposal_id, &false);
 
     let proposal = client.get_proposal(&proposal_id).unwrap();
-    assert_eq!(proposal.votes_for, 1);
-    assert_eq!(proposal.votes_against, 1);
+    assert_eq!(proposal.yes_votes, 1);
+    assert_eq!(proposal.no_votes, 1);
 }
 
 #[test]
@@ -61,8 +64,8 @@ fn test_double_vote_should_panic() {
 
     let proposal_id = client.create_proposal(&voter1, &Symbol::new(&env, "desc"));
 
-    client.vote(&voter1, &proposal_id, &true);
-    client.vote(&voter1, &proposal_id, &true);
+    client.cast_vote(&voter1, &proposal_id, &true);
+    client.cast_vote(&voter1, &proposal_id, &true);
 }
 
 #[test]
@@ -76,8 +79,8 @@ fn test_execute_proposal_success() {
     let proposal_id = client.create_proposal(&voter1, &Symbol::new(&env, "desc"));
 
     // Vote
-    client.vote(&voter1, &proposal_id, &true);
-    client.vote(&voter2, &proposal_id, &true);
+    client.cast_vote(&voter1, &proposal_id, &true);
+    client.cast_vote(&voter2, &proposal_id, &true);
 
     // Fast forward past deadline (1000 + 1000)
     env.ledger().set_timestamp(3000);
@@ -85,11 +88,10 @@ fn test_execute_proposal_success() {
     client.execute_proposal(&admin, &proposal_id);
 
     let proposal = client.get_proposal(&proposal_id).unwrap();
-    assert!(proposal.executed);
+    assert_eq!(proposal.status, Symbol::new(&env, "passed"));
 }
 
 #[test]
-#[should_panic(expected = "Proposal rejected")]
 fn test_execute_proposal_rejected() {
     let env = Env::default();
     env.mock_all_auths();
@@ -100,13 +102,16 @@ fn test_execute_proposal_rejected() {
     let proposal_id = client.create_proposal(&voter1, &Symbol::new(&env, "desc"));
 
     // Vote against
-    client.vote(&voter1, &proposal_id, &false);
-    client.vote(&voter2, &proposal_id, &false);
+    client.cast_vote(&voter1, &proposal_id, &false);
+    client.cast_vote(&voter2, &proposal_id, &false);
 
     // Fast forward
     env.ledger().set_timestamp(3000);
 
     client.execute_proposal(&admin, &proposal_id);
+
+    let proposal = client.get_proposal(&proposal_id).unwrap();
+    assert_eq!(proposal.status, Symbol::new(&env, "rejected"));
 }
 
 #[test]
@@ -137,12 +142,12 @@ fn test_common_initialize_and_create_proposal() {
         .create_proposal(&voter, &Symbol::new(&env, "desc"));
 
     let p = contracts.governance.get_proposal(&proposal_id).unwrap();
-    assert_eq!(p.proposer, voter);
+    assert_eq!(p.creator, voter);
 
     // Complete flow
-    contracts.governance.vote(&voter, &proposal_id, &true);
+    contracts.governance.cast_vote(&voter, &proposal_id, &true);
     env.ledger().set_timestamp(200);
     contracts.governance.execute_proposal(&owner, &proposal_id);
     let p2 = contracts.governance.get_proposal(&proposal_id).unwrap();
-    assert!(p2.executed);
+    assert_eq!(p2.status, Symbol::new(&env, "passed"));
 }

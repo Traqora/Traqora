@@ -2,8 +2,8 @@
 
 use dispute_resolution::{DisputeResolutionContract, DisputeResolutionContractClient};
 use soroban_sdk::{
-    testutils::{Address as _, StellarAsset},
-    token::StellarAssetClient,
+    testutils::Address as _,
+    token::{StellarAssetClient, TokenClient},
     Address, BytesN, Env, Symbol, Vec,
 };
 
@@ -29,11 +29,12 @@ fn test_open_dispute_submit_counter_and_resolve_for_claimant() {
     let (client, _admin, _arbiter) = setup(&env);
     let claimant = Address::generate(&env);
     let respondent = Address::generate(&env);
-    let booking_id = Symbol::new(&env, "BK-001");
+    let booking_id = Symbol::new(&env, "BK001");
 
     let asset_admin = Address::generate(&env);
     let token_addr = env.register_stellar_asset_contract_v2(asset_admin.clone());
     let token = StellarAssetClient::new(&env, &token_addr.address());
+    let token_balance = TokenClient::new(&env, &token_addr.address());
     token.mint(&claimant, &1_000);
 
     client.deposit_escrow(&booking_id, &claimant, &token_addr.address(), &400);
@@ -56,8 +57,8 @@ fn test_open_dispute_submit_counter_and_resolve_for_claimant() {
     let dispute = client.get_dispute(&dispute_id).unwrap();
     assert!(dispute.resolved);
     assert_eq!(dispute.winner.unwrap(), claimant.clone());
-    assert_eq!(token.balance(&claimant), 1_000);
-    assert_eq!(token.balance(&respondent), 0);
+    assert_eq!(token_balance.balance(&claimant), 1_000);
+    assert_eq!(token_balance.balance(&respondent), 0);
 }
 
 #[test]
@@ -72,7 +73,7 @@ fn test_only_assigned_arbiter_can_resolve() {
     let claimant = Address::generate(&env);
     let unauthorized_arbiter = Address::generate(&env);
     let respondent = Address::generate(&env);
-    let booking_id = Symbol::new(&env, "BK-002");
+    let booking_id = Symbol::new(&env, "BK002");
 
     let asset_admin = Address::generate(&env);
     let token_addr = env.register_stellar_asset_contract_v2(asset_admin.clone());
@@ -91,9 +92,9 @@ fn test_only_assigned_arbiter_can_resolve() {
         &BytesN::from_array(&env, &[4u8; 32]),
     );
 
-    let result = std::panic::catch_unwind(|| {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.resolve_dispute(&dispute_id, &unauthorized_arbiter, &false);
-    });
+    }));
     assert!(result.is_err());
 }
 
@@ -105,11 +106,12 @@ fn test_resolve_for_respondent_releases_escrow_to_respondent() {
     let (client, _admin, _arbiter) = setup(&env);
     let claimant = Address::generate(&env);
     let respondent = Address::generate(&env);
-    let booking_id = Symbol::new(&env, "BK-003");
+    let booking_id = Symbol::new(&env, "BK003");
 
     let asset_admin = Address::generate(&env);
     let token_addr = env.register_stellar_asset_contract_v2(asset_admin.clone());
     let token = StellarAssetClient::new(&env, &token_addr.address());
+    let token_balance = TokenClient::new(&env, &token_addr.address());
     token.mint(&claimant, &700);
 
     client.deposit_escrow(&booking_id, &claimant, &token_addr.address(), &250);
@@ -133,5 +135,5 @@ fn test_resolve_for_respondent_releases_escrow_to_respondent() {
 
     let dispute = client.get_dispute(&dispute_id).unwrap();
     assert_eq!(dispute.winner.unwrap(), respondent.clone());
-    assert_eq!(token.balance(&respondent), 250);
+    assert_eq!(token_balance.balance(&respondent), 250);
 }

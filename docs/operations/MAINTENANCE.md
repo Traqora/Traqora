@@ -5,10 +5,12 @@ This document defines recurring maintenance operations, backup and recovery proc
 
 ## Backup and Recovery
 ### Backup Schedule
-- PostgreSQL: full backup nightly, transaction log archive every hour.
+- PostgreSQL: encrypted full backup nightly; archive transaction logs at least hourly.
 - Redis: snapshot every 4 hours and append-only file persistence.
-- Application config and secrets: backup after any change.
+- Application config and secrets: record changes after each update and retain encrypted recovery copies in the approved secret manager; never store secrets in source control.
 - Contract artifacts and deployment manifests: version-controlled backups.
+
+These intervals are the v1 operational targets. This repository does not schedule production backups or provide backup storage; operators must configure those controls with their hosting provider.
 
 ### Backup Retention
 - Full database backups: retain for 30 days.
@@ -17,10 +19,11 @@ This document defines recurring maintenance operations, backup and recovery proc
 - Logs and audit trails: retain for 90 days by default.
 
 ### Recovery Verification Tests
-- Restore the latest backup to a staging environment weekly.
-- Validate key tables and row counts after restore.
-- Confirm application connectivity and basic flows after restore.
-- Run hash or checksum comparisons for critical data sets.
+- Run a restore drill weekly in a controlled, isolated environment.
+- CI runs `bash packages/backend/scripts/verify-postgres-restore.sh` against a local PostgreSQL service. It generates a synthetic relational users/flights/bookings dataset, dumps it, restores it into a separate temporary database, and validates row counts and relationships.
+- Restore the latest production backup into isolated staging at least weekly; do not restore production data to developer machines.
+- Validate schema, key table counts, referential integrity, and basic application connectivity after each production-backup drill.
+- Use only sanitized or synthetic records for routine tests; production backups contain personal and booking data and require access controls.
 
 ### Recovery Procedure
 1. Identify the latest verified backup.

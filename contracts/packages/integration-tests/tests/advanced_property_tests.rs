@@ -1,5 +1,5 @@
 use proptest::prelude::*;
-use soroban_sdk::Symbol;
+use soroban_sdk::{Symbol, Vec};
 
 use integration_tests::{
     generate_actors, initialize_token, new_env, register_and_verify_airline, register_contracts,
@@ -45,21 +45,25 @@ proptest! {
         let contracts = register_contracts(&env);
         initialize_token(&env, &contracts.token, &actors.admin);
         register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
+        contracts.refund.initialize(&actors.admin);
+        contracts
+            .refund
+            .set_role(&actors.admin, &actors.airline, &2, &true);
 
         contracts.refund.set_refund_policy(
             &actors.airline,
-            &86_400,
-            &7_776_000,     // 90 days full refund
-            &2_592_000,     // 30 days partial
-            &3_600,
+            &7_776_000, // 90-day full-refund threshold
+            &10_000,    // 100% in basis points
+            &5_000,     // 50% in basis points
+            &2_592_000, // 30-day partial-refund threshold
         );
 
-        let flight_time = env.ledger().timestamp() as u32 + (days_before_flight * 86_400);
+        let flight_time = env.ledger().timestamp() + (days_before_flight as u64 * 86_400);
 
         let refund = contracts.refund.calculate_refund(
             &actors.airline,
             &price,
-            &(flight_time as i64),
+            &flight_time,
         );
 
         prop_assert!(refund <= price);
@@ -92,7 +96,7 @@ proptest! {
                 &Symbol::new(&env, &format!("TQ{}", 800 + i)),
                 &Symbol::new(&env, "ATL"),
                 &Symbol::new(&env, "MIA"),
-                &(env.ledger().timestamp() + (100_000 * (i as i64))),
+                &(env.ledger().timestamp() + (100_000 * (i as u64))),
                 &price,
                 &contracts.token.address,
             );
@@ -102,13 +106,16 @@ proptest! {
         // Verify all IDs are unique
         for i in 0..booking_ids.len() {
             for j in (i + 1)..booking_ids.len() {
-                prop_assert_ne!(booking_ids[i], booking_ids[j]);
+                prop_assert_ne!(
+                    booking_ids.get(i).unwrap(),
+                    booking_ids.get(j).unwrap()
+                );
             }
         }
 
         // Verify IDs are mostly sequential (allowing for gaps)
         for i in 1..booking_ids.len() {
-            prop_assert!(booking_ids[i] > booking_ids[i - 1]);
+            prop_assert!(booking_ids.get(i).unwrap() > booking_ids.get(i - 1).unwrap());
         }
     }
 }

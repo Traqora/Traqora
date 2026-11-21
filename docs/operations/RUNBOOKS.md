@@ -41,7 +41,7 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 **Resolution:**
 - Restart the database or fail over to a replica.
 - Restore connectivity and clear connection backlog.
-- Confirm `SELECT 1` succeeds from the backend host.
+- Confirm `SELECT 1` succeeds from the backend host and `GET /health` returns HTTP 200 with `{"status":"ok","db":"ok"}`. While the database is unavailable, the endpoint returns HTTP 503 with `{"status":"degraded","db":"unavailable"}`.
 - Resume service and monitor.
 
 **Prevention:**
@@ -211,11 +211,15 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 **Resolution:**
 - Fail over to an alternate provider if available.
 - Retry with exponential backoff.
+- Amadeus flight searches degrade to an empty offer list; unavailable flight-status lookups return no status. Do not treat either response as a confirmed absence of inventory or a booking.
+- Stellar RPC transaction preparation/submission returns a retryable HTTP 503 error. Transaction-status polling reports `pending` while the RPC is unavailable; poll again after recovery.
+- Database readiness returns HTTP 503 until a database query succeeds. Email delivery reports failure to its caller and logs the provider error; do not report the message as delivered.
+- After restoring the dependency, retry the relevant request and confirm a successful response before resuming queued operational work.
 - Notify stakeholders and update status pages.
 
 **Prevention:**
-- Monitor external API latency and failure rates.
-- Implement fallback providers and graceful degradation.
+- Monitor supplier, Stellar RPC, database, and email-provider latency and failure rates.
+- Exercise the outage and recovery paths in backend tests.
 
 **Dashboard:** third-party API success rates, request latency.
 

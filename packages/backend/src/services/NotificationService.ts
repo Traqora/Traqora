@@ -69,21 +69,6 @@ export class NotificationService {
     return this.sendPushNotification(userId, message, data);
   }
 
-  /** Flight-status change notification for a subscribed user. */
-  async sendFlightStatusAlert(
-    userId: string,
-    flightId: string,
-    status: string,
-    details?: { gate?: string; delayMinutes?: number; reason?: string },
-  ): Promise<boolean> {
-    logger.info('Sending flight status alert', { userId, flightId, status, ...details });
-    return this.sendPushNotification(
-      userId,
-      `Flight ${flightId} status update: ${status}`,
-      { flightId, status, ...details },
-    );
-  }
-
   /**
    * Get or create user notification settings.
    * The caller should update `emailAddress` / `phoneNumber` via `updateUserSettings`
@@ -607,13 +592,13 @@ export class NotificationService {
     userId: string,
     flightId: string,
     status: string,
-    details: {
+    details?: {
       gate?: string;
       delayMinutes?: number;
       reason?: string;
     },
   ): Promise<boolean> {
-    const { gate, delayMinutes, reason } = details;
+    const { gate, delayMinutes, reason } = details ?? {};
 
     let category: NotificationCategory = "itinerary";
     let title: string;

@@ -49,4 +49,29 @@ describe('GET /health/services (issue #375)', () => {
     expect(perfRes.status).toBeGreaterThanOrEqual(200);
     expect(servicesRes.status).toBe(200);
   });
+
+  it('reports the database as unavailable when its health query fails', async () => {
+    jest.resetModules();
+    const query = jest.fn().mockRejectedValue(new Error('database connection refused'));
+    jest.doMock('../../src/db/dataSource', () => ({
+      AppDataSource: {
+        isInitialized: true,
+        query,
+      },
+    }));
+    const healthRouter = require('../../src/routes/health').default;
+
+    const app = express();
+    app.use('/health', healthRouter);
+
+    const res = await request(app).get('/health');
+
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ status: 'degraded', db: 'unavailable' });
+
+    query.mockResolvedValueOnce([{ '?column?': 1 }]);
+    const recovered = await request(app).get('/health');
+    expect(recovered.status).toBe(200);
+    expect(recovered.body).toEqual({ status: 'ok', db: 'ok' });
+  });
 });

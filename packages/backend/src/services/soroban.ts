@@ -403,6 +403,14 @@ export const signAndSubmitCreateBooking = async (params: {
     };
   } catch (error: any) {
     logger.error('Error in signAndSubmitCreateBooking', { error: error.message });
+    if (isTransientError(error)) {
+      throw new AppError('Stellar RPC is temporarily unavailable', {
+        statusCode: 503,
+        code: 'STELLAR_RPC_UNAVAILABLE',
+        retryable: true,
+        context: { operation: 'sign_and_submit_create_booking' },
+      });
+    }
     throw error;
   }
 };

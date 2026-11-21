@@ -14,6 +14,10 @@ fn test_complete_booking_to_refund_workflow() {
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
     register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
+    contracts.refund.initialize(&actors.admin);
+    contracts
+        .refund
+        .set_role(&actors.admin, &actors.airline, &2, &true);
 
     // 1. Airline creates a flight
     let flight_id = contracts.airline.create_flight(
@@ -30,13 +34,9 @@ fn test_complete_booking_to_refund_workflow() {
     assert!(flight_id > 0);
 
     // 2. Set refund policy for the airline
-    contracts.refund.set_refund_policy(
-        &actors.airline,
-        &86_400, // cancellation_cutoff_seconds
-        &10_000, // full_refund_days_before
-        &5_000,  // partial_refund_days_before
-        &3_600,  // min_refund_window
-    );
+    contracts
+        .refund
+        .set_refund_policy(&actors.airline, &86_400, &10_000, &5_000, &3_600);
 
     // 3. Passenger creates a booking
     let price = 1_000_0000000i128;
@@ -71,9 +71,20 @@ fn test_complete_booking_to_refund_workflow() {
     assert!(refund_amount > 0);
 
     // 7. Refund is automated
+    let booking_symbol = Symbol::new(&env, &format!("BK{booking_id}"));
+    contracts.refund_automation.initialize(
+        &actors.admin,
+        &contracts.booking.address,
+        &contracts.refund.address,
+    );
     contracts
         .refund_automation
-        .process_automatic_refund(&booking_id, &refund_amount);
+        .register_booking(&actors.admin, &booking_symbol, &booking_id);
+    contracts.refund_automation.automate_refund(
+        &actors.passenger,
+        &booking_symbol,
+        &Symbol::new(&env, "cancelled"),
+    );
 
     // 8. Verify final balances
     let airline_balance = contracts.token.balance_of(&actors.airline);
@@ -110,10 +121,11 @@ fn test_booking_with_dispute_resolution_flow() {
 
     contracts.booking.pay_for_booking(&booking_id);
 
-    // Deposit escrow for dispute
-    let booking_symbol = Symbol::new(&env, &format!("BK-{}", booking_id));
-    // Note: In production, this would be handled by dispute resolution contract
-    // For now, we test the booking state transitions
+    // The booking remains confirmed before entering a dispute workflow.
+    assert_eq!(
+        contracts.booking.get_booking(&booking_id).unwrap().status,
+        Symbol::new(&env, "confirmed")
+    );
 }
 
 /// Multi-airline loyalty points accumulation
@@ -124,7 +136,6 @@ fn test_loyalty_points_across_multiple_bookings() {
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
     register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
-
     contracts.loyalty.init_loyalty();
 
     let base_price = 500_0000000i128;
@@ -177,6 +188,10 @@ fn test_refund_policy_changes_and_reapplication() {
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
     register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
+    contracts.refund.initialize(&actors.admin);
+    contracts
+        .refund
+        .set_role(&actors.admin, &actors.airline, &2, &true);
 
     let price = 2_000_0000000i128;
     contracts
@@ -184,13 +199,9 @@ fn test_refund_policy_changes_and_reapplication() {
         .mint(&actors.admin, &actors.passenger, &price);
 
     // Set initial policy
-    contracts.refund.set_refund_policy(
-        &actors.airline,
-        &86_400,  // 1 day cutoff
-        &604_800, // 7 days full refund
-        &259_200, // 3 days partial
-        &3_600,
-    );
+    contracts
+        .refund
+        .set_refund_policy(&actors.airline, &86_400, &10_000, &5_000, &259_200);
 
     let booking_id = contracts.booking.create_booking(
         &actors.passenger,
@@ -211,13 +222,9 @@ fn test_refund_policy_changes_and_reapplication() {
     );
 
     // Update policy to be stricter
-    contracts.refund.set_refund_policy(
-        &actors.airline,
-        &43_200,  // 0.5 day cutoff (stricter)
-        &172_800, // 2 days full refund (less generous)
-        &86_400,  // 1 day partial
-        &1_800,
-    );
+    contracts
+        .refund
+        .set_refund_policy(&actors.airline, &604_800, &5_000, &2_500, &259_200);
 
     let refund2 = contracts.refund.calculate_refund(
         &actors.airline,
@@ -237,13 +244,11 @@ fn test_governance_proposal_with_booking_reference() {
     let contracts = register_contracts(&env);
     initialize_token(&env, &contracts.token, &actors.admin);
 
-    contracts.governance.initialize(&actors.admin);
+    contracts.governance.init_governance(&actors.admin, &86_400);
 
     // Create a proposal related to refund policy
-    let proposal_id = contracts.governance.create_proposal(
-        &actors.admin,
-        &Symbol::new(&env, "REFUND_POLICY_UPDATE"),
-        &Symbol::new(&env, "Reduce cancellation window to 24h"),
-    );
+    let proposal_id = contracts
+        .governance
+        .create_proposal(&actors.admin, &Symbol::new(&env, "ReduceWindow24h"));
     assert!(proposal_id > 0);
 }
