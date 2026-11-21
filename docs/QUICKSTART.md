@@ -53,12 +53,14 @@ For local development the defaults are sensible. Key variables:
 | Variable              | Default                              | Purpose                     |
 | --------------------- | ------------------------------------ | --------------------------- |
 | `PORT`                | `3001`                               | Backend API port            |
-| `CORS_ORIGIN`         | `http://localhost:3000`              | Client origin               |
+| `CORS_ORIGIN`         | `http://localhost:3000`              | Legacy client origin, production requires HTTPS |
+| `CORS_ALLOWED_ORIGINS`| empty                                | Comma-separated browser origin allowlist |
 | `DATABASE_URL`        | `postgres://postgres:postgres@db:5432/traqora` | Postgres connection |
 | `REDIS_URL`           | `redis://localhost:6379`             | Redis connection            |
 | `STELLAR_NETWORK`     | `testnet`                            | `testnet`, `standalone`, …  |
 | `HORIZON_URL`         | `https://horizon-testnet.stellar.org`| Horizon endpoint            |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:3001`              | API URL used by the client  |
+| `CSP_REPORT_ONLY`     | `true`                               | Report-only CSP locally, must be false in production |
 
 Never commit real secrets. See [SECURITY.md](../SECURITY.md) and
 [docs/security/secrets-management.md](./security/secrets-management.md).

@@ -29,6 +29,10 @@ import { authRoutes } from './api/routes/auth';
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
 import { validateRequest } from './middleware/validationMiddleware';
+import {
+  corsOriginMatcher,
+  resolveCorsAllowedOrigins,
+} from './config/browserSecurity';
 
 // @ts-ignore
 import type { Application } from 'express';
@@ -135,7 +139,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use(securityMiddleware);
   app.use(
     cors({
-      origin: config.corsOrigin,
+      origin: corsOriginMatcher(resolveCorsAllowedOrigins(config)),
       credentials: true,
     })
   );

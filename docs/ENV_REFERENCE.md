@@ -23,8 +23,10 @@ and are disabled in the example file.
 | --- | --- | --- | --- |
 | `PORT` | Number | 3001 | The port the backend server will listen on. |
 | `NODE_ENV` | Enum: development \| staging \| production \| test | development | The application environment. |
-| `CORS_ORIGIN` | URL | http://localhost:3000 | Allowed origin for CORS headers. |
+| `CORS_ORIGIN` | URL | http://localhost:3000 | Legacy single allowed origin for CORS and WebSockets. Production requires HTTPS. |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated URLs | empty | Explicit browser origin allowlist. Takes precedence over `CORS_ORIGIN`. Production and staging require HTTPS origins. |
 | `TRUST_PROXY` | Boolean | false | Trust reverse proxy headers (e.g., X-Forwarded-For). Set to true when behind Cloudflare, Nginx, etc. |
+| `CSP_REPORT_ONLY` | Boolean | true | Send `Content-Security-Policy-Report-Only` instead of enforcing `Content-Security-Policy`. Production and staging must set this to false. |
 
 ### 2. STELLAR & SOROBAN CONFIGURATION
 
@@ -158,8 +160,10 @@ and are disabled in the example file.
 | --- | --- | --- | --- |
 | `PORT` | Number | 3001 | The port the backend server will listen on. |
 | `NODE_ENV` | Enum: development \| staging \| production \| test | development | The application environment. |
-| `CORS_ORIGIN` | URL | http://localhost:3000 | Allowed origin for CORS headers. |
+| `CORS_ORIGIN` | URL | http://localhost:3000 | Legacy single allowed origin for CORS and WebSockets. Production requires HTTPS. |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated URLs | empty | Explicit browser origin allowlist. Takes precedence over `CORS_ORIGIN`. Production and staging require HTTPS origins. |
 | `TRUST_PROXY` | Boolean | false | Trust reverse proxy headers (e.g., X-Forwarded-For). Set to true when behind Cloudflare, Nginx, etc. |
+| `CSP_REPORT_ONLY` | Boolean | true | Send `Content-Security-Policy-Report-Only` instead of enforcing `Content-Security-Policy`. Production and staging must set this to false. |
 
 ### 2. STELLAR & SOROBAN CONFIGURATION
 
