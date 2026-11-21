@@ -87,3 +87,82 @@ fn test_refund_flow() {
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
 }
+
+#[test]
+fn test_idempotent_supplier_booking_submission() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 120_0000000i128;
+    let supplier_ref = Symbol::new(&env, "sup_ref_abc123");
+
+    let booking_id_1 = contracts.booking.create_booking_with_ref(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL999"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+        supplier_ref.clone(),
+    );
+
+    // Retry with the same supplier reference should return the identical booking id idempotently
+    let booking_id_2 = contracts.booking.create_booking_with_ref(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL999"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+        supplier_ref,
+    );
+
+    assert_eq!(booking_id_1, booking_id_2);
+    let booking = contracts.booking.get_booking(&booking_id_1).unwrap();
+    assert_eq!(booking.status, Symbol::new(&env, "pending"));
+}
+
+#[test]
+#[should_panic]
+fn test_idempotent_supplier_booking_mismatched_data() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price1 = 120_0000000i128;
+    let price2 = 150_0000000i128;
+    let supplier_ref = Symbol::new(&env, "sup_ref_conflict");
+
+    let _booking_id_1 = contracts.booking.create_booking_with_ref(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL999"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price1,
+        &contracts.token.address,
+        supplier_ref.clone(),
+    );
+
+    // Retry with the same supplier reference but mismatched price/parameters should fail or validate.
+    // Here we test a strict validation or simulation path if mismatched data is provided.
+    let _booking_id_2 = contracts.booking.create_booking_with_ref(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL999"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price2,
+        &contracts.token.address,
+        supplier_ref,
+    );
+}
