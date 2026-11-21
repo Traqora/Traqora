@@ -2,7 +2,7 @@
 
 This document maps traveler personal data in the v1 booking journey to its purpose, lawful basis, retention period, deletion behavior, and legal exceptions. It is the human-readable counterpart of `packages/backend/src/services/governance/travelerDataRetention.ts`. That registry is the single source of truth and is exposed through `DataRetentionService.getTravelerDataPolicies()`.
 
-The scope is the documented v1 journey: flight search, offer selection, passenger entry, payment confirmation, on-chain submission, booking retrieval, cancellation, and refunds. This document does not add collection of new data types.
+The scope is the documented v1 journey: flight search, offer selection, passenger entry with clear checkout privacy notices explaining supplier fulfillment and data minimization, payment confirmation, on-chain submission, booking retrieval, cancellation, and refunds. This document does not add collection of new data types.
 
 ## Data map
 

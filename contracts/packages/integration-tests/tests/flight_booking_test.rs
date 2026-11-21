@@ -330,11 +330,34 @@ fn test_flight_booking_reconcile_reference_timeout_recovery() {
     let seat = Symbol::new(&env, "15A");
     let request_ref = Symbol::new(&env, "timeout_ref_999");
 
-    let id1 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let id1 =
+        client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     let booking1 = client.get_booking(&id1).unwrap();
     assert_eq!(booking1.seat, seat);
 
     // Retry with same request ref after timeout should return the exact same booking id without duplicate reservation error
-    let id2 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let id2 =
+        client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     assert_eq!(id1, id2);
+}
+
+#[test]
+#[should_panic(expected = "Payment authorization already used")]
+fn test_flight_booking_payment_replay_prevention() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id_1 = Symbol::new(&env, "FLREPLAY1");
+    let flight_id_2 = Symbol::new(&env, "FLREPLAY2");
+    let seat = Symbol::new(&env, "14B");
+    let amount = 1_200i128;
+
+    // Reserve seat for flight 1 with payment auth
+    let _id1 = client.reserve_seat(&passenger, &flight_id_1, &seat, &amount);
+
+    // Attempting to replay the identical payment auth parameters on a different flight booking must panic
+    client.reserve_seat(&passenger, &flight_id_2, &seat, &amount);
 }

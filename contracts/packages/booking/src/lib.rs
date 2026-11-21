@@ -181,6 +181,11 @@ impl BookingContract {
 
     // Accept payment for the booking and hold in escrow
     pub fn pay_for_booking(env: Env, booking_id: u64) {
+        let payment_key = (symbol_short!("payment"), booking_id);
+        if env.storage().persistent().has(&payment_key) {
+            panic!("Payment reference already used");
+        }
+        env.storage().persistent().set(&payment_key, &true);
         let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
 
         assert!(
