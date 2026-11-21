@@ -1,5 +1,9 @@
+//! Integration tests for Booking supplier references and passenger validation (#1096, #1099).
+
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
 use integration_tests::{generate_actors, initialize_token, new_env, register_contracts};
 use soroban_sdk::{testutils::Ledger, Symbol};
+
 
 #[test]
 fn test_payment_escrow_flow() {
