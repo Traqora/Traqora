@@ -10,6 +10,7 @@ import {
   StellarConfigurationError,
   validateStellarConfiguration,
 } from './stellarNetwork';
+import { enforceTransportSecurity } from './transportSecurity';
 
 let activeConfig: Config | null = null;
 
@@ -176,6 +177,7 @@ const readConfigFromEnv = (): Config => {
   const parsed = configSchema.parse(rawConfig);
   enforceStellarConfiguration(parsed, nodeEnv);
   assertBrowserSecurityConfiguration(parsed);
+  enforceTransportSecurity(parsed);
   return parsed;
 };
 
@@ -368,9 +370,10 @@ export const loadConfig = async (): Promise<Config> => {
     try {
       enforceStellarConfiguration(activeConfig, env);
       assertBrowserSecurityConfiguration(activeConfig);
+      enforceTransportSecurity(activeConfig);
     } catch (error) {
       logger.error(
-        'CRITICAL CONFIGURATION ERROR: Invalid Stellar network, contract, or browser security configuration detected!',
+        'CRITICAL CONFIGURATION ERROR: Invalid Stellar network, contract, browser security, or transport configuration detected!',
         error as Error,
       );
       if (isProdOrStaging) {
