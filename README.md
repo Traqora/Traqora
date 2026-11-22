@@ -15,7 +15,7 @@ Key benefits include:
 ## Features
 
 ### Flight Booking
-Users can search and book flights directly with airlines.
+Users can search and book flights directly with airlines, with built-in idempotent supplier reference validation to prevent duplicate bookings.
 
 ### Smart Contract Management
 All bookings are handled through secure Soroban-based smart contracts on the Stellar network.
@@ -138,6 +138,7 @@ For deployment procedures see [docs/deployment-guide.md](./docs/deployment-guide
 
 - [V1 booking detail contract](./packages/client/docs/V1_BOOKING_DETAIL_CONTRACT.md): missing, unauthorized, pending and unavailable detail states, plus supplier schedule change display.
 - [V1 cancellation eligibility rules](./packages/backend/docs/CANCELLATION_ELIGIBILITY.md): decision matrix combining platform status with supplier fare rules.
+- **Booking Lifecycle Recovery:** [docs/operations/BOOKING_LIFECYCLE_RECOVERY.md](./docs/operations/BOOKING_LIFECYCLE_RECOVERY.md) for idempotent supplier references and timeout reconciliation.
 
 ## Glossary
 

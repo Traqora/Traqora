@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, Symbol};
+use soroban_sdk::{contracttype, Env, Symbol};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -16,7 +16,10 @@ pub struct SyncCursor {
 
 pub fn get_cursor(env: &Env, provider_id: &Symbol) -> Option<Symbol> {
     let key = SyncCursorKey::ProviderCursor(provider_id.clone());
-    env.storage().persistent().get(&key).map(|sc: SyncCursor| sc.cursor)
+    env.storage()
+        .persistent()
+        .get(&key)
+        .map(|sc: SyncCursor| sc.cursor)
 }
 
 pub fn set_cursor(env: &Env, provider_id: &Symbol, cursor: &Symbol) {
