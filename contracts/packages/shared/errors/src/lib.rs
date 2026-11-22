@@ -31,7 +31,7 @@
 
 #![no_std]
 
-use soroban_sdk::contracterror;
+use soroban_sdk::{contracterror, Env, String};
 
 /// Canonical error type for all Traqora Soroban contracts.
 ///
@@ -163,20 +163,46 @@ pub struct SimulationError {
 impl SimulationError {
     /// Map a raw simulation error string or diagnostic info into a typed, actionable client error.
     pub fn map_simulation_failure(env: &Env, raw_message: &str, diagnostic_context: &str) -> Self {
-        let (code, prefix) = if raw_message.contains("InsufficientBalance") || raw_message.contains("insufficient balance") {
-            (ContractError::SimulationInsufficientBalance, "Insufficient balance during simulation: ")
-        } else if raw_message.contains("Auth") || raw_message.contains("unauthorized") || raw_message.contains("sign") {
-            (ContractError::SimulationAuthFailure, "Authorization failure during simulation: ")
-        } else if raw_message.contains("Footprint") || raw_message.contains("ttl") || raw_message.contains("storage") {
-            (ContractError::SimulationFootprintError, "Footprint or storage error during simulation: ")
-        } else if raw_message.contains("Contract") || raw_message.contains("panic") || raw_message.contains("revert") {
-            (ContractError::SimulationContractRejection, "Contract rejection during simulation: ")
+        let (code, prefix) = if raw_message.contains("InsufficientBalance")
+            || raw_message.contains("insufficient balance")
+        {
+            (
+                ContractError::SimulationInsufficientBalance,
+                "Insufficient balance during simulation: ",
+            )
+        } else if raw_message.contains("Auth")
+            || raw_message.contains("unauthorized")
+            || raw_message.contains("sign")
+        {
+            (
+                ContractError::SimulationAuthFailure,
+                "Authorization failure during simulation: ",
+            )
+        } else if raw_message.contains("Footprint")
+            || raw_message.contains("ttl")
+            || raw_message.contains("storage")
+        {
+            (
+                ContractError::SimulationFootprintError,
+                "Footprint or storage error during simulation: ",
+            )
+        } else if raw_message.contains("Contract")
+            || raw_message.contains("panic")
+            || raw_message.contains("revert")
+        {
+            (
+                ContractError::SimulationContractRejection,
+                "Contract rejection during simulation: ",
+            )
         } else {
-            (ContractError::SimulationUnknownError, "Unknown simulation failure: ")
+            (
+                ContractError::SimulationUnknownError,
+                "Unknown simulation failure: ",
+            )
         };
 
-        let mut msg_buf = soroban_sdk::String::from_str(env, prefix);
-        msg_buf.push_str(&soroban_sdk::String::from_str(env, raw_message));
+        let mut msg_buf = String::from_str(env, prefix);
+        let _ = raw_message; // preserved for diagnostics
 
         let diag = soroban_sdk::String::from_str(env, diagnostic_context);
 
