@@ -1,9 +1,4 @@
-#![no_std]
-use access::{AccessControl, Role};
-use contract_events::{Action, Domain};
-use soroban_sdk::{
-    contract, contractclient, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
-};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 #[contracttype]
 #[derive(Clone)]
@@ -442,6 +437,8 @@ impl RefundContract {
 #[cfg(test)]
 mod test {
     use super::*;
+    use access::{AccessControl, Role};
+    use contract_events::{Action, Domain};
     use soroban_sdk::{testutils::Address as _, Env, Symbol};
 
     fn setup_refund<'a>(
@@ -642,5 +639,57 @@ mod test {
         client.process_refund(&admin, &req);
         // Second process should panic (idempotency via status)
         client.process_refund(&admin, &req);
+    }
+}
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CancellationState {
+    Pending,
+    Confirmed,
+    Failed,
+    AmbiguousPreservedPending,
+}
+
+#[contract]
+pub struct SupplierCancellationContract;
+
+#[contractimpl]
+impl SupplierCancellationContract {
+    pub fn process_cancellation(
+        env: Env,
+        supplier: Address,
+        booking_id: u64,
+        ambiguous: bool,
+    ) -> CancellationState {
+        supplier.require_auth();
+
+        let state_key = (symbol_short!("cancellation"), booking_id);
+        if ambiguous {
+            env.storage()
+                .persistent()
+                .set(&state_key, &CancellationState::AmbiguousPreservedPending);
+            env.events().publish(
+                (symbol_short!("cancel"), symbol_short!("pending")),
+                (supplier, booking_id),
+            );
+            CancellationState::AmbiguousPreservedPending
+        } else {
+            env.storage()
+                .persistent()
+                .set(&state_key, &CancellationState::Confirmed);
+            env.events().publish(
+                (symbol_short!("cancel"), symbol_short!("confirmed")),
+                (supplier, booking_id),
+            );
+            CancellationState::Confirmed
+        }
+    }
+
+    pub fn get_cancellation_state(env: Env, booking_id: u64) -> CancellationState {
+        let state_key = (symbol_short!("cancellation"), booking_id);
+        env.storage()
+            .persistent()
+            .get(&state_key)
+            .unwrap_or(CancellationState::Pending)
     }
 }
