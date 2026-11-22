@@ -18,6 +18,8 @@ import { adminAuthRoutes } from './api/routes/admin/auth';
 import { adminFlightRoutes } from './api/routes/admin/flights';
 import { adminUserRoutes } from './api/routes/admin/users';
 import { adminBookingRoutes } from './api/routes/admin/bookings';
+import { adminOperationsRoutes } from './api/routes/admin/operations';
+import { adminSupportRoutes } from './api/routes/admin/support';
 import { adminAnalyticsRoutes } from './api/routes/admin/analytics';
 import { adminRefundRoutes } from './api/routes/admin/refunds';
 import { tenantAnalyticsRoutes } from './api/routes/admin/tenantAnalytics';
@@ -213,6 +215,8 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/admin/flights', adminFlightRoutes);
   app.use('/api/v1/admin/users', adminUserRoutes);
   app.use('/api/v1/admin/bookings', adminBookingRoutes);
+  app.use('/api/v1/admin/operations', adminOperationsRoutes);
+  app.use('/api/v1/admin/support', adminSupportRoutes);
   app.use('/api/v1/admin/analytics', analyticsAuditRoutes);
   app.use('/api/v1/admin/analytics', analyticsAuditLogger);
   app.use('/api/v1/admin/analytics', adminAnalyticsRoutes);
