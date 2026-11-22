@@ -9,6 +9,8 @@ import { RefundAuditService } from './refundAuditService';
 import { logger } from '../utils/logger';
 import { withRetries } from './retry';
 import { isDelayedRefundReady } from './refundTiming';
+import { percentageOfCents } from './refundArithmetic';
+import { verifyRefundToOriginalDestination } from './refundDestination';
 
 export interface RefundPolicyFactors {
   bookingStatus: string;
@@ -432,8 +434,9 @@ export class RefundService {
       throw new Error('Refund not found');
     }
 
-    // Calculate refund amount based on requested amount and percentage
-    const refundAmount = Math.floor((refund.requestedAmountCents * refundPercentage) / 100);
+    // Calculate refund amount with decimal-safe integer arithmetic (issue #1153).
+    // A fractional percentage must not lose or invent a cent through floats.
+    const refundAmount = percentageOfCents(refund.requestedAmountCents, refundPercentage);
     const finalAmount = refundAmount - refund.processingFeeCents;
 
     refund.approvedAmountCents = Math.max(0, finalAmount);
@@ -488,6 +491,11 @@ export class RefundService {
     refund.status = 'processing';
     await refundRepo.save(refund);
 
+    // Remains true when no card rail is involved. Once a Stripe refund is
+    // attempted it becomes true only when the rail confirms the money is
+    // returning to the original destination (issue #1154).
+    let stripeRailConfirmed = true;
+
     try {
       // Step 1: Process Stripe refund
       if (refund.booking.stripePaymentIntentId && refund.approvedAmountCents! > 0) {
@@ -509,6 +517,35 @@ export class RefundService {
           }
         );
 
+        // Confirm the rail is returning the money to the original payment
+        // destination (issue #1154). An unverified response does not fail the
+        // operation outright, but it must never be reported as a completed
+        // refund: the refund stays `stripe_refunded`, which the derived
+        // traveler outcome reports as in progress (#1155).
+        const destinationVerification = verifyRefundToOriginalDestination(
+          {
+            id: stripeRefund.id,
+            status: stripeRefund.status,
+            payment_intent:
+              typeof stripeRefund.payment_intent === 'string' ? stripeRefund.payment_intent : null,
+            amount: stripeRefund.amount,
+            currency: stripeRefund.currency,
+            destination: stripeRefund.destination,
+            failure_reason: stripeRefund.failure_reason,
+          },
+          {
+            paymentIntentId: refund.booking.stripePaymentIntentId!,
+            amountCents: refund.approvedAmountCents!,
+          }
+        );
+        stripeRailConfirmed = destinationVerification.verified && destinationVerification.status === 'succeeded';
+        if (!destinationVerification.verified) {
+          logger.warn(`Stripe refund destination could not be verified for ${refundId}`, {
+            reason: destinationVerification.reason,
+            stripeRefundId: stripeRefund.id,
+          });
+        }
+
         refund.stripeRefundId = stripeRefund.id;
         refund.status = 'stripe_refunded';
         await refundRepo.save(refund);
@@ -522,10 +559,14 @@ export class RefundService {
           metadata: {
             stripeRefundId: stripeRefund.id,
             amount: refund.approvedAmountCents,
+            destinationVerified: destinationVerification.verified,
+            destinationStatus: destinationVerification.status,
           },
         });
 
-        logger.info(`Stripe refund ${stripeRefund.id} created for refund ${refundId}`);
+        logger.info(`Stripe refund ${stripeRefund.id} created for refund ${refundId}`, {
+          destinationVerified: destinationVerification.verified,
+        });
       }
 
       // Step 2: Build Soroban refund transaction
@@ -542,8 +583,13 @@ export class RefundService {
 
         logger.info(`Soroban refund XDR prepared for refund ${refundId}`);
       } else {
-        // No on-chain booking, mark as completed
-        refund.status = 'completed';
+        // No on-chain booking. Only a verified, settled card refund for the
+        // full approved amount may be marked complete. A partial refund, a
+        // pending rail, or an unverified destination stays visible as in
+        // progress instead of falsely closing the booking (issue #1155).
+        const fullyReturned =
+          stripeRailConfirmed && refund.approvedAmountCents! >= refund.requestedAmountCents;
+        refund.status = fullyReturned ? 'completed' : 'stripe_refunded';
         await refundRepo.save(refund);
       }
 
@@ -1320,8 +1366,8 @@ export class RefundService {
       });
     }
     
-    // Calculate base refund amount
-    const baseRefundAmountCents = Math.floor((originalAmountCents * baseRefundPercentage) / 100);
+    // Calculate base refund amount with decimal-safe integer arithmetic (#1153).
+    const baseRefundAmountCents = percentageOfCents(originalAmountCents, baseRefundPercentage);
     
     // Rule: Segment usage adjustment (priority 5)
     const segmentAdjustmentFactor = unusedSegmentRatio;
@@ -1340,8 +1386,8 @@ export class RefundService {
     // Rule: Processing fee calculation (priority 6)
     const processingFeePercent = rules.processingFeePercent ?? (hoursUntilDeparture >= 168 ? 2 : hoursUntilDeparture >= 72 ? 5 : 10);
     const processingFeeMaxCents = rules.processingFeeMaxCents ?? (hoursUntilDeparture >= 168 ? 500 : booking.amountCents);
-    const processingFeeCents = baseRefundPercentage > 0 
-      ? Math.min(processingFeeMaxCents, Math.floor(booking.amountCents * (processingFeePercent / 100)))
+    const processingFeeCents = baseRefundPercentage > 0
+      ? Math.min(processingFeeMaxCents, percentageOfCents(booking.amountCents, processingFeePercent))
       : 0;
     const processingFeePercentage = processingFeeCents > 0 
       ? (processingFeeCents / originalAmountCents) * 100 
