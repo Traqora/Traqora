@@ -99,6 +99,17 @@ export const activeBookings = new Gauge({
   registers: [register],
 });
 
+/**
+ * Age of the oldest booking in each pending status. One series per status so
+ * alerts can fire on a stable, low-cardinality label set (#1174).
+ */
+export const pendingBookingAgeSeconds = new Gauge({
+  name: 'traqora_pending_booking_age_seconds',
+  help: 'Age in seconds of the oldest booking in each pending status',
+  labelNames: ['status'],
+  registers: [register],
+});
+
 export const bookingProcessingDuration = new Histogram({
   name: 'traqora_booking_processing_duration_seconds',
   help: 'Duration of booking processing from creation to confirmation',

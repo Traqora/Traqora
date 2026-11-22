@@ -2,12 +2,12 @@
  * Extended analytics routes — issues #245 #249 #258 #260.
  *
  * Mounted at /api/v1/admin/analytics/extended by the existing admin router.
- * All routes require admin role (enforced by requireAdmin + requireRole('admin')).
+ * All routes require admin role (enforced by requireAdmin + requirePermission('analytics:read')).
  */
 
 import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../../../utils/errorHandler';
-import { requireAdmin, requireRole } from '../../../middleware/adminAuth';
+import { requireAdmin, requirePermission } from '../../../middleware/adminAuth';
 import { AnomalyDetectionService } from '../../../services/analytics/anomalyDetectionService';
 import { CostAttributionService } from '../../../services/analytics/costAttributionService';
 import { DataSourceService } from '../../../services/analytics/dataSourceService';
@@ -29,7 +29,7 @@ export const dataSourceService = new DataSourceService();
 router.post(
   '/anomaly/detect',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { values, threshold, seriesKey } = req.body as {
       values?: number[];
@@ -62,7 +62,7 @@ router.post(
 router.post(
   '/anomaly/false-positive',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { seriesKey, index } = req.body as { seriesKey?: string; index?: number };
     if (!seriesKey || typeof index !== 'number') {
@@ -82,7 +82,7 @@ router.post(
 router.post(
   '/cost/record-storage',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { tenantId, bytes } = req.body as { tenantId?: string; bytes?: number };
     if (!tenantId || typeof bytes !== 'number' || bytes < 0) {
@@ -100,7 +100,7 @@ router.post(
 router.post(
   '/cost/record-query',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { tenantId, queryId, durationMs } = req.body as {
       tenantId?: string;
@@ -121,7 +121,7 @@ router.post(
 router.get(
   '/cost/summary/:tenantId',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { tenantId } = req.params;
     const summary = costService.getSummary(tenantId);
@@ -136,7 +136,7 @@ router.get(
 router.post(
   '/cost/check-threshold',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { tenantId, thresholdCents } = req.body as { tenantId?: string; thresholdCents?: number };
     if (!tenantId || typeof thresholdCents !== 'number') {
@@ -156,7 +156,7 @@ router.post(
 router.post(
   '/datasource/register',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { id, name, type, url, schedule, headers } = req.body as {
       id?: string;
@@ -184,7 +184,7 @@ router.post(
 router.post(
   '/datasource/:sourceId/ingest',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { sourceId } = req.params;
     try {
@@ -203,7 +203,7 @@ router.post(
 router.get(
   '/datasource/catalog',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (_req: Request, res: Response) => {
     return res.json({ success: true, data: dataSourceService.getCatalog() });
   })
@@ -215,7 +215,7 @@ router.get(
 router.get(
   '/datasource/:sourceId/lineage',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { sourceId } = req.params;
     const lineage = dataSourceService.getLineage(sourceId);
