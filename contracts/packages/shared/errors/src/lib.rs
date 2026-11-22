@@ -201,8 +201,12 @@ impl SimulationError {
             )
         };
 
-        let mut msg_buf = String::from_str(env, prefix);
-        let _ = raw_message; // preserved for diagnostics
+        let msg_str = if raw_message.is_empty() {
+            soroban_sdk::String::from_str(env, prefix)
+        } else {
+            soroban_sdk::String::from_str(env, raw_message)
+        };
+        let msg_buf = msg_str;
 
         let diag = soroban_sdk::String::from_str(env, diagnostic_context);
 
