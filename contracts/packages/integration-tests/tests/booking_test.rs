@@ -2,6 +2,42 @@ use integration_tests::{generate_actors, initialize_token, new_env, register_con
 use soroban_sdk::{testutils::Ledger, Symbol};
 
 #[test]
+fn test_payment_callbacks_idempotent() {
+    let env = new_env();
+    env.mock_all_auths();
+
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &(price * 2));
+
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL123"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+
+    // First payment callback / call
+    contracts.booking.pay_for_booking(&booking_id);
+
+    // Second payment callback / call should be idempotent (no-op, does not panic or transfer twice)
+    contracts.booking.pay_for_booking(&booking_id);
+
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.status, Symbol::new(&env, "confirmed"));
+    assert_eq!(booking.amount_escrowed, price);
+}
+
+#[test]
 fn test_payment_escrow_flow() {
     let env = new_env();
     let actors = generate_actors(&env);
