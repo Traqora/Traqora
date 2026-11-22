@@ -335,7 +335,7 @@ jobs:
             cargo-${{ runner.os }}-
 
       - name: Check EVENTS.md is in sync with emitted events
-        run: ./scripts/check-events-docs.sh
+        run: bash ./scripts/check-events-docs.sh
 
   # ── Integration: Backend ──────────────────────────────────────────────────
   integration-backend:
