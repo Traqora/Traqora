@@ -162,3 +162,8 @@ export const getBookingLifecycleTemplate = (
   }
   return template;
 };
+
+// Transactional templates for the notification reliability batch. These are
+// additive to the v1 booking lifecycle set above and keep their own modules.
+export { paymentTemplate } from "./payment";
+export { flightStatusTemplate } from "./flight_status";

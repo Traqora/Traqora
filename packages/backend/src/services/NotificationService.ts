@@ -773,13 +773,23 @@ export class NotificationService {
   // Legacy compatibility
   // -------------------------------------------------------------------------
 
-  /** @deprecated Use emailService.send() directly or queueNotification() */
+  /** @deprecated Use queue-based transactional notifications */
   async sendEmail(to: string, subject: string, body: string): Promise<boolean> {
     logger.warn("NotificationService.sendEmail is deprecated", {
       to,
       subject,
     });
-    return emailService.send({ to, subject, html: body });
+    try {
+      const result = await (emailService as any).send({ to, subject, html: body });
+      return result !== false;
+    } catch (error) {
+      logger.error("NotificationService.sendEmail failed", {
+        to,
+        subject,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
   }
 
   // -------------------------------------------------------------------------
