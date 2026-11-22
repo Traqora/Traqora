@@ -1,7 +1,7 @@
 # Production Deployment Guide
 
 > [!NOTE]
-> For a comprehensive, step-by-step production deployment checklist, refer to the [Production Deployment Checklist](../DEPLOYMENT_CHECKLIST.md). For environment variable configurations, refer to the root [env.example](../../env.example) and [packages/backend/env.example](../../packages/backend/env.example).
+> For a comprehensive, step-by-step production deployment checklist, refer to the [Production Deployment Checklist](../DEPLOYMENT_CHECKLIST.md). For the operator sequence with named owners, rollback authority and release sign-off, use the [V1 Operator Deployment Runbook](./V1_DEPLOYMENT_RUNBOOK.md). For environment variable configurations, refer to the root [env.example](../../env.example) and [packages/backend/env.example](../../packages/backend/env.example).
 
 ## Purpose
 This guide describes the production deployment process for Traqora, including pre-flight checks, deployment steps, verification, rollback, and change management.

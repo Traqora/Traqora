@@ -26,6 +26,8 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 - [Contract Snapshot Review Policy](./CONTRACT_SNAPSHOT_REVIEW.md) — what a contract upgrade must preserve, and how the upgrade diff is reviewed (#744).
 - [Booking Failure Incident Runbooks](./BOOKING_FAILURE_RUNBOOKS.md): first response for supplier outage, payment delay, contract outage and refund backlog.
 - [Operations Health and Audit Filters](./OPERATIONS_HEALTH_AND_AUDIT.md): health snapshot fields, server-side audit filters and export limits.
+- [V1 Operator Deployment Runbook](./V1_DEPLOYMENT_RUNBOOK.md): deploy, migration, configuration verification, smoke tests, rollback and ownership for a V1 release.
+- [Post-Launch Monitoring and Review Cadence](./POST_LAUNCH_REVIEW.md): owners and review intervals for incidents, booking success, refunds, latency and support feedback.
 
 ---
 
