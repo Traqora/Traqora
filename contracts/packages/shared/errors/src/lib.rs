@@ -31,7 +31,7 @@
 
 #![no_std]
 
-use soroban_sdk::contracterror;
+use soroban_sdk::{contracterror, Env, String};
 
 /// Canonical error type for all Traqora Soroban contracts.
 ///
@@ -175,8 +175,7 @@ impl SimulationError {
             (ContractError::SimulationUnknownError, "Unknown simulation failure: ")
         };
 
-        let mut msg_buf = soroban_sdk::String::from_str(env, prefix);
-        msg_buf.push_str(&soroban_sdk::String::from_str(env, raw_message));
+        let mut msg_buf = String::from_str(env, prefix);
 
         let diag = soroban_sdk::String::from_str(env, diagnostic_context);
 
