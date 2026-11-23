@@ -31,7 +31,7 @@
 
 #![no_std]
 
-use soroban_sdk::{contracterror, Env, String};
+use soroban_sdk::{contracterror, Env};
 /// Canonical error type for all Traqora Soroban contracts.
 ///
 /// Use [`panic_with_error!`] to abort contract execution with one of these
