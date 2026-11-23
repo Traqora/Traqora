@@ -102,6 +102,14 @@ impl BookingStorage {
             .set(&symbol_short!("next_id"), &(id + 1));
         id
     }
+
+    pub fn get_booking_by_idempotency_key(env: &Env, key: &Symbol) -> Option<u64> {
+        env.storage().persistent().get(key)
+    }
+
+    pub fn set_idempotency_key(env: &Env, key: &Symbol, booking_id: u64) {
+        env.storage().persistent().set(key, &booking_id);
+    }
 }
 
 #[contract]
@@ -139,10 +147,21 @@ impl BookingContract {
         departure_time: u64,
         price: i128,
         token: Address,
+        idempotency_key: Option<Symbol>,
     ) -> u64 {
         passenger.require_auth();
 
+        if let Some(ref key) = idempotency_key {
+            if let Some(existing_id) = BookingStorage::get_booking_by_idempotency_key(&env, key) {
+                return existing_id;
+            }
+        }
+
         let booking_id = BookingStorage::next_id(&env);
+
+        if let Some(ref key) = idempotency_key {
+            BookingStorage::set_idempotency_key(&env, key, booking_id);
+        }
 
         let booking = Booking {
             booking_id,
