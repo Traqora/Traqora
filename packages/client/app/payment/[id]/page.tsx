@@ -11,6 +11,10 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Plane, CreditCard, Wallet, Shield, CheckCircle, ArrowLeft, Lock, Zap, AlertTriangle } from "lucide-react"
 import { PaymentRetry } from "@/components/booking/payment-retry"
+import {
+  CheckoutPaymentStatusView,
+} from "@/components/booking/checkout-payment-status"
+import { CheckoutPaymentStatus } from "@/types/payment"
 // NEW: import real wallet hook and store from stellar-wallet-connect
 import { useWallet, useWalletStore } from "@/lib/stellar-wallet-connect"
 import { getGasFee, formatGasFee, getPlatformFee, isStablecoin } from "@/lib/currency"
@@ -45,6 +49,8 @@ export default function PaymentPage() {
   const { handleConnect: walletConnect, handleDisconnect } = useWallet()
   const [isWalletConnecting, setIsWalletConnecting] = useState(false)
   const [paymentFailed, setPaymentFailed] = useState(false)
+  const [checkoutStatus, setCheckoutStatus] = useState<CheckoutPaymentStatus | null>(null)
+  const [paymentAttempts, setPaymentAttempts] = useState(0)
 
   const flight = mockFlightDetails
 
@@ -69,12 +75,21 @@ export default function PaymentPage() {
   const handlePayment = async () => {
     setIsProcessing(true)
     setPaymentFailed(false)
-    // Simulate payment processing with occasional failure mode demo
+    setPaymentAttempts((prev) => prev + 1)
+    setCheckoutStatus("awaiting_approval")
+
+    // Transition to submitted after simulated signature approval
+    setTimeout(() => {
+      setCheckoutStatus("submitted")
+    }, 1500)
+
+    // Simulate completion with recoverable pending or failure path handling
     setTimeout(() => {
       setIsProcessing(false)
-      // Demo failure mode if desired or success
+      // Transition to recoverable pending so traveler can retry without lost booking
+      setCheckoutStatus("recoverable_pending")
       setPaymentFailed(true)
-    }, 3000)
+    }, 3500)
   }
 
   return (
@@ -256,7 +271,27 @@ export default function PaymentPage() {
                         )}
                       </Button>
 
-                      {paymentFailed && (
+                      {checkoutStatus && (
+                        <div className="mt-4">
+                          <CheckoutPaymentStatusView
+                            status={checkoutStatus}
+                            bookingId={typeof params.id === 'string' ? params.id : 'booking-1'}
+                            attemptsCount={paymentAttempts}
+                            onRetry={() => {
+                              handlePayment()
+                            }}
+                            onReset={() => {
+                              setCheckoutStatus(null)
+                              setPaymentFailed(false)
+                            }}
+                            onViewBooking={() => {
+                              router.push(`/book/${params.id}?step=success`)
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {paymentFailed && !checkoutStatus && (
                         <div className="mt-4">
                           <PaymentRetry
                             bookingId={typeof params.id === 'string' ? params.id : 'booking-1'}

@@ -30,3 +30,16 @@ npx jest --config jest.config.cjs tests/checkout-failure-paths.integration.test.
 
 The test uses fake timers only to advance the supplier deadline. Real timers are
 restored before the HTTP request so the transport is not faked.
+
+## Checkout Payment Status Lifecycle (v1)
+
+The checkout UI exposes five distinct, unambiguous states via `resolveCheckoutPaymentStatus`:
+
+| State | Lifecycle Stage | User Action |
+| --- | --- | --- |
+| `awaiting_approval` | Wallet modal open / prompt pending | Inspect and sign transaction in connected Stellar wallet |
+| `submitted` | Signed transaction submitted to mempool | Wait for Stellar ledger inclusion |
+| `confirmed` | On-chain settlement verified (`paid`/`confirmed`) | Navigate to booking confirmation / view ticket |
+| `recoverable_pending` | Network delay, timeout, or temporary congestion | Safely retry payment without re-creating booking or losing seat hold |
+| `failed` | Wallet rejection or terminal payment failure | Re-attempt checkout or select different payment method |
+
