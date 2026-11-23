@@ -96,6 +96,33 @@ impl FlightBookingContract {
             .get(&DataKey::Booking(booking_id))
     }
 
+    pub fn cancel_booking(env: Env, booking_id: u64) {
+        let mut booking = Self::get_booking(env.clone(), booking_id).expect("Booking not found");
+        booking.passenger.require_auth();
+        assert!(
+            booking.state == BookingState::Confirmed || booking.state == BookingState::Pending,
+            "Invalid booking status transition for cancellation"
+        );
+        booking.state = BookingState::Cancelled;
+        booking.escrowed_amount = 0;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Booking(booking_id), &booking);
+    }
+
+    pub fn refund_booking(env: Env, booking_id: u64) {
+        let mut booking = Self::get_booking(env.clone(), booking_id).expect("Booking not found");
+        assert!(
+            booking.state == BookingState::Confirmed,
+            "Invalid booking status transition for refund"
+        );
+        booking.state = BookingState::Refunded;
+        booking.escrowed_amount = 0;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Booking(booking_id), &booking);
+    }
+
     pub fn init_upgrade_owner(env: Env, owner: Address) {
         access::UpgradeTimelock::init_upgrade_owner(&env, &owner);
     }
