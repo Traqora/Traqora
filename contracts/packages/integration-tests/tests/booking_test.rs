@@ -87,3 +87,87 @@ fn test_refund_flow() {
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
 }
+
+#[test]
+#[should_panic(expected = "Invalid booking status transition: expected pending")]
+fn test_invalid_state_transition_pay_completed_booking()
+{
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL555"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+
+    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts.booking.pay_for_booking(&booking_id);
+    contracts.booking.release_payment_to_airline(&booking_id);
+
+    // Attempting to pay again on a completed booking must be rejected
+    contracts.booking.pay_for_booking(&booking_id);
+}
+
+#[test]
+#[should_panic(expected = "Invalid booking status transition: expected confirmed")]
+fn test_invalid_state_transition_release_pending_booking()
+{
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL556"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+
+    // Releasing payment before paying (still pending) must be rejected
+    contracts.booking.release_payment_to_airline(&booking_id);
+}
+
+#[test]
+fn test_concurrent_transition_attempts_serialized()
+{
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL999"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+
+    contracts.token.mint(&actors.admin, &actors.passenger, &price);
+    contracts.booking.pay_for_booking(&booking_id);
+
+    // Simulate concurrent release attempts: first succeeds, second panics due to invalid status
+    contracts.booking.release_payment_to_airline(&booking_id);
+
+    let res = contracts.booking.try_release_payment_to_airline(&booking_id);
+    assert!(res.is_err());
+}
