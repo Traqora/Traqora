@@ -87,3 +87,48 @@ fn test_refund_flow() {
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
 }
+
+#[test]
+#[should_panic(expected = "Payment reference already used")]
+fn test_payment_replay_prevention_across_bookings() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+
+    // Create two separate bookings
+    let booking_id_1 = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL123"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+
+    let booking_id_2 = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL124"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704153600,
+        &price,
+        &contracts.token.address,
+    );
+
+    // Mint enough tokens for both payments
+    contracts
+        .token
+        .mint(&actors.admin, &actors.passenger, &(price * 2));
+
+    // Pay for first booking successfully
+    contracts.booking.pay_for_booking(&booking_id_1);
+
+    // Attempting to replay the exact same payment reference/call for booking 2 must panic
+    contracts.booking.pay_for_booking(&booking_id_1);
+}
