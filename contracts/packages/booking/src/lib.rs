@@ -333,8 +333,78 @@ impl BookingContract {
     }
 
     // Helper to get booking details
-    pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
+    pub fn get_booking(env: Env, caller: Address, booking_id: u64) -> Option<Booking> {
+        caller.require_auth();
+        let booking = Self::get_booking_internal(&env, booking_id)?;
+        if caller != booking.passenger && caller != booking.airline {
+            panic!("Unauthorized booking access");
+        }
+        Some(booking)
+    }
+
+    pub fn get_booking_internal(env: &Env, booking_id: u64) -> Option<Booking> {
         BookingStorage::get(&env, booking_id)
+    }
+
+    // Return a paginated list of bookings in a stable, bounded order (by booking_id ascending)
+    pub fn get_paginated_bookings(env: Env, offset: u64, limit: u32) -> Vec<Booking> {
+        assert!(limit <= 100, "Limit too large");
+        let next_id = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("next_id"))
+            .unwrap_or(1);
+
+        let mut result = Vec::new(&env);
+        let mut count = 0u32;
+        let mut current = offset;
+
+        while current < next_id && count < limit {
+            if let Some(booking) = BookingStorage::get(&env, current) {
+                result.push_back(booking);
+                count += 1;
+            }
+            current += 1;
+        }
+        result
+    }
+
+    // Return a passenger's bookings in a stable, bounded order with pagination
+    pub fn get_passenger_bookings_paginated(
+        env: Env,
+        passenger: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<Booking> {
+        assert!(limit <= 100, "Limit too large");
+        let next_id = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("next_id"))
+            .unwrap_or(1);
+
+        let mut all_passenger_bookings = Vec::new(&env);
+        let mut id = 1u64;
+        while id < next_id {
+            if let Some(booking) = BookingStorage::get(&env, id) {
+                if booking.passenger == passenger {
+                    all_passenger_bookings.push_back(booking);
+                }
+            }
+            id += 1;
+        }
+
+        let mut result = Vec::new(&env);
+        let total = all_passenger_bookings.len();
+        let mut idx = offset;
+        let mut count = 0u32;
+
+        while idx < total && count < limit {
+            result.push_back(all_passenger_bookings.get(idx).unwrap());
+            idx += 1;
+            count += 1;
+        }
+        result
     }
 
     // Original API wrappers for backward compatibility
