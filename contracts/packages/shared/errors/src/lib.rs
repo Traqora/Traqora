@@ -202,8 +202,7 @@ impl SimulationError {
         };
 
         let mut msg_buf = soroban_sdk::String::from_str(env, prefix);
-        let s = soroban_sdk::String::from_str(env, raw_message);
-        msg_buf.push_str(&s);
+        msg_buf.push_str(&soroban_sdk::String::from_str(env, raw_message));
 
         let diag = soroban_sdk::String::from_str(env, diagnostic_context);
 
