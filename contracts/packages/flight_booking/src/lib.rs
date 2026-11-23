@@ -43,6 +43,17 @@ impl FlightBookingContract {
         seat: Symbol,
         amount: i128,
     ) -> u64 {
+        let payment_auth_key = (
+            symbol_short!("pay_auth"),
+            passenger.clone(),
+            flight_id.clone(),
+            seat.clone(),
+            amount,
+        );
+        if env.storage().persistent().has(&payment_auth_key) {
+            panic!("Payment authorization already used");
+        }
+        env.storage().persistent().set(&payment_auth_key, &true);
         passenger.require_auth();
         assert!(amount > 0, "Invalid amount");
 
