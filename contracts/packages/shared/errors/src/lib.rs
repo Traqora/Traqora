@@ -201,7 +201,6 @@ impl SimulationError {
             )
         };
 
-        let _ = env;
         let msg_buf = soroban_sdk::String::from_str(env, raw_message);
 
         let diag = soroban_sdk::String::from_str(env, diagnostic_context);
