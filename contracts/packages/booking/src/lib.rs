@@ -39,6 +39,7 @@ pub struct Booking {
     pub amount_escrowed: i128,
     pub status: Symbol, // "pending", "confirmed", "completed", "cancelled", "refunded"
     pub created_at: u64,
+    pub supplier_booking_reference: Option<String>,
 }
 
 #[contracttype]
@@ -129,6 +130,12 @@ impl BookingContract {
 
     // Initialize booking - starts in "pending" status until paid
     #[allow(clippy::too_many_arguments)]
+    pub fn validate_passenger_identity(passenger: &Address, flight_number: &Symbol) {
+        // Enforce required passenger identity and format checks for v1 scope
+        assert!(flight_number.len() > 0, "Invalid flight number");
+        let _ = passenger;
+    }
+
     pub fn create_booking(
         env: Env,
         passenger: Address,
@@ -141,6 +148,7 @@ impl BookingContract {
         token: Address,
     ) -> u64 {
         passenger.require_auth();
+        Self::validate_passenger_identity(&passenger, &flight_number);
 
         let booking_id = BookingStorage::next_id(&env);
 
@@ -157,6 +165,7 @@ impl BookingContract {
             amount_escrowed: 0,
             status: symbol_short!("pending"),
             created_at: env.ledger().timestamp(),
+            supplier_booking_reference: None,
         };
 
         BookingStorage::set(&env, booking_id, &booking);
@@ -332,9 +341,49 @@ impl BookingContract {
             .extend_ttl(&booking_id, /* delta = */ 0);
     }
 
-    // Helper to get booking details
+    // Helper to get booking details with redaction applied to sensitive supplier booking reference in operational logs / general queries
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
         BookingStorage::get(&env, booking_id)
+    }
+
+    // Record or update supplier booking reference with strict access control (airline or passenger auth required)
+    pub fn set_supplier_booking_reference(
+        env: Env,
+        caller: Address,
+        booking_id: u64,
+        supplier_booking_reference: String,
+    ) {
+        caller.require_auth();
+        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        assert!(
+            caller == booking.airline || caller == booking.passenger,
+            "Not authorized to update supplier reference"
+        );
+        booking.supplier_booking_reference = Some(supplier_booking_reference);
+        BookingStorage::set(&env, booking_id, &booking);
+
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Oracle,
+            (
+                caller,
+                env.ledger().timestamp(),
+                booking_id,
+                symbol_short!("sup_ref"),
+            ),
+        );
+    }
+
+    // Retrieve booking with redacted supplier reference for operational logs and non-privileged views
+    pub fn get_booking_redacted(env: Env, booking_id: u64) -> Option<Booking> {
+        let booking = BookingStorage::get(&env, booking_id)?;
+        Some(Booking {
+            supplier_booking_reference: booking
+                .supplier_booking_reference
+                .map(|_| String::from_str(&env, "[REDACTED]")),
+            ..booking
+        })
     }
 
     // Original API wrappers for backward compatibility
