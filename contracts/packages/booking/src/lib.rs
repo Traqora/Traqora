@@ -41,6 +41,22 @@ pub struct Booking {
     pub created_at: u64,
 }
 
+/// Minimum on-chain booking record required to prove payment settlement and
+/// reference an off-chain booking without exposing passenger personal data (PII).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MinimumBookingRecord {
+    pub booking_id: u64,
+    pub payer: Address,
+    pub airline: Address,
+    pub price: i128,
+    pub token: Address,
+    pub amount_escrowed: i128,
+    pub status: Symbol,
+    pub created_at: u64,
+    pub offchain_ref: Option<Symbol>,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct BatchFailure {
@@ -88,6 +104,27 @@ impl BookingStorage {
         env.storage()
             .instance()
             .set(&symbol_short!("receipt_c"), contract);
+    }
+
+    pub fn get_offchain_reference(env: &Env, booking_id: u64) -> Option<Symbol> {
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("off_ref"), booking_id))
+    }
+
+    pub fn set_offchain_reference(env: &Env, booking_id: u64, offchain_ref: &Symbol) {
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("off_ref"), booking_id), offchain_ref);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("by_ref"), offchain_ref.clone()), &booking_id);
+    }
+
+    pub fn get_booking_by_offchain_ref(env: &Env, offchain_ref: &Symbol) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("by_ref"), offchain_ref.clone()))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -335,6 +372,66 @@ impl BookingContract {
     // Helper to get booking details
     pub fn get_booking(env: Env, booking_id: u64) -> Option<Booking> {
         BookingStorage::get(&env, booking_id)
+    }
+
+    /// Associates an off-chain booking reference with an on-chain booking record
+    /// without exposing passenger personal data.
+    pub fn set_offchain_booking_reference(env: Env, booking_id: u64, offchain_ref: Symbol) {
+        let booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        booking.passenger.require_auth();
+        BookingStorage::set_offchain_reference(&env, booking_id, &offchain_ref);
+    }
+
+    /// Creates a booking with an initial off-chain reference.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_booking_with_reference(
+        env: Env,
+        passenger: Address,
+        airline: Address,
+        flight_number: Symbol,
+        from_airport: Symbol,
+        to_airport: Symbol,
+        departure_time: u64,
+        price: i128,
+        token: Address,
+        offchain_ref: Symbol,
+    ) -> u64 {
+        let booking_id = Self::create_booking(
+            env.clone(),
+            passenger,
+            airline,
+            flight_number,
+            from_airport,
+            to_airport,
+            departure_time,
+            price,
+            token,
+        );
+        BookingStorage::set_offchain_reference(&env, booking_id, &offchain_ref);
+        booking_id
+    }
+
+    /// Queries the minimum on-chain booking record containing only payment proof
+    /// and off-chain reference without passenger identity fields.
+    pub fn get_minimum_booking_record(env: Env, booking_id: u64) -> Option<MinimumBookingRecord> {
+        let booking = BookingStorage::get(&env, booking_id)?;
+        let offchain_ref = BookingStorage::get_offchain_reference(&env, booking_id);
+        Some(MinimumBookingRecord {
+            booking_id: booking.booking_id,
+            payer: booking.passenger,
+            airline: booking.airline,
+            price: booking.price,
+            token: booking.token,
+            amount_escrowed: booking.amount_escrowed,
+            status: booking.status,
+            created_at: booking.created_at,
+            offchain_ref,
+        })
+    }
+
+    /// Reverse lookup: retrieves booking id by off-chain reference.
+    pub fn get_booking_by_offchain_ref(env: Env, offchain_ref: Symbol) -> Option<u64> {
+        BookingStorage::get_booking_by_offchain_ref(&env, &offchain_ref)
     }
 
     // Original API wrappers for backward compatibility
