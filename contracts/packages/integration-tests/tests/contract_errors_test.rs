@@ -100,7 +100,7 @@ fn test_error_discriminants_are_stable() {
     assert_eq!(ContractError::SimulationUnknownError as u32, 1204);
 }
 
-@test
+#[test]
 fn test_simulation_error_mapping() {
     let env = new_env();
     let sim_err = errors::SimulationError::map_simulation_failure(
