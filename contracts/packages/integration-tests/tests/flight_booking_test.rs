@@ -159,7 +159,12 @@ fn test_capacity_overflow_zero_amount_rejected() {
     let passenger = Address::generate(&env);
     let contract_id = env.register(FlightBookingContract, ());
     let client = FlightBookingContractClient::new(&env, &contract_id);
-    client.reserve_seat(&passenger, &Symbol::new(&env, "FLCAP"), &Symbol::new(&env, "1A"), &0);
+    client.reserve_seat(
+        &passenger,
+        &Symbol::new(&env, "FLCAP"),
+        &Symbol::new(&env, "1A"),
+        &0,
+    );
 }
 
 #[test]
@@ -170,7 +175,12 @@ fn test_capacity_overflow_negative_amount_rejected() {
     let passenger = Address::generate(&env);
     let contract_id = env.register(FlightBookingContract, ());
     let client = FlightBookingContractClient::new(&env, &contract_id);
-    client.reserve_seat(&passenger, &Symbol::new(&env, "FLCAP"), &Symbol::new(&env, "1B"), &-1);
+    client.reserve_seat(
+        &passenger,
+        &Symbol::new(&env, "FLCAP"),
+        &Symbol::new(&env, "1B"),
+        &-1,
+    );
 }
 
 #[test]
@@ -306,4 +316,25 @@ fn test_deterministic_same_inputs_same_sequence() {
         assert_eq!(booking.created_at, 1_000);
         assert_eq!(booking.state, flight_booking::BookingState::Confirmed);
     }
+}
+
+#[test]
+fn test_flight_booking_reconcile_reference_timeout_recovery() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FLRECON");
+    let seat = Symbol::new(&env, "15A");
+    let request_ref = Symbol::new(&env, "timeout_ref_999");
+
+    let id1 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let booking1 = client.get_booking(&id1).unwrap();
+    assert_eq!(booking1.seat, seat);
+
+    // Retry with same request ref after timeout should return the exact same booking id without duplicate reservation error
+    let id2 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    assert_eq!(id1, id2);
 }

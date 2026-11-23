@@ -1,8 +1,8 @@
 import { getConfig } from '../config';
 import { logger } from './logger';
+import { Horizon } from '@stellar/stellar-sdk';
 import { createClient } from 'redis';
 import { Client } from 'pg';
-import { Horizon } from '@stellar/stellar-sdk';
 
 export async function verifyConnectivity() {
   const config = getConfig();

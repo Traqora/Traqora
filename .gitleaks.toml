@@ -3,6 +3,10 @@
 
 title = "Traqora Gitleaks Config"
 
+[scanner]
+strict = true
+
+
 [allowlist]
   description = "Historical false positives and documentation examples"
 

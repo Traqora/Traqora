@@ -6,6 +6,7 @@ export type NotificationType =
   | "booking"
   | "reminder"
   | "refund"
+  | "payment"
   | "promotional"
   | "flight_delayed"
   | "flight_delayed_significant"
@@ -14,15 +15,29 @@ export type NotificationType =
   | "boarding_reminder"
   | "flight_status"
   | "flight_status_shared"
-  | "refund_initiated";
+  | "refund_initiated"
+  | "booking_cancelled"
+  | "refund_processed";
 
 export interface NotificationPayload {
   userId: string;
   type: NotificationType;
   data: Record<string, any>; // specific data for the template
   channels?: ("email" | "sms" | "push")[]; // Optional override of which channels to use
+  /**
+   * Optional caller-supplied key for cross-channel de-duplication.
+   * When provided, the worker skips any channel that already has a
+   * "sent" NotificationLog entry with this key.  If omitted the
+   * worker derives the key from the Bull job ID.
+   */
+  idempotencyKey?: string;
 }
 
+/**
+ * Notification jobs (issue #758) follow the transactional outbox pattern: producers
+ * persist the outbox row inside the same transaction as the business write, and a
+ * relay drains it into this queue at-least-once, so handlers must stay idempotent.
+ */
 export const notificationQueue = new Queue<NotificationPayload>(
   "notifications",
   {

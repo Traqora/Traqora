@@ -20,6 +20,20 @@ The Admin Multisig contract implements a robust multi-signature scheme requiring
 - **Flexible Configuration**: Adjustable signers and thresholds through governance
 - **Cancellation Support**: Proposers can cancel their proposals before execution
 
+## Least-Privilege Role Model
+
+The admin flow is intentionally narrow: signer permissions are granted explicitly and are not widened by implicit role inheritance. In the shared access control layer, an `Admin` role grants admin-only actions, while operating permissions require the distinct `Operator` role. This keeps broad operational access out of the administrative path and aligns the implementation with least-privilege access reviews.
+
+Example:
+
+```rust
+// Admin is valid for admin-only actions.
+assert!(AccessControl::has_role(&env, &admin, Role::Admin));
+
+// Operator access is separate and must be granted explicitly.
+assert!(!AccessControl::has_role(&env, &admin, Role::Operator));
+```
+
 ## Architecture
 
 ### Core Components

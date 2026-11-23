@@ -213,4 +213,68 @@ describe('ExpirationHandler', () => {
       expect(result.count).toBe(0);
     });
   });
+
+  describe('processAllExpirationReminders', () => {
+    it('notifies once when earned points reach the 30-day and 7-day thresholds', async () => {
+      const asOf = new Date('2026-01-01T12:00:00.000Z');
+      store.getOrCreateAccount('reminder-user');
+      seedEarnedTransaction(
+        'reminder-user',
+        150,
+        new Date(asOf.getTime() + 30 * 24 * 60 * 60 * 1000),
+      );
+      seedEarnedTransaction(
+        'reminder-user',
+        250,
+        new Date(asOf.getTime() + 40 * 24 * 60 * 60 * 1000),
+      );
+      const queueNotification = jest.fn().mockResolvedValue({} as any);
+      const reminderHandler = new ExpirationHandler(
+        store,
+        tierManager,
+        { queueNotification } as any,
+      );
+
+      const firstRun = await reminderHandler.processAllExpirationReminders(asOf);
+      const duplicateRun = await reminderHandler.processAllExpirationReminders(asOf);
+      const sevenDayRun = await reminderHandler.processAllExpirationReminders(
+        new Date(asOf.getTime() + 33 * 24 * 60 * 60 * 1000),
+      );
+
+      expect(firstRun.map((reminder) => reminder.daysUntilExpiry)).toEqual([30]);
+      expect(duplicateRun).toEqual([]);
+      expect(sevenDayRun.map((reminder) => reminder.daysUntilExpiry)).toEqual([7]);
+      expect(queueNotification).toHaveBeenCalledTimes(2);
+      expect(queueNotification).toHaveBeenNthCalledWith(
+        1,
+        'reminder-user',
+        expect.objectContaining({ category: 'loyalty', data: expect.objectContaining({ points: 150 }) }),
+        ['inapp'],
+      );
+    });
+
+    it('does not notify for transactions outside a reminder window or already expired', async () => {
+      const asOf = new Date('2026-01-01T12:00:00.000Z');
+      store.getOrCreateAccount('no-reminder-user');
+      seedEarnedTransaction(
+        'no-reminder-user',
+        100,
+        new Date(asOf.getTime() + 45 * 24 * 60 * 60 * 1000),
+      );
+      seedEarnedTransaction(
+        'no-reminder-user',
+        200,
+        new Date(asOf.getTime() - 1000),
+      );
+      const queueNotification = jest.fn();
+      const reminderHandler = new ExpirationHandler(
+        store,
+        tierManager,
+        { queueNotification } as any,
+      );
+
+      await expect(reminderHandler.processAllExpirationReminders(asOf)).resolves.toEqual([]);
+      expect(queueNotification).not.toHaveBeenCalled();
+    });
+  });
 });

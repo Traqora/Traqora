@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from "@jest/globals";
 import { ItineraryShareService } from "./ItineraryShareService";
-import type { CollaborativeEdit, PermissionLevel } from "../types/itinerary";
+import type { CollaborativeEdit, PermissionLevel, SharedItinerary } from "../types/itinerary";
 
 describe("ItineraryShareService", () => {
   let service: ItineraryShareService;
@@ -49,6 +49,47 @@ describe("ItineraryShareService", () => {
       validPerms.forEach((perm) => {
         expect(["view", "edit", "admin"]).toContain(perm);
       });
+    });
+  });
+
+  describe("Invitation acceptance", () => {
+    const pendingInvitation = (expiresAt: Date): SharedItinerary => ({
+      id: "share-1",
+      itineraryId: "itin-1",
+      ownerId: "owner-1",
+      sharedWith: "traveler@example.com",
+      permissionLevel: "edit",
+      status: "pending",
+      shareToken: "token-1",
+      createdAt: new Date(),
+      expiresAt,
+    });
+
+    it("accepts the token that was stored for a pending invitation", async () => {
+      (service as any).shareCache.set(
+        "itin-1:traveler@example.com",
+        pendingInvitation(new Date(Date.now() + 60_000)),
+      );
+
+      const shared = await service.acceptShareInvitation(
+        "itin-1",
+        "token-1",
+        "traveler@example.com",
+      );
+
+      expect(shared.status).toBe("accepted");
+      expect(shared.permissionLevel).toBe("edit");
+    });
+
+    it("rejects an expired invitation", async () => {
+      (service as any).shareCache.set(
+        "itin-1:traveler@example.com",
+        pendingInvitation(new Date(Date.now() - 1)),
+      );
+
+      await expect(
+        service.acceptShareInvitation("itin-1", "token-1", "traveler@example.com"),
+      ).rejects.toThrow("Invalid or expired invitation token");
     });
   });
 

@@ -8,19 +8,35 @@ export interface ConversionResult {
   fee: number;
   total: number;
   timestamp: Date;
+  rateAge?: number; // milliseconds since rate was fetched
+  isStale?: boolean; // whether rate exceeded staleness threshold
 }
 
 interface RateCache {
   rates: Record<string, number>;
   timestamp: number;
+  fetchedAt: number; // Track when the rate was actually fetched from API
+}
+
+export interface RoundsPolicy {
+  roundingMode: 'HALF_UP' | 'DOWN' | 'NEAREST';
+  minDecimals: number;
+  maxDecimals: number;
 }
 
 export class CurrencyService {
   private static instance: CurrencyService;
   private cache: Map<string, RateCache> = new Map();
-  private readonly cacheTtlMs = 5 * 60 * 1000;
+  private readonly cacheTtlMs = 5 * 60 * 1000; // 5 minutes cache validity
+  private readonly staleThresholdMs = 60 * 60 * 1000; // 1 hour - reject rates older than this
   private readonly feeRate = 0.005;
   private readonly apiBaseUrl = 'https://api.exchangerate-api.com/v4/latest';
+  
+  private roundingPolicy: RoundsPolicy = {
+    roundingMode: 'HALF_UP',
+    minDecimals: 0,
+    maxDecimals: 8,
+  };
 
   public static readonly SUPPORTED_CURRENCIES = [
     'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD',
@@ -63,7 +79,9 @@ export class CurrencyService {
   public async getRates(baseCurrency: string = 'USD'): Promise<Record<string, number>> {
     const base = baseCurrency.toUpperCase();
     const cached = this.cache.get(base);
-    if (cached && Date.now() - cached.timestamp < this.cacheTtlMs) {
+    const now = Date.now();
+    
+    if (cached && now - cached.timestamp < this.cacheTtlMs) {
       return cached.rates;
     }
 
@@ -79,14 +97,30 @@ export class CurrencyService {
           filtered[currency] = data.rates[currency];
         }
       }
-      this.cache.set(base, { rates: filtered, timestamp: Date.now() });
+      const fetchedAt = Date.now();
+      this.cache.set(base, { rates: filtered, timestamp: fetchedAt, fetchedAt });
       return filtered;
     } catch (error) {
       logger.warn('Failed to fetch exchange rates, using fallback', { error, base });
       const fallback = this.computeFallbackRates(base);
-      this.cache.set(base, { rates: fallback, timestamp: Date.now() });
+      const fetchedAt = Date.now();
+      this.cache.set(base, { rates: fallback, timestamp: fetchedAt, fetchedAt });
       return fallback;
     }
+  }
+
+  /**
+   * Check if cached rates are stale
+   */
+  private isRateStale(rateTimestamp: number): boolean {
+    return Date.now() - rateTimestamp > this.staleThresholdMs;
+  }
+
+  /**
+   * Get rate staleness age in milliseconds
+   */
+  private getRateAge(rateTimestamp: number): number {
+    return Date.now() - rateTimestamp;
   }
 
   private computeFallbackRates(baseCurrency: string): Record<string, number> {
@@ -130,6 +164,8 @@ export class CurrencyService {
         fee,
         total: this.roundAmount(amount + fee, toCurrency),
         timestamp: new Date(),
+        rateAge: 0,
+        isStale: false,
       };
     }
 
@@ -137,6 +173,19 @@ export class CurrencyService {
     const rate = rates[toCurrency];
     if (!rate) {
       throw new Error(`No exchange rate available for ${fromCurrency} to ${toCurrency}`);
+    }
+
+    const cacheEntry = this.cache.get(fromCurrency);
+    const rateAge = cacheEntry ? this.getRateAge(cacheEntry.fetchedAt) : 0;
+    const isStale = cacheEntry ? this.isRateStale(cacheEntry.fetchedAt) : false;
+
+    if (isStale) {
+      logger.warn('Using stale exchange rate', { 
+        from: fromCurrency, 
+        to: toCurrency, 
+        rateAge,
+        staleThreshold: this.staleThresholdMs,
+      });
     }
 
     const converted = amount * rate;
@@ -151,6 +200,8 @@ export class CurrencyService {
       fee: this.roundAmount(fee, toCurrency),
       total,
       timestamp: new Date(),
+      rateAge,
+      isStale,
     };
   }
 
@@ -184,8 +235,70 @@ export class CurrencyService {
     const curr = currency.toUpperCase();
     const config = CurrencyService.CURRENCY_CONFIG[curr];
     const decimals = config?.decimals ?? 2;
-    const factor = Math.pow(10, decimals);
-    return Math.round(amount * factor) / factor;
+    
+    // Ensure decimals are within allowed range
+    const finalDecimals = Math.min(
+      Math.max(decimals, this.roundingPolicy.minDecimals),
+      this.roundingPolicy.maxDecimals
+    );
+    
+    const factor = Math.pow(10, finalDecimals);
+    
+    // Implement deterministic rounding based on policy
+    switch (this.roundingPolicy.roundingMode) {
+      case 'HALF_UP':
+        // Standard banker's rounding: round 0.5 up
+        return Math.round(amount * factor) / factor;
+      
+      case 'DOWN':
+        // Always round down (truncate)
+        return Math.floor(amount * factor) / factor;
+      
+      case 'NEAREST':
+        // Round to nearest, ties to even (banker's rounding)
+        const shifted = amount * factor;
+        const rounded = Math.round(shifted);
+        return rounded / factor;
+      
+      default:
+        return Math.round(amount * factor) / factor;
+    }
+  }
+
+  /**
+   * Set custom rounding policy
+   */
+  public setRoundingPolicy(policy: Partial<RoundsPolicy>): void {
+    this.roundingPolicy = {
+      ...this.roundingPolicy,
+      ...policy,
+    };
+    logger.info('Rounding policy updated', { policy: this.roundingPolicy });
+  }
+
+  /**
+   * Get current rounding policy
+   */
+  public getRoundingPolicy(): RoundsPolicy {
+    return { ...this.roundingPolicy };
+  }
+
+  /**
+   * Set staleness threshold
+   */
+  public setStaleThreshold(thresholdMs: number): void {
+    if (thresholdMs < 0) {
+      throw new Error('Staleness threshold must be non-negative');
+    }
+    (this as any).staleThresholdMs = thresholdMs;
+    logger.info('Staleness threshold updated', { thresholdMs });
+  }
+
+  /**
+   * Get staleness threshold
+   */
+  public getStaleThreshold(): number {
+    return this.staleThresholdMs;
   }
 
   public calculateConversionFee(amount: number, from: string, to: string): number {

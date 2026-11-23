@@ -46,3 +46,22 @@ npm run migration:run --workspace=packages/backend
 
 The `ancillary_purchases` table is append-oriented except for the single transition
 of an upgrade bid from `bid_pending` to either `bid_accepted` or `bid_rejected`.
+
+## Provider environment capability matrix (#942)
+
+The application-managed ancillary catalog is not the same thing as airline
+fulfilment. The maintained provider matrix is in
+`packages/backend/src/services/providerCapabilities.ts` and is covered by
+`packages/backend/tests/services/providerCapabilities.test.ts`.
+
+| Capability | Sandbox | Production |
+| --- | --- | --- |
+| Flight search | Repository fixtures; optional Amadeus test offers | Repository data with configured provider failover |
+| Booking | Application/contract flow only; no authoritative airline ticket | Soroban booking submission; airline ticketing is outside this boundary |
+| Catalog and pricing | Supported from deterministic application catalog | Supported from persisted application catalog |
+| Airline ancillary fulfilment | Unsupported | Unsupported unless a future carrier adapter is explicitly configured |
+| Status/gate data | Partial and may be absent | Partial; source, freshness, and conflicts must be checked |
+
+Sandbox success must not be used as evidence of production airline
+fulfilment. Missing provider fields are expected in both environments and must
+remain explicit to callers rather than being converted into confirmed data.

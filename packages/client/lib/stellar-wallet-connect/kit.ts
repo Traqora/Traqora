@@ -86,6 +86,30 @@ export function getConfiguredNetwork(): StellarNetwork {
   return configuredNetwork;
 }
 
+export function networkFromPassphrase(passphrase?: string): StellarNetwork | '' {
+  if (!passphrase) return '';
+  return passphrase === networkPassphraseMap.testnet ? 'testnet' :
+    passphrase === networkPassphraseMap.mainnet ? 'mainnet' : '';
+}
+
+export async function getActiveWalletContext(): Promise<{
+  address: string;
+  network: StellarNetwork | '';
+}> {
+  if (typeof window === 'undefined') {
+    throw new Error('Wallet context can only be read on the client side');
+  }
+  if (!isInitialized) initializeWalletKit();
+  const result = await StellarWalletsKit.getAddress() as {
+    address?: string;
+    networkPassphrase?: string;
+  };
+  return {
+    address: result?.address ?? '',
+    network: networkFromPassphrase(result?.networkPassphrase) || configuredNetwork,
+  };
+}
+
 /**
  * Return the `StellarWalletsKit` class reference (for advanced usage).
  *

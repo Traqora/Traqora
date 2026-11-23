@@ -154,13 +154,22 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config libudev-dev
 
-      - name: Format check
-        working-directory: contracts
-        run: cargo fmt -- --check
+      - name: Contracts fmt/clippy gate
+        # Single source of truth for the contracts quality gate (#743): the same
+        # script `make fmt` / `make clippy` / `make lint` run locally, so CI
+        # cannot disagree with a developer's machine.
+        run: bash scripts/fmt-clippy-check.sh
 
-      - name: Clippy
+      # Keep TEST_GUIDE.md in sync with the integration test inventory.
+      - name: TEST_GUIDE parity check
         working-directory: contracts
-        run: cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings
+        run: bash scripts/check-test-guide-parity.sh
+
+      # Ensure coverage.sh keeps enforcing the same gate as CI and rejects
+      # invalid arguments instead of silently skipping the check.
+      - name: coverage.sh regression tests
+        working-directory: contracts
+        run: bash scripts/test-coverage.sh
 
   # ── Tests: Backend ────────────────────────────────────────────────────────
   test-backend:
@@ -179,7 +188,24 @@ jobs:
 
       - run: npm install --legacy-peer-deps
 
-      - run: npm test --workspace=packages/backend -- --coverage
+      - name: Run tests with coverage gate
+        # Fails when coverage drops below the thresholds configured in
+        # packages/backend/jest.config.cjs (coverageThreshold).
+        run: |
+          set +e
+          npm run test:coverage --workspace=packages/backend > /tmp/backend-coverage.log 2>&1
+          status=$?
+          set -e
+          grep -iE "coverage threshold|Coverage summary|^Statements|^Branches|^Functions|^Lines|Test Suites:|Tests:" /tmp/backend-coverage.log > /tmp/backend-coverage-summary.txt || true
+          {
+            echo "### Backend Coverage Gate"
+            echo ""
+            cat /tmp/backend-coverage-summary.txt
+            echo ""
+            echo "Thresholds: \`packages/backend/jest.config.cjs\` -> \`coverageThreshold.global\` (statements 35, branches 30, functions 34, lines 35)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
@@ -267,7 +293,49 @@ jobs:
 
       - name: Coverage
         working-directory: contracts
-        run: cargo llvm-cov --summary-only --fail-under-lines 90
+        # Fails when line coverage drops below 90% (no silent regression).
+        run: |
+          set +e
+          cargo llvm-cov --summary-only --fail-under-lines 90 > /tmp/contracts-coverage.log 2>&1
+          status=$?
+          set -e
+          tail -25 /tmp/contracts-coverage.log > /tmp/contracts-coverage-summary.txt
+          {
+            echo "### Contracts Coverage Gate"
+            echo ""
+            echo '```'
+            cat /tmp/contracts-coverage-summary.txt
+            echo '```'
+            echo ""
+            echo "Threshold: line coverage >= 90% (\`cargo llvm-cov --fail-under-lines 90\`)."
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+  # ── Docs: EVENTS.md drift ─────────────────────────────────────────────────
+  check-events-docs:
+    name: Docs - Events drift
+    needs: [detect]
+    if: needs.detect.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Restore Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CARGO_CACHE_PATHS }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Check EVENTS.md is in sync with emitted events
+        run: ./scripts/check-events-docs.sh
 
   # ── Integration: Backend ──────────────────────────────────────────────────
   integration-backend:
@@ -654,7 +722,7 @@ jobs:
       - name: Install Trivy (retry)
         run: |
           for i in 1 2 3; do
-            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.65.0 && break
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.65.0 && break
             echo "trivy install attempt $i failed, retrying..."
             sleep 10
           done

@@ -34,7 +34,7 @@ cd "$CONTRACTS_DIR"
 cargo build --locked --target wasm32-unknown-unknown --release 2>/dev/null
 
 VERIFICATION_STATUS="PASS"
-VERIFICATION_REPORT="| Contract | Status | Deployed Hash | Local Hash | Match |\n|---|---|---|---|---|\n"
+VERIFICATION_REPORT="| Contract | Status | Deployed Hash | Local Hash | Recorded Hash | Match |\n|---|---|---|---|---|---|\n"
 
 # Recorded checksums published at deploy time (issue #592). When present they
 # are authoritative: a mismatch against the deployed binary means the
@@ -47,7 +47,7 @@ for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
 
     if [ ! -f "$deployed_wasm" ]; then
         echo "  WARNING: No deployed WASM found for $name at $deployed_wasm"
-        VERIFICATION_REPORT+="| $name | ⚠️ SKIPPED | N/A | N/A | N/A |\n"
+        VERIFICATION_REPORT+="| $name | ⚠️ SKIPPED | N/A | N/A | N/A | N/A |\n"
         continue
     fi
 
@@ -60,16 +60,16 @@ for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
         echo "    Deployed:  $deployed_hash"
         echo "    Recorded:  $recorded_hash"
         VERIFICATION_STATUS="FAIL"
-        VERIFICATION_REPORT+="| $name | ❌ FAIL | \`$deployed_hash\` | \`$local_hash\` | ❌ |\n"
+        VERIFICATION_REPORT+="| $name | ❌ FAIL | \`$deployed_hash\` | \`$local_hash\` | \`$recorded_hash\` | ❌ |\n"
     elif [ "$local_hash" = "$deployed_hash" ]; then
         echo "  ✓ $name: HASHES MATCH"
-        VERIFICATION_REPORT+="| $name | ✅ PASS | \`$deployed_hash\` | \`$local_hash\` | ✅ |\n"
+        VERIFICATION_REPORT+="| $name | ✅ PASS | \`$deployed_hash\` | \`$local_hash\` | \`$recorded_hash\` | ✅ |\n"
     else
         echo "  ✗ $name: HASH MISMATCH"
         echo "    Deployed: $deployed_hash"
         echo "    Local:    $local_hash"
         VERIFICATION_STATUS="FAIL"
-        VERIFICATION_REPORT+="| $name | ❌ FAIL | \`$deployed_hash\` | \`$local_hash\` | ❌ |\n"
+        VERIFICATION_REPORT+="| $name | ❌ FAIL | \`$deployed_hash\` | \`$local_hash\` | \`$recorded_hash\` | ❌ |\n"
     fi
 done
 

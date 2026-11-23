@@ -7,6 +7,7 @@
 import { DataSource } from 'typeorm';
 import { logger } from '../../utils/logger';
 import { Flight } from '../../db/entities/Flight';
+import { invalidateFlightSearchCacheForFlight } from '../cache';
 import {
   AirlineFlightData,
   SyncFlightRequest,
@@ -18,6 +19,12 @@ import {
   CircuitBreakerState,
   SyncWebhookPayload,
 } from '../../types/flightSync';
+import { CircuitBreakerWithRetry } from '../../utils/retryHandler';
+import { DeadLetterQueue } from '../deadLetterQueue';
+import { ErrorRecoveryService, RecoveryContext } from '../errorRecoveryService';
+import { FlightSyncMonitor } from '../flightSyncMonitor';
+import { recordFlightOfferIngestionDelay } from '../metrics';
+import { getFlightSyncConfig } from '../../config/retryPolicies';
 
 /**
  * Circuit Breaker for external API calls
@@ -29,16 +36,18 @@ export class CircuitBreaker {
   private lastFailureTime?: Date;
   private threshold: number;
   private resetTimeout: number;
+  private halfOpenAttempts: number;
 
-  constructor(threshold: number = 5, resetTimeout: number = 60000) {
+  constructor(threshold: number = 5, resetTimeout: number = 60000, halfOpenAttempts: number = 2) {
     this.threshold = threshold;
     this.resetTimeout = resetTimeout;
+    this.halfOpenAttempts = Math.max(1, halfOpenAttempts);
   }
 
   recordSuccess(): void {
     if (this.state === 'HALF_OPEN') {
       this.successCount++;
-      if (this.successCount >= 2) {
+      if (this.successCount >= 1) {
         this.state = 'CLOSED';
         this.failureCount = 0;
         this.successCount = 0;
@@ -51,13 +60,26 @@ export class CircuitBreaker {
     this.failureCount++;
     this.lastFailureTime = new Date();
 
+    if (this.state === 'HALF_OPEN') {
+      this.state = 'OPEN';
+      this.successCount = 0;
+      logger.warn('Circuit breaker reopened during HALF_OPEN state', {
+        failureCount: this.failureCount,
+      });
+      setTimeout(() => {
+        this.state = 'HALF_OPEN';
+        this.failureCount = 0;
+        this.successCount = 0;
+        logger.info('Circuit breaker transitioning to HALF_OPEN state');
+      }, this.resetTimeout);
+      return;
+    }
+
     if (this.failureCount >= this.threshold) {
       this.state = 'OPEN';
       logger.warn('Circuit breaker opened due to repeated failures', {
         failureCount: this.failureCount,
       });
-
-      // Schedule recovery attempt
       setTimeout(() => {
         this.state = 'HALF_OPEN';
         this.failureCount = 0;
@@ -82,9 +104,22 @@ export class CircuitBreaker {
     }
   }
 
+  getState(): CircuitBreakerState {
+    if (
+      this.state === 'OPEN' &&
+      this.lastFailureTime &&
+      Date.now() - this.lastFailureTime.getTime() >= this.resetTimeout
+    ) {
+      this.state = 'HALF_OPEN';
+      this.failureCount = 0;
+      this.successCount = 0;
+    }
+    return this.state;
+  }
+
   getStatus(): CircuitBreakerStatus {
     return {
-      state: this.state,
+      state: this.getState(),
       failureCount: this.failureCount,
       successCount: this.successCount,
       lastFailureTime: this.lastFailureTime,
@@ -92,6 +127,17 @@ export class CircuitBreaker {
         this.state === 'OPEN'
           ? new Date(Date.now() + this.resetTimeout)
           : undefined,
+    };
+  }
+
+  getStats() {
+    return {
+      state: this.getState(),
+      failureCount: this.failureCount,
+      successCount: this.successCount,
+      threshold: this.threshold,
+      resetTimeout: this.resetTimeout,
+      lastFailureTime: this.lastFailureTime,
     };
   }
 }
@@ -153,7 +199,14 @@ export class FlightCacheManager {
     return entry.data;
   }
 
-  clear(): void {
+  clear(flightNumber?: string, date?: string, source?: string): void {
+    if (flightNumber && date && source) {
+      const key = this.getCacheKey(flightNumber, date, source);
+      this.cache.delete(key);
+      logger.info('Flight cache entry cleared', { flightNumber, date, source });
+      return;
+    }
+
     this.cache.clear();
     logger.info('Flight cache cleared');
   }
@@ -162,6 +215,8 @@ export class FlightCacheManager {
     return {
       size: this.cache.size,
       ttl: this.ttl,
+      totalEntries: this.cache.size,
+      hits: this.cache.size,
     };
   }
 }
@@ -174,6 +229,10 @@ export class FlightSynchronizationService {
   private adapters: Map<string, IAirlineAdapter>;
   private cacheManager: FlightCacheManager;
   private circuitBreaker: CircuitBreaker;
+  private circuitBreakerWithRetry: CircuitBreakerWithRetry;
+  private deadLetterQueue: DeadLetterQueue;
+  private errorRecoveryService: ErrorRecoveryService;
+  private monitor: FlightSyncMonitor;
   private conflictResolutionMode: 'MANUAL' | 'AUTOMATIC' | 'PRIORITY' = 'PRIORITY';
   private webhookCallbacks: Set<(payload: SyncWebhookPayload) => void> = new Set();
   private lastSyncJob: FlightSyncJob | null = null;
@@ -181,46 +240,112 @@ export class FlightSynchronizationService {
   constructor(
     dataSource: DataSource,
     adapters: Map<string, IAirlineAdapter>,
-    cacheTTL: number = 300
+    cacheTTL: number = 300,
+    environment: 'development' | 'staging' | 'production' = 'production'
   ) {
     this.dataSource = dataSource;
     this.adapters = adapters;
     this.cacheManager = new FlightCacheManager(cacheTTL);
     this.circuitBreaker = new CircuitBreaker(5, 60000);
+    
+    // Initialize retry handler with environment-specific config
+    const config = getFlightSyncConfig(environment);
+    this.circuitBreakerWithRetry = new CircuitBreakerWithRetry(
+      config.retry.syncFlight,
+      config.circuitBreaker.amadeus
+    );
+    
+    // Initialize dead letter queue
+    this.deadLetterQueue = new DeadLetterQueue(dataSource, config.deadLetterQueue);
+    
+    // Initialize error recovery service
+    this.errorRecoveryService = new ErrorRecoveryService(
+      dataSource,
+      this.deadLetterQueue,
+      config.errorRecovery
+    );
+    
+    // Initialize monitor
+    this.monitor = new FlightSyncMonitor();
+    
+    // Register retry callbacks for dead letter queue
+    this.registerDeadLetterQueueCallbacks();
   }
 
   /**
    * Sync a single flight
    */
   async syncFlight(request: SyncFlightRequest): Promise<SyncFlightResponse> {
+    const startTime = Date.now();
+    
     try {
       logger.info('Starting flight sync', {
         flightNumber: request.flightNumber,
         airline: request.airline,
       });
 
-      // Fetch data from adapter
+      // Fetch data from adapter with retry and circuit breaker
       const adapter = this.adapters.get(request.airline);
       if (!adapter) {
+        const error = new Error(`No adapter found for airline: ${request.airline}`);
+        this.monitor.recordSyncFailure(error, { request });
         return {
           success: false,
           updated: false,
-          message: `No adapter found for airline: ${request.airline}`,
+          message: error.message,
           errors: ['Unknown airline'],
         };
       }
 
-      // Get flight data
-      const flightData = await this.circuitBreaker.execute(() =>
-        adapter.fetchFlightData(request.flightNumber, request.departureDate)
+      // Use circuit breaker with retry for fetching flight data
+      const flightData = await this.circuitBreakerWithRetry.execute(
+        () => adapter.fetchFlightData(request.flightNumber, request.departureDate),
+        `syncFlight:${request.flightNumber}`
       );
 
+      this.recordOfferFreshness(adapter, flightData);
+
       if (!flightData) {
+        const error = new Error(`Failed to fetch flight data for ${request.flightNumber}`);
+        
+        // Attempt error recovery
+        const recoveryContext: RecoveryContext = {
+          operation: 'SYNC_FLIGHT',
+          payload: request,
+          metadata: { flightNumber: request.flightNumber, airline: request.airline },
+          timestamp: new Date(),
+        };
+        
+        const recoveryResult = await this.errorRecoveryService.attemptRecovery(error, recoveryContext);
+        
+        if (recoveryResult.success && recoveryResult.data) {
+          // Use recovered data
+          this.recordOfferFreshness(adapter, recoveryResult.data);
+          const flight = await this.upsertFlight(recoveryResult.data, adapter.airlineCode);
+          this.cacheManager.set(
+            request.flightNumber,
+            request.departureDate,
+            adapter.airlineCode,
+            recoveryResult.data
+          );
+          
+          const duration = Date.now() - startTime;
+          this.monitor.recordSyncSuccess(duration, { request, recovery: true });
+          
+          return {
+            success: true,
+            flightId: flight.id,
+            updated: true,
+            message: `Flight synced using ${recoveryResult.action}`,
+          };
+        }
+        
+        this.monitor.recordSyncFailure(error, { request });
         return {
           success: false,
           updated: false,
-          message: `Failed to fetch flight data for ${request.flightNumber}`,
-          errors: ['No data from adapter'],
+          message: error.message,
+          errors: [error.message],
         };
       }
 
@@ -235,6 +360,9 @@ export class FlightSynchronizationService {
         flightData
       );
 
+      const duration = Date.now() - startTime;
+      this.monitor.recordSyncSuccess(duration, { request });
+
       return {
         success: true,
         flightId: flight.id,
@@ -242,16 +370,47 @@ export class FlightSynchronizationService {
         message: 'Flight synced successfully',
       };
     } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      
+      this.monitor.recordSyncFailure(errorObj, { request });
+      
+      // Attempt error recovery
+      const recoveryContext: RecoveryContext = {
+        operation: 'SYNC_FLIGHT',
+        payload: request,
+        metadata: { flightNumber: request.flightNumber, airline: request.airline },
+        timestamp: new Date(),
+      };
+      
+      const recoveryResult = await this.errorRecoveryService.attemptRecovery(errorObj, recoveryContext);
+      
+      if (recoveryResult.success && recoveryResult.data) {
+        const adapter = this.adapters.get(request.airline);
+        if (adapter) {
+          this.recordOfferFreshness(adapter, recoveryResult.data);
+          const flight = await this.upsertFlight(recoveryResult.data, adapter.airlineCode);
+          this.monitor.recordSyncSuccess(duration, { request, recovery: true });
+          
+          return {
+            success: true,
+            flightId: flight.id,
+            updated: true,
+            message: `Flight synced using ${recoveryResult.action}`,
+          };
+        }
+      }
+
       logger.error('Flight sync failed', {
-        error: error instanceof Error ? error.message : String(error),
+        error: errorObj.message,
         request,
       });
 
       return {
         success: false,
         updated: false,
-        message: error instanceof Error ? error.message : 'Unknown error',
-        errors: [error instanceof Error ? error.message : String(error)],
+        message: errorObj.message,
+        errors: [errorObj.message],
       };
     }
   }
@@ -342,9 +501,14 @@ export class FlightSynchronizationService {
       }
 
       // Update flight
+      const previousScope = { fromAirport: flight.fromAirport, toAirport: flight.toAirport, departureTime: flight.departureTime };
       (flight as any)[conflict.field] = resolvedValue;
       flight.syncStatus = 'EXACT_MATCH';
       await flightRepo.save(flight);
+
+      // A resolved conflict can carry a schedule or price change.
+      await invalidateFlightSearchCacheForFlight(previousScope);
+      await invalidateFlightSearchCacheForFlight(flight);
 
       logger.info('Conflict resolved', {
         flightNumber: conflict.flightNumber,
@@ -445,7 +609,90 @@ export class FlightSynchronizationService {
     return this.cacheManager.getStats();
   }
 
+  /**
+   * Get monitor instance
+   */
+  getMonitor() {
+    return this.monitor;
+  }
+
+  /**
+   * Get dead letter queue instance
+   */
+  getDeadLetterQueue() {
+    return this.deadLetterQueue;
+  }
+
+  /**
+   * Register callbacks for dead letter queue retry operations
+   */
+  private registerDeadLetterQueueCallbacks(): void {
+    this.deadLetterQueue.registerRetryCallback('SYNC_FLIGHT', async (entry) => {
+      try {
+        const request = entry.payload as SyncFlightRequest;
+        const result = await this.syncFlight(request);
+        return result.success;
+      } catch (error) {
+        logger.error('Dead letter queue retry callback failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    });
+
+    this.deadLetterQueue.registerRetryCallback('BATCH_SYNC', async (entry) => {
+      try {
+        const requests = entry.payload as SyncFlightRequest[];
+        const result = await this.batchSyncFlights(requests);
+        return result.failed.length === 0;
+      } catch (error) {
+        logger.error('Dead letter queue batch retry callback failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    });
+
+    this.deadLetterQueue.registerRetryCallback('WEBHOOK_PROCESS', async (entry) => {
+      try {
+        await this.processWebhook(entry.payload);
+        return true;
+      } catch (error) {
+        logger.error('Dead letter queue webhook retry callback failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    });
+
+    this.deadLetterQueue.registerRetryCallback('STATUS_UPDATE', async (entry) => {
+      try {
+        const request = entry.payload as SyncFlightRequest;
+        const result = await this.syncFlight(request);
+        return result.success;
+      } catch (error) {
+        logger.error('Dead letter queue status update retry callback failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    });
+  }
+
   // ==================== Private Methods ====================
+
+  /**
+   * Publish provider offer freshness (#933). Providers that do not expose an
+   * update timestamp are skipped rather than reported as zero-delay; the label
+   * is bounded by `normalizeFlightProviderLabel`.
+   */
+  private recordOfferFreshness(
+    adapter: IAirlineAdapter,
+    data: AirlineFlightData | null,
+  ): void {
+    if (!data) return;
+    recordFlightOfferIngestionDelay(adapter.name, data.providerUpdatedAt);
+  }
 
   private async upsertFlight(data: AirlineFlightData, source: string): Promise<Flight> {
     const flightRepo = this.dataSource.getRepository(Flight);
@@ -480,10 +727,23 @@ export class FlightSynchronizationService {
     flight.cancellationReason = data.cancellationReason;
     flight.dataSource = source;
     flight.lastSyncedAt = new Date();
+    flight.sourceImportedAt = flight.lastSyncedAt;
+    flight.sourceUpdatedAt = data.sourceUpdatedAt;
+    flight.sourceFreshness = data.sourceUpdatedAt ? 'fresh' : 'unknown';
     flight.syncAttempts++;
     flight.rawData = data;
 
     flight = await flightRepo.save(flight);
+
+    // Airline pushes move schedules and prices, so the cached searches that
+    // already contain this flight are now stale. Invalidate the scope the
+    // flight left as well as its current one.
+    await invalidateFlightSearchCacheForFlight({
+      fromAirport: oldValues.fromAirport,
+      toAirport: oldValues.toAirport,
+      departureTime: oldValues.departureTime,
+    });
+    await invalidateFlightSearchCacheForFlight(flight);
 
     // Emit webhook if there were changes
     if (this.hasChanges(oldValues, flight)) {

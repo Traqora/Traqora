@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { apiClient, Flight, SearchFlightsRequest } from "@/lib/api";
 import { useSocket } from "@/hooks/use-socket";
 import { toast } from "sonner";
@@ -25,14 +25,23 @@ export function useFlightSearch() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFromCache, setIsFromCache] = useState(false);
+  // Monotonic request token (issue #672): only the most recent search may mutate state.
+  const searchTokenRef = useRef(0);
   const { manager, connected } = useSocket();
 
   const searchFlights = useCallback(async (params: SearchFlightsRequest) => {
+    const token = ++searchTokenRef.current;
     setIsLoading(true);
     setError(null);
     setIsFromCache(false);
 
     const query = toSearchQuery(params);
+
+    const isSuperseded = () => token !== searchTokenRef.current;
+
+    // Guard all state updates so a slower, superseded request can never overwrite
+    // results that were already replaced by a newer search.
+    if (isSuperseded()) return;
 
     const useCacheFallback = () => {
       const cached = getCachedSearchResults(query);
@@ -48,12 +57,13 @@ export function useFlightSearch() {
       if (!useCacheFallback()) {
         setError("You're offline and no cached results are available for this search.");
       }
-      setIsLoading(false);
+      if (!isSuperseded()) setIsLoading(false);
       return;
     }
 
     try {
       const response = await apiClient.searchFlights(params);
+      if (isSuperseded()) return;
       if (response.success && response.data) {
         setFlights(response.data);
         cacheSearchResults(query, response.data);
@@ -62,12 +72,13 @@ export function useFlightSearch() {
         toast.error("Search Failed", { description: response.error?.message });
       }
     } catch (err: any) {
+      if (isSuperseded()) return;
       if (!useCacheFallback()) {
         setError(err.message || "An unexpected error occurred");
         toast.error("Error", { description: "An unexpected error occurred" });
       }
     } finally {
-      setIsLoading(false);
+      if (!isSuperseded()) setIsLoading(false);
     }
   }, []);
 

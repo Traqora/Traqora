@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle2, Clock, XCircle, AlertTriangle, Loader2, Calendar, DollarSign, FileText } from "lucide-react";
+import { CheckCircle2, Clock, XCircle, AlertTriangle, Loader2, Calendar, DollarSign, FileText, Shield, Timer } from "lucide-react";
 
 export type RefundStatus =
   | "pending"
@@ -29,28 +29,84 @@ export type RefundReason =
   | "service_issue"
   | "other";
 
+export type RefundOutcome =
+  | "pending"
+  | "partial"
+  | "full"
+  | "delayed"
+  | "rejected"
+  | "failed"
+  | "unknown";
+
 export interface Refund {
   id: string;
   status: RefundStatus;
+  /** Derived traveler-facing outcome; raw status alone cannot show partial refunds. */
+  outcome?: RefundOutcome;
+  outcomeLabel?: string;
+  netRefundCents?: number;
   reason: RefundReason;
   reasonDetails?: string;
   requestedAmountCents: number;
   approvedAmountCents?: number;
   processingFeeCents: number;
   isEligible: boolean;
-  eligibilityNotes?: string;
   requiresManualReview: boolean;
-  reviewedBy?: string;
   reviewedAt?: string;
-  reviewNotes?: string;
   stripeRefundId?: string;
   sorobanTxHash?: string;
   createdAt: string;
   updatedAt: string;
   isDelayed?: boolean;
   delayedUntil?: string;
-  cancelledAt?: string;
-  cancellationReason?: string;
+}
+
+function useTimeRemaining(delayedUntil?: string): number | null {
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!delayedUntil) {
+      setTimeRemaining(null);
+      return;
+    }
+
+    const targetTime = new Date(delayedUntil).getTime();
+    const now = Date.now();
+
+    if (targetTime <= now) {
+      setTimeRemaining(0);
+      return;
+    }
+
+    setTimeRemaining(targetTime - now);
+
+    const interval = setInterval(() => {
+      const remaining = new Date(delayedUntil).getTime() - Date.now();
+      if (remaining <= 0) {
+        setTimeRemaining(0);
+        clearInterval(interval);
+      } else {
+        setTimeRemaining(remaining);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [delayedUntil]);
+
+  return timeRemaining;
+}
+
+function formatTimeRemaining(ms: number): string {
+  if (ms <= 0) return "Ready for processing";
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days}d ${hours % 24}h remaining`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m remaining`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s remaining`;
+  return `${seconds}s remaining`;
 }
 
 interface RefundStatusTrackerProps {
@@ -128,10 +184,10 @@ const statusConfig: Record<
     description: "Requires manual review by our team",
   },
   delayed_pending: {
-    label: "Delayed Pending",
-    icon: <Clock className="h-4 w-4" />,
+    label: "Security Hold",
+    icon: <Shield className="h-4 w-4" />,
     color: "bg-yellow-100 text-yellow-800",
-    description: "Refund is in delayed processing period",
+    description: "Refund is secured by SLA timelock for amounts above threshold",
   },
   delayed_cancelled: {
     label: "Cancelled",
@@ -225,7 +281,7 @@ const getTimeline = (refund: Refund): TimelineEvent[] => {
     events.push({
       status: "rejected",
       timestamp: refund.updatedAt,
-      description: refund.reviewNotes || "Refund request rejected",
+      description: "Refund request rejected",
     });
   }
 
@@ -240,8 +296,8 @@ const getTimeline = (refund: Refund): TimelineEvent[] => {
   if (refund.status === "delayed_cancelled") {
     events.push({
       status: "delayed_cancelled",
-      timestamp: refund.cancelledAt || refund.updatedAt,
-      description: refund.cancellationReason || "Refund cancelled",
+      timestamp: refund.updatedAt,
+      description: "Delayed refund was cancelled",
     });
   }
 
@@ -249,10 +305,19 @@ const getTimeline = (refund: Refund): TimelineEvent[] => {
 };
 
 export function RefundStatusTracker({ refund }: RefundStatusTrackerProps) {
-  const config = statusConfig[refund.status];
+  // An unrecognised status must never crash the history view.
+  const config = statusConfig[refund.status] ?? {
+    label: "Status Update",
+    icon: <Clock className="h-4 w-4" />,
+    color: "bg-yellow-100 text-yellow-800",
+    description: "Your refund is being reviewed",
+  };
   const timeline = getTimeline(refund);
   const finalAmount = refund.approvedAmountCents ?? refund.requestedAmountCents;
-  const netRefund = finalAmount - refund.processingFeeCents;
+  // Prefer the server-computed value so client float math cannot alter money.
+  const netRefund = refund.netRefundCents ?? Math.max(0, finalAmount - refund.processingFeeCents);
+  const timeRemaining = useTimeRemaining(refund.delayedUntil);
+  const isDelayedRefund = refund.isDelayed && refund.delayedUntil;
 
   return (
     <div className="space-y-6">
@@ -274,6 +339,26 @@ export function RefundStatusTracker({ refund }: RefundStatusTrackerProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">{config.description}</p>
+
+          {refund.outcomeLabel && (
+            <div className="rounded-md border bg-muted/40 p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Outcome</p>
+              <p className="text-sm font-medium" data-testid="refund-outcome">
+                {refund.outcomeLabel}
+              </p>
+              {refund.outcome === "partial" && refund.approvedAmountCents !== undefined && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Only part of the requested amount was returned. The remainder is not marked as
+                  refunded.
+                </p>
+              )}
+              {refund.outcome === "unknown" && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  We need to review this refund before confirming the result.
+                </p>
+              )}
+            </div>
+          )}
 
           <Separator />
 
@@ -321,30 +406,28 @@ export function RefundStatusTracker({ refund }: RefundStatusTrackerProps) {
             </>
           )}
 
-          {refund.isDelayed && refund.delayedUntil && (
+          {isDelayedRefund && (
             <>
               <Separator />
-              <div className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4 text-orange-500" />
-                <span className="text-muted-foreground">Delayed until:</span>
-                <span className="font-medium">
-                  {new Date(refund.delayedUntil).toLocaleString()}
-                </span>
-              </div>
-            </>
-          )}
-
-          {refund.reviewNotes && refund.status !== "completed" && (
-            <>
-              <Separator />
-              <div>
-                <p className="text-sm font-medium mb-1">Review Notes</p>
-                <p className="text-sm text-muted-foreground">{refund.reviewNotes}</p>
-                {refund.reviewedBy && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Reviewed by: {refund.reviewedBy}
-                  </p>
-                )}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <Timer className="h-4 w-4 text-yellow-500" />
+                  <span className="text-muted-foreground">SLA Timelock:</span>
+                  <span className="font-medium text-yellow-700">
+                    {timeRemaining !== null ? formatTimeRemaining(timeRemaining) : "Calculating..."}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Calendar className="h-4 w-4" />
+                  <span>Processing after:</span>
+                  <span className="font-medium">
+                    {new Date(refund.delayedUntil!).toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  For security, refunds above the threshold are held for the SLA period. 
+                  You can cancel during this time.
+                </p>
               </div>
             </>
           )}

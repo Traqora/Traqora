@@ -2,7 +2,7 @@ WASM_DIR := contracts/target/wasm32-unknown-unknown/release
 # Maximum allowed WASM binary size in bytes (500 KB)
 MAX_WASM_SIZE := 512000
 
-.PHONY: build optimize check-size test fmt clippy audit
+.PHONY: build optimize check-size test fmt clippy lint lint-fix audit
 
 build:
 	cd contracts && cargo build --target wasm32-unknown-unknown --release
@@ -33,11 +33,22 @@ check-size: optimize
 test:
 	cd contracts && cargo test --workspace
 
+# fmt / clippy / lint delegate to scripts/fmt-clippy-check.sh (issue #743), which
+# is also what CI runs. Keeping one definition stops `make clippy` from drifting
+# away from the pipeline: the previous inline `cargo clippy -- -D warnings` had no
+# --locked, no --workspace, no wasm target, and linted the integration-tests crate
+# in a way that cannot build.
 fmt:
-	cd contracts && cargo fmt --check
+	@./scripts/fmt-clippy-check.sh --only fmt
 
 clippy:
-	cd contracts && cargo clippy -- -D warnings
+	@./scripts/fmt-clippy-check.sh --only clippy
+
+lint:
+	@./scripts/fmt-clippy-check.sh
+
+lint-fix:
+	@./scripts/fmt-clippy-check.sh --fix
 
 audit:
 	cd contracts && cargo audit

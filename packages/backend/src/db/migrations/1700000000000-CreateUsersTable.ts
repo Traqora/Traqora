@@ -1,3 +1,4 @@
+// @ts-ignore
 import { MigrationInterface, QueryRunner, Table } from "typeorm";
 
 export class CreateUsersTable1700000000000 implements MigrationInterface {
@@ -25,6 +26,16 @@ export class CreateUsersTable1700000000000 implements MigrationInterface {
                         name: "lastLoginAt",
                         type: "timestamp",
                         isNullable: true,
+                    },
+                    {
+                        name: "totalBookings",
+                        type: "int",
+                        default: 0,
+                    },
+                    {
+                        name: "totalSpentCents",
+                        type: "int",
+                        default: 0,
                     },
                 ],
             }),

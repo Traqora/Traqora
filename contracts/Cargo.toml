@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "packages/shared/access",
     "packages/shared/storage_version",
+    "packages/shared/errors",
+    "packages/shared/events",
     "packages/admin",
     "packages/airline",
     "packages/booking",
@@ -20,6 +22,8 @@ members = [
     "packages/token",
     "packages/upgrade",
     "packages/integration-tests",
+    "packages/gas_snapshot",
+    "packages/events_docs_check",
 ]
 
 [workspace.package]
@@ -31,6 +35,8 @@ publish = false
 soroban-sdk = { version = "22.0.0" }
 access = { path = "packages/shared/access" }
 storage-version = { path = "packages/shared/storage_version" }
+errors = { path = "packages/shared/errors" }
+contract-events = { path = "packages/shared/events" }
 airline = { path = "packages/airline" }
 booking = { path = "packages/booking" }
 booking-receipt = { path = "packages/booking_receipt" }
@@ -47,6 +53,8 @@ refund-automation = { path = "packages/refund_automation" }
 token = { path = "packages/token" }
 upgrade = { path = "packages/upgrade" }
 admin = { path = "packages/admin" }
+gas-snapshot = { path = "packages/gas_snapshot" }
+events-docs-check = { path = "packages/events_docs_check" }
 
 [profile.release]
 opt-level = "z"

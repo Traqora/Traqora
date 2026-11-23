@@ -14,10 +14,21 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 8. Redis / Cache Failure
 9. External API Outage
 10. Deployment/Release Failure
+11. Stuck Booking Recovery
 
 ## Specialized Runbooks
 - [Flight Sync On-Call Runbook](./FLIGHT_SYNC_RUNBOOK.md) — what to do when flight sync falls behind.
+- [Flight Provider Failover Runbook](./FLIGHT_PROVIDER_FAILOVER_RUNBOOK.md) — flight search provider chain, failover signals, and remediation (#779).
+- [Dependency Audit Schedule](./DEPENDENCY_AUDIT.md) — weekly npm + cargo audits, runner contract, and remediation workflow (#777).
 - [Contract Deployment Runbook](./CONTRACT_DEPLOYMENT_RUNBOOK.md) — deploying and upgrading Soroban contracts on testnet/mainnet.
+- [Structured JSON Logging](./STRUCTURED_LOGGING.md) — the backend log envelope, `event` naming, redaction rules, and `LOG_FORMAT` (#738).
+- [Staging Seed Runbook](./STAGING_SEED.md) — seeding a staging environment with deterministic fixtures, guards, and reset semantics (#749).
+- [Contracts fmt / clippy Gate](./CONTRACTS_LINT_GATE.md) — the contracts quality gate shared by `make` and CI (#743).
+- [Contract Snapshot Review Policy](./CONTRACT_SNAPSHOT_REVIEW.md) — what a contract upgrade must preserve, and how the upgrade diff is reviewed (#744).
+- [Booking Failure Incident Runbooks](./BOOKING_FAILURE_RUNBOOKS.md): first response for supplier outage, payment delay, contract outage and refund backlog.
+- [Operations Health and Audit Filters](./OPERATIONS_HEALTH_AND_AUDIT.md): health snapshot fields, server-side audit filters and export limits.
+- [V1 Operator Deployment Runbook](./V1_DEPLOYMENT_RUNBOOK.md): deploy, migration, configuration verification, smoke tests, rollback and ownership for a V1 release.
+- [Post-Launch Monitoring and Review Cadence](./POST_LAUNCH_REVIEW.md): owners and review intervals for incidents, booking success, refunds, latency and support feedback.
 
 ---
 
@@ -231,3 +242,38 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 - Validate rollback steps before every production release.
 
 **Dashboard:** deployment success, service health after release.
+
+---
+
+## 11. Stuck Booking Recovery
+**Symptom:** `StuckBookingAwaitingPayment` or `StuckBookingOnchainPending` alerts. Payments or on-chain confirmations remain pending beyond the accepted window.
+
+**Signals and thresholds (#1174):**
+- `traqora_pending_booking_age_seconds{status="awaiting_payment"}` above 900s for 5m fires `StuckBookingAwaitingPayment`.
+- `traqora_pending_booking_age_seconds{status=~"onchain_pending|onchain_submitted"}` above 1800s for 10m fires `StuckBookingOnchainPending`.
+- The gauge reports the age of the oldest booking in each pending status. It has a single low-cardinality label, `status`. No booking id is ever used as a label.
+- A backup job refreshes the gauge every minute using the `(status, updatedAt)` index from migration `1756000000000`. Override the schedule with `PENDING_BOOKING_AGE_CRON`.
+
+**Diagnosis:**
+- Read the gauge per status to see which pending stage is stuck.
+- Query the oldest bookings for that status, ordered by `updatedAt` ascending.
+- Check the payment gateway state for `awaiting_payment` and `payment_processing` bookings.
+- Check Stellar RPC and contract state for `onchain_pending` and `onchain_submitted` bookings.
+- Confirm whether the cause is isolated or systemic before taking per-booking action.
+
+**Resolution:**
+- Fix the underlying payment or contract problem first, so recovery does not repeat it.
+- For a single booking, use `POST /api/v1/admin/bookings/:id/recovery` with a JSON body of `{"action":"retry_confirmation"|"mark_failed","reason":"..."}` and an `Idempotency-Key` header.
+- The caller needs the `booking:reconcile` permission. Support role cannot perform recovery. Admin and super_admin can.
+- `retry_confirmation` moves the booking to `onchain_pending`. `mark_failed` moves it to `failed`.
+- The reason is required and is stored on the booking and in the `AdminAuditLog` entry.
+- Reuse the same `Idempotency-Key` when retrying a request. A replay returns the original audit entry without changing state again. Changing the action or reason under the same key is rejected with `RECOVERY_KEY_CONFLICT`.
+- Verify the resulting status and audit entry before closing the alert.
+
+**Prevention:**
+- Alert grouping uses `owner` and `dedup_key`, so repeated instances notify the bookings on-call channel once and always have a clear owner.
+- Keep the pending-status gauge low-cardinality. Do not add per-booking labels.
+- Ensure the `1756000000000` migration is applied so the age scan stays bounded as the bookings table grows.
+- Prefer reconciling the root cause in bulk over repeated manual recovery calls.
+
+**Dashboard:** pending booking age by status, booking success rate, Soroban confirmation latency.

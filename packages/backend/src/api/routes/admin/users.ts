@@ -3,10 +3,11 @@ import { z } from 'zod';
 import { asyncHandler } from '../../../utils/errorHandler';
 import { AppDataSource } from '../../../db/dataSource';
 import { Passenger } from '../../../db/entities/Passenger';
-import { requireAdmin } from '../../../middleware/adminAuth';
+import { adminGuard } from '../../../middleware/adminAuth';
 import { auditLog } from '../../../middleware/adminAudit';
 import { paginationSchema } from '../../schemas/common';
 import { BadRequestError, NotFoundError } from '../../../utils/errors';
+import { createPaginationMeta } from '../../../types/pagination';
 
 const router = Router();
 
@@ -15,12 +16,12 @@ const userPaginationSchema = paginationSchema.extend({
 });
 
 // GET /api/v1/admin/users
-router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', ...adminGuard('booking:read'), asyncHandler(async (req: Request, res: Response) => {
     const parsed = userPaginationSchema.safeParse(req.query);
     if (!parsed.success) {
         throw new BadRequestError('Validation Error', parsed.error.flatten());
     }
-    const { limit, offset, email } = parsed.data;
+    const { page, limit, email } = parsed.data;
     const repo = AppDataSource.getRepository(Passenger);
 
     const qb = repo.createQueryBuilder('passenger');
@@ -29,14 +30,15 @@ router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) =
     const [passengers, total] = await qb
         .orderBy('passenger.email', 'ASC')
         .take(limit)
-        .skip(offset)
+        .skip((page - 1) * limit)
         .getManyAndCount();
 
-    return res.json({ success: true, data: { passengers, total, limit, offset } });
+    const pagination = createPaginationMeta(page, limit, total);
+    return res.json({ success: true, data: passengers, pagination });
 }));
 
 // GET /api/v1/admin/users/:id
-router.get('/:id', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id', ...adminGuard('booking:read'), asyncHandler(async (req: Request, res: Response) => {
     const passenger = await AppDataSource.getRepository(Passenger).findOne({ where: { id: req.params.id } });
     if (!passenger) {
         throw new NotFoundError('User not found.');
@@ -47,7 +49,7 @@ router.get('/:id', requireAdmin, asyncHandler(async (req: Request, res: Response
 // DELETE /api/v1/admin/users/:id
 router.delete(
     '/:id',
-    requireAdmin,
+    ...adminGuard('admin:manage'),
     auditLog('USER_DELETED', 'passengers'),
     asyncHandler(async (req: Request, res: Response) => {
         const repo = AppDataSource.getRepository(Passenger);

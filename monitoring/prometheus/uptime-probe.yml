@@ -1,0 +1,60 @@
+# -------------------------------------------------------------------
+# Prometheus Scrape Config for Uptime Probes  (Issue #597)
+# -------------------------------------------------------------------
+# Append this to your main prometheus.yml scrape_configs section, or
+# load as a separate file via --config.file / file_sd_configs.
+#
+# This configures Prometheus to probe public endpoints via the
+# Blackbox Exporter and collect the results.
+# -------------------------------------------------------------------
+
+scrape_configs:
+  # ── Blackbox Exporter self-metrics ───────────────────────────────
+  - job_name: "blackbox-exporter"
+    static_configs:
+      - targets:
+          - "blackbox-exporter:9115"
+
+  # ── External uptime probes ───────────────────────────────────────
+  - job_name: "blackbox-https"
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    scrape_interval: 30s
+    scrape_timeout: 15s
+
+    static_configs:
+      - targets:
+          - "https://api.traqora.io/health"
+          - "https://api.traqora.io/api/v1/health"
+        labels:
+          service: traqora-api
+          environment: production
+
+      - targets:
+          - "https://staging.traqora.io/health"
+          - "https://staging.traqora.io/api/v1/health"
+        labels:
+          service: traqora-api
+          environment: staging
+
+    relabel_configs:
+      # Keep the original target URL as the "instance" label
+      - source_labels: [__address__]
+        target_label: __param_target
+
+      # The Blackbox Exporter target address
+      - target_label: __address__
+        replacement: "blackbox-exporter:9115"
+
+      # Preserve the original target URL
+      - source_labels: [__param_target]
+        target_label: instance
+
+  # ── Backend metrics (internal) ───────────────────────────────────
+  - job_name: "traqora-backend"
+    static_configs:
+      - targets:
+          - "backend:3000"
+    metrics_path: /metrics
+    scrape_interval: 15s

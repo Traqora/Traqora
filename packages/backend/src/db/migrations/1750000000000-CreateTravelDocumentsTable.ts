@@ -2,6 +2,8 @@ import { MigrationInterface, QueryRunner, Table, TableIndex } from 'typeorm';
 
 export class CreateTravelDocumentsTable1750000000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
+    const isPostgres = queryRunner.connection.options.type === 'postgres';
+    const uuidDefault = isPostgres ? 'gen_random_uuid()' : undefined;
     await queryRunner.createTable(
       new Table({
         name: 'travel_documents',
@@ -11,7 +13,7 @@ export class CreateTravelDocumentsTable1750000000000 implements MigrationInterfa
             type: 'uuid',
             isPrimary: true,
             generationStrategy: 'uuid',
-            default: 'uuid_generate_v4()',
+            default: uuidDefault,
           },
           {
             name: 'walletAddress',

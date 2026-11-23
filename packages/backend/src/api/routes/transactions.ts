@@ -1,26 +1,41 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { AppDataSource } from '../../db/dataSource';
 import { Booking } from '../../db/entities/Booking';
 import {
-  getTransactionStatus,
   submitSignedSorobanXdr,
   explorerUrlForTx,
   generateTransactionReceiptPdf,
 } from '../../services/soroban';
+import { confirmBookingTx } from '../../services/bookingConfirmRetry';
 import { withRetries } from '../../services/retry';
 import { getWebSocketServer } from '../../websockets/server';
 import { logger } from '../../utils/logger';
-import { NotFoundError, ConflictError, BadRequestError } from '../../utils/errors';
+import { NotFoundError, ConflictError } from '../../utils/errors';
+import { validateBody, validateParams, validateQuery } from '../../middleware/requestValidation';
+import { getBookingForRequester } from '../../middleware/bookingAccess';
 
 const router = Router();
+
+const bookingIdParamSchema = z.object({ bookingId: z.string().uuid() }).strict();
+const listQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+const retrySchema = z.object({ signedXdr: z.string().min(1).max(200000) }).strict();
 
 function serializeTransaction(booking: Booking) {
   return {
     bookingId: booking.id,
     bookingStatus: booking.status,
     txHash: booking.sorobanTxHash || null,
+    innerTxHash: booking.sorobanInnerTxHash || null,
+    feeBumpTxHash: booking.sorobanFeeBumpTxHash || null,
+    isFeeBump: booking.sorobanIsFeeBump || false,
+    bookingReference: booking.bookingReference || null,
     explorerUrl: booking.sorobanTxHash ? explorerUrlForTx(booking.sorobanTxHash) : null,
     contractSubmitAttempts: booking.contractSubmitAttempts,
     lastError: booking.lastError || null,
@@ -28,26 +43,32 @@ function serializeTransaction(booking: Booking) {
   };
 }
 
+function broadcastStatus(booking: Booking) {
+  try {
+    const ws = getWebSocketServer();
+    ws.broadcastBookingStatus(booking.id, booking.status);
+  } catch (e) {
+    logger.warn('WebSocket server not ready - skipping booking status broadcast');
+  }
+}
+
 // GET /api/v1/transactions - list recent on-chain transactions for bookings owned by the caller
 router.get(
   '/',
   requireAuth,
+  validateQuery(listQuerySchema),
   asyncHandler(async (req: Request, res: Response) => {
     const bookingRepo = AppDataSource.getRepository(Booking);
     const walletAddress = req.user?.walletAddress;
+    if (!walletAddress) throw new NotFoundError('Booking not found');
 
-    const qb = bookingRepo
+    const limit = Number(req.query.limit) || 20;
+    const bookings = await bookingRepo
       .createQueryBuilder('booking')
       .leftJoinAndSelect('booking.passenger', 'passenger')
       .leftJoinAndSelect('booking.flight', 'flight')
-      .where('booking.sorobanTxHash IS NOT NULL');
-
-    if (walletAddress) {
-      qb.andWhere('passenger.sorobanAddress = :walletAddress', { walletAddress });
-    }
-
-    const limit = Math.min(Number(req.query.limit) || 20, 100);
-    const bookings = await qb
+      .where('booking.sorobanTxHash IS NOT NULL')
+      .andWhere('passenger.sorobanAddress = :walletAddress', { walletAddress })
       .orderBy('booking.updatedAt', 'DESC')
       .take(limit)
       .getMany();
@@ -63,42 +84,33 @@ router.get(
 router.get(
   '/:bookingId',
   requireAuth,
+  validateParams(bookingIdParamSchema),
   asyncHandler(async (req: Request, res: Response) => {
+    await getBookingForRequester(req.params.bookingId, req, ['passenger', 'flight']);
     const bookingRepo = AppDataSource.getRepository(Booking);
-    const booking = await bookingRepo.findOne({ where: { id: req.params.bookingId } });
-
-    if (!booking) {
-      throw new NotFoundError('Booking not found');
-    }
+    const booking = await bookingRepo.findOne({
+      where: { id: req.params.bookingId },
+      relations: ['passenger', 'flight'],
+    });
+    if (!booking) throw new NotFoundError('Booking not found');
 
     if (!booking.sorobanTxHash) {
-      return res.json({
-        success: true,
-        data: serializeTransaction(booking),
-      });
+      return res.json({ success: true, data: serializeTransaction(booking) });
     }
 
-    const txStatus = await getTransactionStatus(booking.sorobanTxHash);
+    const { outcome, changed, booking: updated, transactionStatus: txStatus } =
+      await confirmBookingTx(req.params.bookingId);
 
-    if (txStatus.status === 'success' && booking.status !== 'confirmed') {
-      booking.status = 'confirmed';
-      if (txStatus.result) {
-        booking.sorobanBookingId = txStatus.result.bookingId || null;
-      }
-      await bookingRepo.save(booking);
-      broadcastStatus(booking);
-    } else if (txStatus.status === 'failed' && booking.status !== 'failed') {
-      booking.status = 'failed';
-      booking.lastError = txStatus.error || 'Transaction failed';
-      await bookingRepo.save(booking);
-      broadcastStatus(booking);
+    if (changed) {
+      broadcastStatus(updated);
     }
 
     return res.json({
       success: true,
       data: {
-        ...serializeTransaction(booking),
-        chainStatus: txStatus.status,
+        ...serializeTransaction(updated),
+        chainStatus: txStatus?.status ?? null,
+        confirmOutcome: outcome,
       },
     });
   }),
@@ -108,18 +120,17 @@ router.get(
 router.post(
   '/:bookingId/retry',
   requireAuth,
+  validateParams(bookingIdParamSchema),
+  validateBody(retrySchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const schema = { signedXdr: req.body?.signedXdr };
-    if (!schema.signedXdr || typeof schema.signedXdr !== 'string') {
-      throw new BadRequestError('signedXdr is required to retry submission');
-    }
+    await getBookingForRequester(req.params.bookingId, req, ['passenger', 'flight']);
 
     const bookingRepo = AppDataSource.getRepository(Booking);
-    const booking = await bookingRepo.findOne({ where: { id: req.params.bookingId } });
-
-    if (!booking) {
-      throw new NotFoundError('Booking not found');
-    }
+    const booking = await bookingRepo.findOne({
+      where: { id: req.params.bookingId },
+      relations: ['passenger', 'flight'],
+    });
+    if (!booking) throw new NotFoundError('Booking not found');
 
     if (booking.status !== 'failed' && booking.status !== 'onchain_pending') {
       throw new ConflictError('Booking transaction is not in a retryable state');
@@ -129,11 +140,14 @@ router.post(
     await bookingRepo.save(booking);
 
     const result = await withRetries(
-      async () => submitSignedSorobanXdr(schema.signedXdr),
+      async () => submitSignedSorobanXdr(req.body.signedXdr),
       { retries: 3, baseDelayMs: 300 },
     );
 
     booking.sorobanTxHash = result.txHash;
+    booking.sorobanInnerTxHash = result.innerTxHash;
+    booking.sorobanFeeBumpTxHash = result.feeBumpTxHash ?? null;
+    booking.sorobanIsFeeBump = result.isFeeBump;
     booking.status = 'onchain_submitted';
     booking.contractSubmitAttempts = (booking.contractSubmitAttempts || 0) + 1;
     booking.lastError = null;
@@ -151,13 +165,10 @@ router.post(
 router.get(
   '/:bookingId/receipt.pdf',
   requireAuth,
+  validateParams(bookingIdParamSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const bookingRepo = AppDataSource.getRepository(Booking);
-    const booking = await bookingRepo.findOne({ where: { id: req.params.bookingId } });
+    const booking = await getBookingForRequester(req.params.bookingId, req, ['passenger', 'flight']);
 
-    if (!booking) {
-      throw new NotFoundError('Booking not found');
-    }
     if (!booking.sorobanTxHash) {
       throw new ConflictError('Receipt is only available once a transaction has been submitted');
     }
@@ -184,14 +195,5 @@ router.get(
     return res.send(pdfBuffer);
   }),
 );
-
-function broadcastStatus(booking: Booking) {
-  try {
-    const ws = getWebSocketServer();
-    ws.broadcastBookingStatus(booking.id, booking.status);
-  } catch (e) {
-    logger.warn('WebSocket server not ready - skipping booking status broadcast');
-  }
-}
 
 export default router;

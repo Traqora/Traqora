@@ -1,0 +1,470 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`OpenAPI Snapshot matches the stored OpenAPI specification snapshot 1`] = `
+{
+  "components": {
+    "securitySchemes": {
+      "adminApiKey": {
+        "in": "header",
+        "name": "X-Admin-API-Key",
+        "type": "apiKey",
+      },
+      "apiKey": {
+        "in": "header",
+        "name": "X-API-Key",
+        "type": "apiKey",
+      },
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http",
+      },
+    },
+  },
+  "info": {
+    "description": "Traqora Backend API - Stellar blockchain travel booking platform",
+    "title": "Traqora Backend API",
+    "version": "1.0.0",
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1/auth/challenge": {
+      "post": {
+        "operationId": "authChallenge",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "challenge": {
+                      "type": "string",
+                    },
+                    "expiresAt": {
+                      "format": "date-time",
+                      "type": "string",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Challenge generated successfully",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                        },
+                        "details": {
+                          "type": "object",
+                        },
+                        "message": {
+                          "type": "string",
+                        },
+                      },
+                      "type": "object",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Validation error",
+          },
+        },
+        "summary": "Generate authentication challenge",
+      },
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "authRefresh",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "accessToken": {
+                      "type": "string",
+                    },
+                    "expiresAt": {
+                      "format": "date-time",
+                      "type": "string",
+                    },
+                    "refreshToken": {
+                      "type": "string",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Tokens refreshed successfully",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                        },
+                        "details": {
+                          "type": "object",
+                        },
+                        "message": {
+                          "type": "string",
+                        },
+                      },
+                      "type": "object",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Validation error",
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Invalid refresh token",
+          },
+        },
+        "summary": "Refresh authentication tokens",
+      },
+    },
+    "/api/v1/auth/verify": {
+      "post": {
+        "operationId": "authVerify",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "accessToken": {
+                      "type": "string",
+                    },
+                    "expiresAt": {
+                      "format": "date-time",
+                      "type": "string",
+                    },
+                    "refreshToken": {
+                      "type": "string",
+                    },
+                    "user": {
+                      "properties": {
+                        "createdAt": {
+                          "format": "date-time",
+                          "type": "string",
+                        },
+                        "walletAddress": {
+                          "type": "string",
+                        },
+                        "walletType": {
+                          "type": "string",
+                        },
+                      },
+                      "type": "object",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Authentication successful",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                        },
+                        "details": {
+                          "type": "object",
+                        },
+                        "message": {
+                          "type": "string",
+                        },
+                      },
+                      "type": "object",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Validation error",
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Invalid signature or unauthorized",
+          },
+        },
+        "summary": "Verify authentication signature",
+      },
+    },
+    "/api/v1/bookings": {
+      "post": {
+        "operationId": "createBooking",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "currency": {
+                          "type": "string",
+                        },
+                        "flightId": {
+                          "type": "string",
+                        },
+                        "id": {
+                          "type": "string",
+                        },
+                        "price": {
+                          "type": "string",
+                        },
+                        "status": {
+                          "enum": [
+                            "pending",
+                            "confirmed",
+                            "failed",
+                          ],
+                          "type": "string",
+                        },
+                      },
+                      "type": "object",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Booking created successfully",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                        },
+                        "details": {
+                          "type": "object",
+                        },
+                        "message": {
+                          "type": "string",
+                        },
+                      },
+                      "type": "object",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Validation error",
+          },
+        },
+        "security": [
+          {
+            "bearerAuth": [],
+          },
+        ],
+        "summary": "Create a new booking",
+      },
+    },
+    "/api/v1/refunds/request": {
+      "post": {
+        "operationId": "requestRefund",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+              },
+            },
+          },
+          "required": true,
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "properties": {
+                        "bookingId": {
+                          "type": "string",
+                        },
+                        "id": {
+                          "type": "string",
+                        },
+                        "reason": {
+                          "type": "string",
+                        },
+                        "requestedAt": {
+                          "format": "date-time",
+                          "type": "string",
+                        },
+                        "status": {
+                          "enum": [
+                            "pending",
+                            "approved",
+                            "rejected",
+                            "processing",
+                            "completed",
+                            "failed",
+                          ],
+                          "type": "string",
+                        },
+                      },
+                      "type": "object",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Refund request created successfully",
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                        },
+                        "details": {
+                          "type": "object",
+                        },
+                        "message": {
+                          "type": "string",
+                        },
+                      },
+                      "type": "object",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Validation error",
+          },
+        },
+        "security": [
+          {
+            "bearerAuth": [],
+          },
+        ],
+        "summary": "Request a refund",
+      },
+    },
+  },
+}
+`;

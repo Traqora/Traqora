@@ -4,6 +4,37 @@ export type FlightSortBy = 'price' | 'duration' | 'departure_time' | 'rating';
 
 export type SortOrder = 'asc' | 'desc';
 
+export interface FlightSegmentCarriers {
+  marketingCarrier: string;
+  operatingCarrier: string;
+  from?: string;
+  to?: string;
+  departureAt?: string;
+  arrivalAt?: string;
+}
+
+export interface FlightSegmentCabin {
+  segmentIndex: number;
+  origin: string;
+  destination: string;
+  carrier: string;
+  flightNumber: string;
+  cabinClass: CabinClass;
+  fareBrand: string;
+}
+
+/** One itinerary segment: its fare brand and cabin (#904) together with its carriers (#903). */
+export type FlightSegment = FlightSegmentCabin & Partial<FlightSegmentCarriers>;
+
+export type FlightFreshness = 'fresh' | 'stale' | 'unknown';
+
+export interface FlightProvenance {
+  source: string;
+  imported_at: string;
+  source_updated_at?: string;
+  freshness: FlightFreshness;
+}
+
 export interface Flight {
   id: string;
   from: string;
@@ -17,6 +48,12 @@ export interface Flight {
   rating: number;
   available_seats: number;
   class: CabinClass;
+  /** Upstream provider offer identifier (#914). */
+  providerOfferId?: string;
+  marketingCarrier?: string;
+  operatingCarrier?: string;
+  segments?: FlightSegment[];
+  provenance?: FlightProvenance;
 }
 
 export interface EnrichedFlight extends Flight {
@@ -50,13 +87,23 @@ export interface FlightSearchCriteria {
   pageSize: number;
 }
 
+import { CursorPaginationMeta } from './pagination';
+
+export interface ProviderResultSummary {
+  /** False when at least one upstream provider failed and another returned flights. */
+  complete: boolean;
+  succeeded: number;
+  failed: number;
+}
+
 export interface FlightSearchResponse {
   data: EnrichedFlight[];
-  pagination: {
-    next_cursor: string | null;
-    has_more: boolean;
-    page_size: number;
-  };
+  pagination: CursorPaginationMeta;
+  /**
+   * Present on flight-search responses. Counts only — never provider names,
+   * credentials, or upstream error text.
+   */
+  provider_results: ProviderResultSummary;
 }
 
 export interface FlightPagination {

@@ -1,0 +1,19 @@
+{
+  "contractVersion": "1.0.0",
+  "allowedStatuses": [
+    "PENDING_CHECK_IN",
+    "CHECKED_IN",
+    "BOARDING_PASS_ISSUED",
+    "CANCELLED",
+    "EXPIRED"
+  ],
+  "mandatoryFields": [
+    "bookingReference",
+    "passengerId",
+    "status",
+    "ticketNumber"
+  ],
+  "rules": {
+    "requireTicketForBoardingPass": true
+  }
+}

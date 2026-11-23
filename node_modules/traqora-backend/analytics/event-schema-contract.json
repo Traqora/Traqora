@@ -1,0 +1,19 @@
+{
+  "contractVersion": "1.0.0",
+  "allowedEventTypes": [
+    "booking_initiated",
+    "stellar_payment_submitted",
+    "booking_confirmed",
+    "booking_failed"
+  ],
+  "mandatoryHeaderFields": [
+    "eventId",
+    "eventType",
+    "timestamp",
+    "userId"
+  ],
+  "payloadRules": {
+    "booking_confirmed": ["bookingReference", "amountStroops", "stellarTxHash"],
+    "booking_failed": ["bookingReference", "errorCode"]
+  }
+}

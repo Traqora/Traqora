@@ -1,8 +1,10 @@
 #![cfg_attr(not(test), no_std)]
 use access::AccessControl;
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, BytesN, Env};
+use contract_events::{Action, Domain};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env};
 
-// Upgrade module for safe contract updates with 48-hour timelock
+// Upgrade module for safe contract updates with a 48-hour minimum timelock
+const MIN_TIMELOCK_SECS: u64 = 172800;
 
 /// Data structure for a scheduled upgrade
 #[contracttype]
@@ -53,9 +55,12 @@ impl UpgradeStorage {
             .unwrap_or(172800) // 48 hours default
     }
 
-    /// Set custom timelock duration (in seconds)
+    /// Set custom timelock duration (in seconds). Must stay at least 48 hours.
     pub fn set_timelock_duration(env: &Env, duration: u64) {
-        assert!(duration > 0, "Timelock duration must be positive");
+        assert!(
+            duration >= MIN_TIMELOCK_SECS,
+            "Timelock duration must be at least 48 hours"
+        );
         env.storage()
             .instance()
             .set(&UpgradeDataKey::UpgradeTimelock, &duration);
@@ -104,8 +109,10 @@ impl UpgradeContract {
         UpgradeStorage::set_scheduled_upgrade(&env, &upgrade);
 
         // Emit event
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("scheduled")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Scheduled,
             (new_wasm_hash, current_time, admin),
         );
     }
@@ -145,8 +152,10 @@ impl UpgradeContract {
         UpgradeStorage::set_scheduled_upgrade(&env, &executed_upgrade);
 
         // Emit event
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("executed")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Executed,
             (executed_upgrade.new_wasm_hash, current_time, admin),
         );
     }
@@ -174,10 +183,7 @@ impl UpgradeContract {
         AccessControl::require_owner(&env, &owner);
         UpgradeStorage::set_timelock_duration(&env, duration);
 
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("timelock")),
-            (duration, owner),
-        );
+        contract_events::emit(&env, Domain::Upgrade, Action::Timelock, (duration, owner));
     }
 
     /// Cancel a pending upgrade
@@ -191,8 +197,10 @@ impl UpgradeContract {
 
         UpgradeStorage::clear_scheduled_upgrade(&env);
 
-        env.events().publish(
-            (symbol_short!("upgrade"), symbol_short!("cancelled")),
+        contract_events::emit(
+            &env,
+            Domain::Upgrade,
+            Action::Cancelled,
             (upgrade.new_wasm_hash, owner),
         );
     }
@@ -219,6 +227,7 @@ impl UpgradeContract {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use access::Role;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::testutils::Ledger;
 
@@ -355,14 +364,22 @@ mod tests {
         env.mock_all_auths();
         let (client, admin) = setup_test(&env);
 
-        let new_timelock = 86400; // 24 hours
+        let new_timelock = 259200; // 72 hours, still above the 48h floor
 
-        // Set custom timelock
         client.set_timelock_duration(&admin, &new_timelock);
 
-        // Verify timelock was updated
         let duration = client.get_timelock_duration();
         assert_eq!(duration, new_timelock);
+    }
+
+    #[test]
+    #[should_panic(expected = "Timelock duration must be at least 48 hours")]
+    fn test_cannot_shorten_timelock_below_48_hours() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin) = setup_test(&env);
+
+        client.set_timelock_duration(&admin, &86400);
     }
 
     #[test]

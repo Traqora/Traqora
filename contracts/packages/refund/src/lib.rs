@@ -1,5 +1,6 @@
 #![no_std]
 use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
 };
@@ -27,6 +28,19 @@ pub struct RefundPolicy {
 }
 
 pub struct RefundStorageKey;
+
+fn refund_bps(env: &Env, airline: &Address, departure_time: u64) -> u32 {
+    let policy = RefundStorageKey::get_policy(env, airline).expect("No refund policy found");
+    let time_until_departure = departure_time.saturating_sub(env.ledger().timestamp());
+
+    if time_until_departure >= policy.cancellation_window {
+        policy.full_refund_percentage
+    } else if time_until_departure >= policy.no_refund_window {
+        policy.partial_refund_percentage
+    } else {
+        0
+    }
+}
 
 impl RefundStorageKey {
     pub fn get_request(env: &Env, request_id: u64) -> Option<RefundRequest> {
@@ -109,6 +123,7 @@ pub trait RefundContractTrait {
         original_price: i128,
         departure_time: u64,
     ) -> i128;
+    fn calculate_refund_bps(env: Env, airline: Address, departure_time: u64) -> u32;
     fn approve_refund(env: Env, admin: Address, request_id: u64, approved_amount: i128);
     fn reject_refund(env: Env, admin: Address, request_id: u64, reason: Symbol);
     fn set_refund_policy(
@@ -161,8 +176,10 @@ impl RefundContract {
 
         RefundStorageKey::set_policy(&env, &airline, &policy);
 
-        env.events().publish(
-            (symbol_short!("policy"), symbol_short!("set")),
+        contract_events::emit(
+            &env,
+            Domain::Policy,
+            Action::Set,
             (
                 airline,
                 env.ledger().timestamp(),
@@ -198,8 +215,10 @@ impl RefundContract {
 
         RefundStorageKey::set_request(&env, request_id, &request);
 
-        env.events().publish(
-            (symbol_short!("refund"), symbol_short!("requested")),
+        contract_events::emit(
+            &env,
+            Domain::Refund,
+            Action::Requested,
             (
                 passenger,
                 env.ledger().timestamp(),
@@ -234,8 +253,10 @@ impl RefundContract {
         assert!(new_total >= current, "Overflow");
         RefundStorageKey::set_total_refunded(&env, request.booking_id, new_total);
 
-        env.events().publish(
-            (symbol_short!("refund"), symbol_short!("approved")),
+        contract_events::emit(
+            &env,
+            Domain::Refund,
+            Action::Approved,
             (
                 request.passenger,
                 env.ledger().timestamp(),
@@ -269,14 +290,19 @@ impl RefundContract {
         assert!(new_total >= current, "Overflow");
         RefundStorageKey::set_total_refunded(&env, request.booking_id, new_total);
 
-        env.events().publish(
-            (symbol_short!("refund"), symbol_short!("approved")),
+        // Same data contract as `process_refund`: booking_id stays in the 4th
+        // position and the settled amount is last, so `(refund, approved)` has a
+        // single shape regardless of which entrypoint produced it.
+        contract_events::emit(
+            &env,
+            Domain::Refund,
+            Action::Approved,
             (
                 request.passenger,
                 env.ledger().timestamp(),
                 request_id,
+                request.booking_id,
                 approved_amount,
-                request.amount,
             ),
         );
     }
@@ -297,8 +323,10 @@ impl RefundContract {
 
         RefundStorageKey::set_request(&env, request_id, &request);
 
-        env.events().publish(
-            (symbol_short!("refund"), symbol_short!("rejected")),
+        contract_events::emit(
+            &env,
+            Domain::Refund,
+            Action::Rejected,
             (
                 request.passenger,
                 env.ledger().timestamp(),
@@ -323,18 +351,11 @@ impl RefundContract {
         original_price: i128,
         departure_time: u64,
     ) -> i128 {
-        let policy = RefundStorageKey::get_policy(&env, &airline).expect("No refund policy found");
+        original_price * refund_bps(&env, &airline, departure_time) as i128 / 10_000
+    }
 
-        let current_time = env.ledger().timestamp();
-        let time_until_departure = departure_time.saturating_sub(current_time);
-
-        if time_until_departure >= policy.cancellation_window {
-            original_price * policy.full_refund_percentage as i128 / 10000
-        } else if time_until_departure >= policy.no_refund_window {
-            original_price * policy.partial_refund_percentage as i128 / 10000
-        } else {
-            0
-        }
+    pub fn calculate_refund_bps(env: Env, airline: Address, departure_time: u64) -> u32 {
+        refund_bps(&env, &airline, departure_time)
     }
 
     pub fn calculate_refund_amount(env: Env, request_id: u64) -> i128 {
@@ -366,9 +387,17 @@ impl RefundContract {
         RefundStorageKey::set_total_refunded(&env, booking_id, new_total);
         RefundStorageKey::set_idempotency(&env, booking_id, &idempotency_key);
 
-        env.events().publish(
-            (symbol_short!("refund"), symbol_short!("partial")),
-            (admin, env.ledger().timestamp(), booking_id, amount, new_total),
+        contract_events::emit(
+            &env,
+            Domain::Refund,
+            Action::Partial,
+            (
+                admin,
+                env.ledger().timestamp(),
+                booking_id,
+                amount,
+                new_total,
+            ),
         );
 
         new_total
@@ -413,12 +442,12 @@ impl RefundContract {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::{
-        testutils::Address as _,
-        Env, Symbol,
-    };
+    use soroban_sdk::{testutils::Address as _, Env, Symbol};
 
-    fn setup_refund<'a>(env: &'a Env, owner: &'a Address) -> (Address, crate::RefundContractClient<'a>) {
+    fn setup_refund<'a>(
+        env: &'a Env,
+        owner: &'a Address,
+    ) -> (Address, crate::RefundContractClient<'a>) {
         let contract_id = env.register(crate::RefundContract, ());
         let client = crate::RefundContractClient::new(env, &contract_id);
         client.initialize(owner);
@@ -493,8 +522,20 @@ mod test {
         let booking_id = 123u64;
 
         // Create two partial refund requests for same booking
-        let req1 = client.request_refund(&passenger, &booking_id, &30_0000000, &Symbol::new(&env, "USDC"), &Symbol::new(&env, "part1"));
-        let req2 = client.request_refund(&passenger, &booking_id, &20_0000000, &Symbol::new(&env, "USDC"), &Symbol::new(&env, "part2"));
+        let req1 = client.request_refund(
+            &passenger,
+            &booking_id,
+            &30_0000000,
+            &Symbol::new(&env, "USDC"),
+            &Symbol::new(&env, "part1"),
+        );
+        let req2 = client.request_refund(
+            &passenger,
+            &booking_id,
+            &20_0000000,
+            &Symbol::new(&env, "USDC"),
+            &Symbol::new(&env, "part2"),
+        );
 
         client.process_refund(&admin, &req1);
         assert_eq!(client.get_total_refunded(&booking_id), 30_0000000);
@@ -503,7 +544,13 @@ mod test {
         assert_eq!(client.get_total_refunded(&booking_id), 50_0000000);
 
         // Approve with different approved amount also updates total
-        let req3 = client.request_refund(&passenger, &booking_id, &40_0000000, &Symbol::new(&env, "USDC"), &Symbol::new(&env, "part3"));
+        let req3 = client.request_refund(
+            &passenger,
+            &booking_id,
+            &40_0000000,
+            &Symbol::new(&env, "USDC"),
+            &Symbol::new(&env, "part3"),
+        );
         client.approve_refund(&admin, &req3, &15_0000000);
         assert_eq!(client.get_total_refunded(&booking_id), 65_0000000);
     }
@@ -517,7 +564,13 @@ mod test {
         let passenger = Address::generate(&env);
         let (_, client) = setup_refund(&env, &owner);
         let booking_id = 555u64;
-        let req = client.request_refund(&passenger, &booking_id, &100_0000000, &Symbol::new(&env, "USDC"), &Symbol::new(&env, "reason"));
+        let req = client.request_refund(
+            &passenger,
+            &booking_id,
+            &100_0000000,
+            &Symbol::new(&env, "USDC"),
+            &Symbol::new(&env, "reason"),
+        );
         client.approve_refund(&admin, &req, &40_0000000);
         assert_eq!(client.get_total_refunded(&booking_id), 40_0000000);
         // Verify request is approved
@@ -579,7 +632,13 @@ mod test {
         let admin = owner.clone();
         let passenger = Address::generate(&env);
         let (_, client) = setup_refund(&env, &owner);
-        let req = client.request_refund(&passenger, &777, &10_0000000, &Symbol::new(&env, "USDC"), &Symbol::new(&env, "reason"));
+        let req = client.request_refund(
+            &passenger,
+            &777,
+            &10_0000000,
+            &Symbol::new(&env, "USDC"),
+            &Symbol::new(&env, "reason"),
+        );
         client.process_refund(&admin, &req);
         // Second process should panic (idempotency via status)
         client.process_refund(&admin, &req);

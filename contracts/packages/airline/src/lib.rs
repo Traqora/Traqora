@@ -3,6 +3,7 @@
 // soroban macro-generated clients re-declare these signatures.
 #![allow(clippy::too_many_arguments)]
 use access::{AccessControl, Role};
+use contract_events::{Action, Domain};
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, vec, Address, Env, Symbol, Vec,
 };
@@ -121,6 +122,7 @@ pub struct PriceHistoryEntry {
 pub struct AirlineRegistry;
 
 const MAX_BATCH_SIZE: u32 = 50;
+const MAX_JOURNEY_LEGS: u32 = 50;
 
 impl AirlineRegistry {
     pub fn get_airline(env: &Env, address: &Address) -> Option<AirlineProfile> {
@@ -152,6 +154,18 @@ impl AirlineRegistry {
         let next_id = env.storage().instance().get(&key).unwrap_or(1u64);
         env.storage().instance().set(&key, &(next_id + 1));
         next_id
+    }
+
+    pub fn get_booking_by_reference(env: &Env, request_ref: &Symbol) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("bk_ref"), request_ref))
+}
+
+    pub fn set_booking_reference(env: &Env, request_ref: &Symbol, flight_id: u64) {
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("bk_ref"), request_ref), &flight_id);
     }
 }
 
@@ -244,8 +258,10 @@ impl AirlineContract {
 
         PricingStorage::set_config(&env, &cfg);
 
-        env.events().publish(
-            (symbol_short!("pricing"), symbol_short!("init")),
+        contract_events::emit(
+            &env,
+            Domain::Pricing,
+            Action::Init,
             (admin, oracle, max_change_bps, cooldown_secs),
         );
     }
@@ -261,10 +277,7 @@ impl AirlineContract {
         cfg.oracle = oracle.clone();
         PricingStorage::set_config(&env, &cfg);
 
-        env.events().publish(
-            (symbol_short!("pricing"), symbol_short!("oracle")),
-            (admin, oracle),
-        );
+        contract_events::emit(&env, Domain::Pricing, Action::Oracle, (admin, oracle));
     }
 
     // Register new airline
@@ -283,8 +296,7 @@ impl AirlineContract {
 
         AirlineRegistry::set_airline(&env, &airline, &profile);
 
-        env.events()
-            .publish((symbol_short!("airline"), symbol_short!("reg")), airline);
+        contract_events::emit(&env, Domain::Airline, Action::Reg, airline);
 
         true
     }
@@ -298,10 +310,7 @@ impl AirlineContract {
         profile.is_verified = true;
         AirlineRegistry::set_airline(&env, &airline, &profile);
 
-        env.events().publish(
-            (symbol_short!("airline"), symbol_short!("verified")),
-            airline,
-        );
+        contract_events::emit(&env, Domain::Airline, Action::Verified, airline);
     }
 
     // Create new flight listing
@@ -349,10 +358,7 @@ impl AirlineContract {
         profile.total_flights += 1;
         AirlineRegistry::set_airline(&env, &airline, &profile);
 
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("created")),
-            flight_id,
-        );
+        contract_events::emit(&env, Domain::Flight, Action::Created, flight_id);
 
         flight_id
     }
@@ -365,7 +371,7 @@ impl AirlineContract {
         AirlineRegistry::get_airline(&env, &address)
     }
 
-    // Decrement available seats when booking is made
+    // Decrement available seats when booking is made, supporting request reference reconciliation for timeouts
     pub fn reserve_seat(env: Env, airline: Address, flight_id: u64) {
         airline.require_auth();
 
@@ -376,6 +382,83 @@ impl AirlineContract {
 
         flight.available_seats -= 1;
         AirlineRegistry::set_flight(&env, flight_id, &flight);
+    }
+
+    pub fn reconcile_and_reserve_seat(
+        env: Env,
+        airline: Address,
+        flight_id: u64,
+        request_ref: Symbol,
+    ) -> u64 {
+        airline.require_auth();
+        if let Some(existing_flight_id) = AirlineRegistry::get_booking_by_reference(&env, &request_ref) {
+            assert!(existing_flight_id == flight_id, "Reference mismatch on timeout reconciliation");
+            return existing_flight_id;
+        }
+
+        let mut flight = AirlineRegistry::get_flight(&env, flight_id).expect("Flight not found");
+        assert!(flight.airline == airline, "Unauthorized");
+        assert!(flight.available_seats > 0, "No seats available");
+
+        flight.available_seats -= 1;
+        AirlineRegistry::set_flight(&env, flight_id, &flight);
+        AirlineRegistry::set_booking_reference(&env, &request_ref, flight_id);
+
+        flight_id
+    }
+
+    /// Atomically reserves one seat on each active, available leg of a connected journey.
+    pub fn reserve_journey(env: Env, passenger: Address, flight_ids: Vec<u64>) {
+        passenger.require_auth();
+        assert!(
+            flight_ids.len() >= 2 && flight_ids.len() <= MAX_JOURNEY_LEGS,
+            "Invalid journey size"
+        );
+
+        let mut flights: Vec<Flight> = Vec::new(&env);
+        let mut index = 0;
+        while index < flight_ids.len() {
+            let flight_id = flight_ids.get(index).unwrap();
+            let flight = AirlineRegistry::get_flight(&env, flight_id).expect("Flight not found");
+
+            assert!(
+                flight.status == symbol_short!("active"),
+                "Flight not active"
+            );
+            assert!(flight.available_seats > 0, "No seats available");
+
+            if index > 0 {
+                let previous = flights.get(index - 1).unwrap();
+                let mut prior_index = 0;
+                while prior_index < index {
+                    assert!(
+                        flight_ids.get(prior_index).unwrap() != flight_id,
+                        "Duplicate flight"
+                    );
+                    prior_index += 1;
+                }
+                assert!(
+                    previous.to_airport == flight.from_airport,
+                    "Disconnected journey"
+                );
+                assert!(
+                    previous.arrival_time <= flight.departure_time,
+                    "Invalid journey times"
+                );
+            }
+
+            flights.push_back(flight);
+            index += 1;
+        }
+
+        let mut index = 0;
+        while index < flight_ids.len() {
+            let flight_id = flight_ids.get(index).unwrap();
+            let mut flight = flights.get(index).unwrap();
+            flight.available_seats -= 1;
+            AirlineRegistry::set_flight(&env, flight_id, &flight);
+            index += 1;
+        }
     }
 
     // Cancel flight (airline emergency)
@@ -389,10 +472,7 @@ impl AirlineContract {
         flight.status = symbol_short!("cancelled");
         AirlineRegistry::set_flight(&env, flight_id, &flight);
 
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("cancelled")),
-            flight_id,
-        );
+        contract_events::emit(&env, Domain::Flight, Action::Cancelled, flight_id);
     }
 
     // Batch create flights with per-item validation and partial failure handling.
@@ -446,10 +526,7 @@ impl AirlineContract {
             AirlineRegistry::set_flight(&env, flight_id, &flight);
             created_flight_ids.push_back(flight_id);
 
-            env.events().publish(
-                (symbol_short!("flight"), symbol_short!("created")),
-                flight_id,
-            );
+            contract_events::emit(&env, Domain::Flight, Action::Created, flight_id);
 
             i += 1;
         }
@@ -518,10 +595,7 @@ impl AirlineContract {
             AirlineRegistry::set_flight(&env, update.flight_id, &flight);
             updated_flight_ids.push_back(update.flight_id);
 
-            env.events().publish(
-                (symbol_short!("flight"), symbol_short!("status")),
-                update.flight_id,
-            );
+            contract_events::emit(&env, Domain::Flight, Action::Status, update.flight_id);
 
             i += 1;
         }
@@ -609,8 +683,10 @@ impl AirlineContract {
         PricingStorage::set_last_update(&env, flight_id, now);
 
         // Emit event for price change notifications.
-        env.events().publish(
-            (symbol_short!("flight"), symbol_short!("price")),
+        contract_events::emit(
+            &env,
+            Domain::Flight,
+            Action::Price,
             (flight_id, old_price, new_price, oracle),
         );
 

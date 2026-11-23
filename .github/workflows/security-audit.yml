@@ -6,16 +6,50 @@ on:
     workflow_dispatch:
 
 jobs:
-    cargo-audit:
-        name: cargo audit
+    audit-deps:
+        # #777: npm + cargo dependency audits behind one resumable runner with
+        # a stable exit-code contract (see scripts/audit/audit-deps.sh header).
+        # Self-test first so a broken runner fails loudly before gating anything.
+        name: dependency audit (npm + cargo)
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
 
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+
+            - name: Audit runner self-test (exit-code contract)
+              run: bash scripts/audit/audit-deps.sh --self-test
+
+            - name: npm audit (fail on high+)
+              run: |
+                  AUDIT_TARGETS=npm AUDIT_RESUME=false AUDIT_NPM_DIR=. \
+                    bash scripts/audit/audit-deps.sh
+
+            - name: npm audit (backend workspace)
+              run: |
+                  AUDIT_TARGETS=npm AUDIT_RESUME=false AUDIT_NPM_DIR=packages/backend \
+                    bash scripts/audit/audit-deps.sh
+
+            - name: npm audit (client workspace)
+              run: |
+                  AUDIT_TARGETS=npm AUDIT_RESUME=false AUDIT_NPM_DIR=packages/client \
+                    bash scripts/audit/audit-deps.sh
+
             - name: Install cargo-audit
               run: cargo install --locked cargo-audit
 
-            - name: Run cargo audit
+            - name: cargo audit (contracts)
               run: |
-                  cd contracts
-                  cargo audit
+                  AUDIT_TARGETS=cargo AUDIT_RESUME=false AUDIT_CARGO_DIR=contracts \
+                    bash scripts/audit/audit-deps.sh
+
+            - name: Upload audit state (diagnostics)
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: audit-state
+                  path: .audit-state/
+                  if-no-files-found: ignore
+                  retention-days: 30

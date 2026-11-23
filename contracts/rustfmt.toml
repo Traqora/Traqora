@@ -1,0 +1,9 @@
+# Formatting rules for the Soroban contracts workspace (issue #743).
+#
+# Pinned so that `cargo fmt` produces the same output on every machine and in
+# CI, regardless of the default style of the installed rustfmt. The workspace
+# edition is 2021 (`contracts/Cargo.toml`), and rustfmt only applies defaults
+# correctly when the edition is declared explicitly.
+edition = "2021"
+max_width = 100
+newline_style = "Unix"

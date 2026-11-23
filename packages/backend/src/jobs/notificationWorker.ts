@@ -7,143 +7,249 @@ import { smsService } from "../services/SMSService";
 import { pushNotificationService } from "../services/PushNotificationService";
 import { logger } from "../utils/logger";
 import { createJobLogger } from "./jobLogger";
+import { deadLetterQueue } from "./deadLetterQueue";
+
+type DeliveryChannel = "email" | "sms" | "push";
+
+type ChannelOutcome = {
+  channel: DeliveryChannel;
+  status: "success" | "skipped_duplicate" | "error";
+  error?: string;
+};
+
+async function isDuplicateDelivery(
+  logRepo: ReturnType<typeof AppDataSource.getRepository<NotificationLog>>,
+  userId: string,
+  type: string,
+  channel: DeliveryChannel,
+  idempotencyKey: string,
+): Promise<boolean> {
+  const existing = await logRepo.findOne({
+    where: { userId, type, channel, idempotencyKey, status: "sent" },
+  });
+  return existing !== null;
+}
+
+function safeErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Unknown notification delivery error";
+  }
+}
+
+function isPushTypeEnabled(userPref: UserPreference, type: string): boolean {
+  if (type === "booking") return userPref.pushBookingEnabled;
+  if (type === "reminder") return userPref.pushReminderEnabled;
+  if (type === "refund" || type === "refund_initiated") return userPref.pushRefundEnabled;
+  if (type === "promotional") return userPref.pushPromoEnabled;
+  return true;
+}
+
+function toPushDeliveryType(type: string): string {
+  if (type === "promotional") return "marketing";
+  if (type === "flight_status_shared") return "flight_status";
+  if (type === "payment") return "payment";
+  return type;
+}
+
+async function recordDelivery(
+  logRepo: ReturnType<typeof AppDataSource.getRepository<NotificationLog>>,
+  params: {
+    userId: string;
+    channel: DeliveryChannel;
+    type: string;
+    payload: Record<string, unknown>;
+    status: "sent" | "failed";
+    attempts: number;
+    idempotencyKey: string;
+    errorMessage?: string;
+  },
+): Promise<void> {
+  const entry = logRepo.create({
+    userId: params.userId,
+    channel: params.channel,
+    type: params.type,
+    payload: params.payload,
+    status: params.status,
+    attempts: params.attempts,
+    idempotencyKey: params.idempotencyKey,
+    errorMessage: params.errorMessage,
+  });
+  await logRepo.save(entry);
+}
 
 export const setupNotificationWorker = () => {
   notificationQueue.process(async (job) => {
     const { userId, type, data, channels } = job.data;
-    const log = createJobLogger("notification-worker", job.id?.toString() ?? undefined);
-    log.start({ userId, type });
+    const idempotencyKey =
+      job.data.idempotencyKey ?? `job:${job.id?.toString() ?? "unknown"}`;
 
-    // In a real app we might fetch user details (e.g. email, phone) from a User service or entity
-    // For now we rely on UserPreference storing them.
+    const log = createJobLogger("notification-worker", job.id?.toString() ?? undefined);
+    log.start({ userId, type, idempotencyKey });
+
     const userPrefRepo = AppDataSource.getRepository(UserPreference);
     const logRepo = AppDataSource.getRepository(NotificationLog);
 
     const userPref = await userPrefRepo.findOne({ where: { userId } });
-
     if (!userPref) {
-      log.fail({ step: "load_user_preference", error: `User preferences not found for user: ${userId}` });
-      throw new Error(`User preferences not found for user: ${userId}`);
+      const error = `User preferences not found for user: ${userId}`;
+      log.fail({ step: "load_user_preference", error });
+      throw new Error(error);
     }
     log.step("load_user_preference");
 
-    const targetChannels = channels || ["email", "sms", "push"];
-    const results = [];
+    const targetChannels: DeliveryChannel[] = (channels?.length
+      ? channels
+      : ["email", "sms", "push"]) as DeliveryChannel[];
+    const results: ChannelOutcome[] = [];
+    const attempts = job.attemptsMade + 1;
 
-    // Email
-    if (
-      targetChannels.includes("email") &&
-      userPref.emailEnabled &&
-      userPref.email
-    ) {
-      try {
-        await emailService.sendTemplate(userPref.email, type, data);
-        const log = logRepo.create({
-          userId,
-          channel: "email",
-          type,
-          payload: job.data,
-          status: "sent",
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({ channel: "email", status: "success" });
-      } catch (error: any) {
-        const log = logRepo.create({
-          userId,
-          channel: "email",
-          type,
-          payload: job.data,
-          status: "failed",
-          errorMessage: error.message,
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({
-          channel: "email",
-          status: "error",
-          error: error.message,
-        });
+    for (const channel of targetChannels) {
+      const baseLog = { userId, channel, type, idempotencyKey };
+
+      if (await isDuplicateDelivery(logRepo, userId, type, channel, idempotencyKey)) {
+        logger.info("notification-worker: skipping duplicate delivery", baseLog);
+        results.push({ channel, status: "skipped_duplicate" });
+        continue;
+      }
+
+      if (channel === "email") {
+        if (!userPref.emailEnabled || !userPref.email) {
+          continue;
+        }
+        try {
+          await emailService.send(userPref.email, type, data ?? {});
+          await recordDelivery(logRepo, {
+            userId,
+            channel,
+            type,
+            payload: job.data as Record<string, unknown>,
+            status: "sent",
+            attempts,
+            idempotencyKey,
+          });
+          results.push({ channel, status: "success" });
+        } catch (error) {
+          const message = safeErrorMessage(error);
+          logger.error("notification-worker: email delivery failed", { ...baseLog, error: message });
+          await recordDelivery(logRepo, {
+            userId,
+            channel,
+            type,
+            payload: job.data as Record<string, unknown>,
+            status: "failed",
+            attempts,
+            idempotencyKey,
+            errorMessage: message,
+          }).catch((persistError) => {
+            logger.error("notification-worker: failed to persist email delivery error", {
+              ...baseLog,
+              error: safeErrorMessage(persistError),
+            });
+          });
+          results.push({ channel, status: "error", error: message });
+        }
+        continue;
+      }
+
+      if (channel === "sms") {
+        if (!userPref.smsEnabled || !userPref.phoneNumber) {
+          continue;
+        }
+        try {
+          await smsService.send(userPref.phoneNumber, type, data ?? {});
+          await recordDelivery(logRepo, {
+            userId,
+            channel,
+            type,
+            payload: job.data as Record<string, unknown>,
+            status: "sent",
+            attempts,
+            idempotencyKey,
+          });
+          results.push({ channel, status: "success" });
+        } catch (error) {
+          const message = safeErrorMessage(error);
+          logger.error("notification-worker: sms delivery failed", { ...baseLog, error: message });
+          await recordDelivery(logRepo, {
+            userId,
+            channel,
+            type,
+            payload: job.data as Record<string, unknown>,
+            status: "failed",
+            attempts,
+            idempotencyKey,
+            errorMessage: message,
+          }).catch((persistError) => {
+            logger.error("notification-worker: failed to persist sms delivery error", {
+              ...baseLog,
+              error: safeErrorMessage(persistError),
+            });
+          });
+          results.push({ channel, status: "error", error: message });
+        }
+        continue;
+      }
+
+      if (channel === "push") {
+        const enabled = userPref.pushEnabled && userPref.pushOptedIn && isPushTypeEnabled(userPref, type);
+        if (!enabled) {
+          continue;
+        }
+        try {
+          const delivery = await pushNotificationService.sendTypedPush(
+            userId,
+            toPushDeliveryType(type) as any,
+            (data ?? {}) as Record<string, any>,
+          );
+          if (delivery.failed > 0) {
+            throw new Error(`Push delivery failed for ${delivery.failed} device(s)`);
+          }
+          await recordDelivery(logRepo, {
+            userId,
+            channel,
+            type,
+            payload: job.data as Record<string, unknown>,
+            status: "sent",
+            attempts,
+            idempotencyKey,
+          });
+          results.push({ channel, status: "success" });
+        } catch (error) {
+          const message = safeErrorMessage(error);
+          logger.error("notification-worker: push delivery failed", { ...baseLog, error: message });
+          await recordDelivery(logRepo, {
+            userId,
+            channel,
+            type,
+            payload: job.data as Record<string, unknown>,
+            status: "failed",
+            attempts,
+            idempotencyKey,
+            errorMessage: message,
+          }).catch((persistError) => {
+            logger.error("notification-worker: failed to persist push delivery error", {
+              ...baseLog,
+              error: safeErrorMessage(persistError),
+            });
+          });
+          results.push({ channel, status: "error", error: message });
+        }
       }
     }
 
-    // SMS
-    if (
-      targetChannels.includes("sms") &&
-      userPref.smsEnabled &&
-      userPref.phoneNumber
-    ) {
-      try {
-        await smsService.sendSMS(userPref.phoneNumber, `${type}: ${JSON.stringify(data)}`, userId);
-        const log = logRepo.create({
-          userId,
-          channel: "sms",
-          type,
-          payload: job.data,
-          status: "sent",
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({ channel: "sms", status: "success" });
-      } catch (error: any) {
-        const log = logRepo.create({
-          userId,
-          channel: "sms",
-          type,
-          payload: job.data,
-          status: "failed",
-          errorMessage: error.message,
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({ channel: "sms", status: "error", error: error.message });
-      }
-    }
-
-    // Push
-    if (
-      targetChannels.includes("push") &&
-      userPref.pushEnabled &&
-      userPref.fcmToken
-    ) {
-      try {
-        await pushNotificationService.sendPush(userId, type, { data });
-        const log = logRepo.create({
-          userId,
-          channel: "push",
-          type,
-          payload: job.data,
-          status: "sent",
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({ channel: "push", status: "success" });
-      } catch (error: any) {
-        const log = logRepo.create({
-          userId,
-          channel: "push",
-          type,
-          payload: job.data,
-          status: "failed",
-          errorMessage: error.message,
-          attempts: job.attemptsMade + 1,
-        });
-        await logRepo.save(log);
-        results.push({
-          channel: "push",
-          status: "error",
-          error: error.message,
-        });
-      }
-    }
-
-    // If any channel we attempted failed, we might want to throw to let Bull retry the job,
-    // although this risks duplicate sends to successful channels unless we manage idempotency per channel.
-    // For simplicity, we just complete the job here. A sophisticated system would retry only failed channels.
     const failures = results.filter((r) => r.status === "error");
     if (failures.length > 0) {
-      log.step("deliver", { outcome: "failure", channels: results });
+      const error = new Error(
+        `Failed to send notification via ${failures.map((failure) => failure.channel).join(", ")}`,
+      );
+      log.fail({ step: "deliver", error: error.message, channels: results });
+      throw error;
     }
+
     log.complete({ channels: results });
     return results;
   });
@@ -156,6 +262,30 @@ export const setupNotificationWorker = () => {
       outcome: "failure",
       error: err.message,
     });
+
+    const maxAttempts = job.opts?.attempts ?? 1;
+    const isFinalAttempt = job.attemptsMade >= maxAttempts;
+
+    if (isFinalAttempt) {
+      deadLetterQueue
+        .add({
+          id: job.id?.toString() ?? "unknown",
+          queue: "notification-worker",
+          type: job.data?.type,
+          data: job.data,
+          attempts: job.attemptsMade,
+          error: err.message,
+        })
+        .catch((dlqError: unknown) => {
+          logger.error("notification-worker: failed to write to dead-letter queue", {
+            job: "notification-worker",
+            jobId: job.id,
+            step: "dead_letter",
+            outcome: "failure",
+            error: dlqError instanceof Error ? dlqError.message : String(dlqError),
+          });
+        });
+    }
   });
 
   notificationQueue.on("completed", (job, result) => {

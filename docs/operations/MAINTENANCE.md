@@ -70,3 +70,29 @@ This document defines recurring maintenance operations, backup and recovery proc
 - Run database index audits monthly.
 - Review alert thresholds quarterly.
 - Conduct disaster recovery drills every 6 months.
+
+## Migration Verification (#1192)
+
+The v1 migration chain is verified by
+`packages/backend/tests/database-migration.integration.test.ts`. Two cases run
+against a temporary Postgres database created from `TEST_DATABASE_URL` (or
+`DATABASE_URL` in CI):
+
+- **Fresh install:** every migration in `ALL_MIGRATIONS` is applied to an empty
+  database and the expected tables are asserted.
+- **Upgrade:** all migrations except the last are applied first, then the
+  remaining migration is applied and its tables are asserted.
+
+"Supported previous schema" means the migration list minus its final entry. When
+adding a migration, append it to `ALL_MIGRATIONS` in the test; the previous
+baseline and the upgrade target update automatically.
+
+The initial-schema up/down tests use in-memory SQLite for speed. They do not
+exercise Postgres-only DDL, so always run the Postgres cases before a release.
+
+To run locally:
+
+```bash
+TEST_DATABASE_URL=postgres://<user>@localhost:5432/postgres \
+  npx jest --config jest.config.cjs tests/database-migration.integration.test.ts --runInBand
+```

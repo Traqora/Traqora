@@ -175,7 +175,7 @@ function bookingBody(flightId: string, suffix = '1') {
       email: `smoke${suffix}@example.com`,
       firstName: 'Smoke',
       lastName: `Test${suffix}`,
-      sorobanAddress: `GSMOKE${suffix.toUpperCase()}`,
+      sorobanAddress: WALLET_ADDRESS,
     },
   };
 }
@@ -663,6 +663,16 @@ describe('Smoke – Booking', () => {
       expect(r2.status).toBe(200);
       expect(r2.body.data.id).toBe(bookingId);
       expect(r2.body.idempotent).toBe(true);
+
+      const r3 = await request(app)
+        .post('/api/v1/bookings')
+        .set('Authorization', `Bearer ${preSignedToken}`)
+        .set('Idempotency-Key', key)
+        .send({
+          ...body,
+          passenger: { ...body.passenger, firstName: `${body.passenger.firstName}-changed` },
+        });
+      expect(r3.status).toBe(409);
 
       passed = true;
     } finally {

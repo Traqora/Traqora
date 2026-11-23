@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 access = { workspace = true }
+errors = { workspace = true }
 airline = { workspace = true }
 booking = { workspace = true }
 booking-receipt = { workspace = true }
@@ -23,6 +24,7 @@ refund-automation = { workspace = true }
 token = { workspace = true }
 upgrade = { workspace = true }
 admin = { workspace = true }
+contract-events = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.2"
