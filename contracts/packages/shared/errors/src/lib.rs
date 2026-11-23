@@ -31,8 +31,7 @@
 
 #![no_std]
 
-use soroban_sdk::contracterror;
-
+use soroban_sdk::{contracterror, Env};
 /// Canonical error type for all Traqora Soroban contracts.
 ///
 /// Use [`panic_with_error!`] to abort contract execution with one of these
@@ -163,32 +162,44 @@ pub struct SimulationError {
 impl SimulationError {
     /// Map a raw simulation error string or diagnostic info into a typed, actionable client error.
     pub fn map_simulation_failure(env: &Env, raw_message: &str, diagnostic_context: &str) -> Self {
-        let (code, prefix) = if raw_message.contains("InsufficientBalance") || raw_message.contains("insufficient balance") {
-            (ContractError::SimulationInsufficientBalance, "Insufficient balance during simulation: ")
-        } else if raw_message.contains("Auth") || raw_message.contains("unauthorized") || raw_message.contains("sign") {
-            (ContractError::SimulationAuthFailure, "Authorization failure during simulation: ")
-        } else if raw_message.contains("Footprint") || raw_message.contains("ttl") || raw_message.contains("storage") {
-            (ContractError::SimulationFootprintError, "Footprint or storage error during simulation: ")
-        } else if raw_message.contains("Contract") || raw_message.contains("panic") || raw_message.contains("revert") {
-            (ContractError::SimulationContractRejection, "Contract rejection during simulation: ")
+        let code = if raw_message.contains("InsufficientBalance")
+            || raw_message.contains("insufficient balance")
+        {
+            ContractError::SimulationInsufficientBalance
+        } else if raw_message.contains("Unauthorized")
+            || raw_message.contains("unauthorized")
+            || raw_message.contains("Auth")
+        {
+            ContractError::SimulationAuthFailure
+        } else if raw_message.contains("Footprint")
+            || raw_message.contains("ttl")
+            || raw_message.contains("storage")
+        {
+            ContractError::SimulationFootprintError
+        } else if raw_message.contains("Contract")
+            || raw_message.contains("panic")
+            || raw_message.contains("revert")
+        {
+            ContractError::SimulationContractRejection
         } else {
-            (ContractError::SimulationUnknownError, "Unknown simulation failure: ")
+            ContractError::SimulationUnknownError
         };
 
-        let mut msg_buf = soroban_sdk::String::from_str(env, prefix);
-        msg_buf.push_str(&soroban_sdk::String::from_str(env, raw_message));
+        let msg_str = if raw_message.is_empty() {
+            soroban_sdk::String::from_str(env, "Simulation failure")
+        } else {
+            soroban_sdk::String::from_str(env, raw_message)
+        };
 
         let diag = soroban_sdk::String::from_str(env, diagnostic_context);
 
         SimulationError {
             code,
-            message: msg_buf,
+            message: msg_str,
             diagnostic: diag,
         }
     }
 }
-
-/// Abort contract execution with a [`ContractError`] discriminant.
 ///
 /// This macro wraps `soroban_sdk::panic_with_error!` so that callers only need
 /// to import `errors::panic_with_error` instead of the SDK macro directly.
