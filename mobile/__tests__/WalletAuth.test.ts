@@ -9,6 +9,22 @@ jest.mock('../../packages/backend/src/services/WalletSignatureAdapter', () => {
   };
 });
 
+import { validateWalletNetwork } from '../WalletAuth';
+
+describe('Mobile Wallet Network Validation', () => {
+  it('succeeds when network passphrase matches expected', () => {
+    const res = validateWalletNetwork('Test SDF Network ; September 2015', 'Test SDF Network ; September 2015');
+    expect(res.isValid).toBe(true);
+  });
+
+  it('fails with clear recovery action when network passphrase mismatches', () => {
+    const res = validateWalletNetwork('Public Global Stellar Network ; September 2015', 'Test SDF Network ; September 2015');
+    expect(res.isValid).toBe(false);
+    expect(res.error).toContain('wrong Stellar network');
+    expect(res.recoveryAction).toBeDefined();
+  });
+});
+
 describe('Mobile Wallet Authentication', () => {
   it('successfully verifies a valid wallet signature', async () => {
     const mockVerify = jest.fn().mockResolvedValue(true);

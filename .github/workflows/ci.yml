@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
   RUST_TOOLCHAIN: "1.94.1"
   SOROBAN_CLI_VERSION: "26.1.0"
   # Shared Cargo cache paths — referenced in every Rust job.
@@ -335,7 +335,7 @@ jobs:
             cargo-${{ runner.os }}-
 
       - name: Check EVENTS.md is in sync with emitted events
-        run: ./scripts/check-events-docs.sh
+        run: bash ./scripts/check-events-docs.sh
 
   # ── Integration: Backend ──────────────────────────────────────────────────
   integration-backend:
