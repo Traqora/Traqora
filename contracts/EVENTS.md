@@ -51,7 +51,7 @@ enums are the vocabulary, the tables are the actual event log.
 |-----------------------------|--------------------------------------------------------------------------|------------------------------------------|
 | `(booking, created)`        | `(passenger, timestamp, booking_id, airline, flight_number, price)`      | New booking created in pending state     |
 | `(booking, paid)`           | `(passenger, timestamp, booking_id, amount)`                             | Payment escrowed; booking confirmed      |
-| `(booking, released)`       | `(airline | oracle, timestamp, booking_id, released_amount)`             | Escrow released to airline post-flight   |
+| `(booking, released)`       | `(airline \| oracle, timestamp, booking_id, released_amount)`             | Escrow released to airline post-flight   |
 | `(booking, refunded)`       | `(passenger | oracle, timestamp, booking_id, refunded_amount)`           | Escrow refunded to passenger             |
 | `(booking, cancelled)` | `(caller, timestamp, booking_id, passenger_refund, airline_amount)`                       | Booking cancelled; split of the escrow |
 | `(booking, oracle)`         | `(admin, timestamp, oracle)`                                             | Trusted oracle address registered        |
