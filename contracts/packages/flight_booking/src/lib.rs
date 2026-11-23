@@ -65,6 +65,7 @@ impl FlightBookingContract {
             created_at,
         };
 
+        // Ensure atomic persistence of booking record and seat reservation index
         env.storage()
             .persistent()
             .set(&DataKey::Booking(booking_id), &booking);
