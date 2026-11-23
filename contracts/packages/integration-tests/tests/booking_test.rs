@@ -22,7 +22,10 @@ fn test_payment_escrow_flow() {
         &contracts.token.address,
     );
 
-    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    let booking = contracts
+        .booking
+        .get_booking(&actors.passenger, &booking_id)
+        .unwrap();
     assert_eq!(booking.status, Symbol::new(&env, "pending"));
     assert_eq!(booking.amount_escrowed, 0);
 
@@ -32,7 +35,10 @@ fn test_payment_escrow_flow() {
         .mint(&actors.admin, &actors.passenger, &price);
     contracts.booking.pay_for_booking(&booking_id);
 
-    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    let booking = contracts
+        .booking
+        .get_booking(&actors.passenger, &booking_id)
+        .unwrap();
     assert_eq!(booking.status, Symbol::new(&env, "confirmed"));
     assert_eq!(booking.amount_escrowed, price);
     assert_eq!(contracts.token.balance_of(&actors.passenger), 0);
@@ -45,7 +51,10 @@ fn test_payment_escrow_flow() {
     // 3. Release escrow to the airline after fulfillment.
     contracts.booking.release_payment_to_airline(&booking_id);
 
-    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    let booking = contracts
+        .booking
+        .get_booking(&actors.passenger, &booking_id)
+        .unwrap();
     assert_eq!(booking.status, Symbol::new(&env, "completed"));
     assert_eq!(booking.amount_escrowed, 0);
     assert_eq!(contracts.token.balance_of(&contracts.booking.address), 0);
@@ -83,7 +92,58 @@ fn test_refund_flow() {
     // Refund passenger
     contracts.booking.refund_passenger(&booking_id);
 
-    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    let booking = contracts
+        .booking
+        .get_booking(&actors.passenger, &booking_id)
+        .unwrap();
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
+}
+
+#[test]
+fn test_booking_pagination() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 10_0000000i128;
+    for i in 0..5 {
+        contracts.booking.create_booking(
+            &actors.passenger,
+            &actors.airline,
+            &Symbol::new(&env, "FL123"),
+            &Symbol::new(&env, "JFK"),
+            &Symbol::new(&env, "LAX"),
+            &1704067200 + i,
+            &price,
+            &contracts.token.address,
+        );
+    }
+
+    let page1 = contracts.booking.get_paginated_bookings(&1, &2);
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page1.get(0).unwrap().booking_id, 1);
+    assert_eq!(page1.get(1).unwrap().booking_id, 2);
+
+    let page2 = contracts.booking.get_paginated_bookings(&3, &2);
+    assert_eq!(page2.len(), 2);
+    assert_eq!(page2.get(0).unwrap().booking_id, 3);
+    assert_eq!(page2.get(1).unwrap().booking_id, 4);
+
+    let passenger_page =
+        contracts
+            .booking
+            .get_passenger_bookings_paginated(&actors.passenger, &0, &3);
+    assert_eq!(passenger_page.len(), 3);
+    assert_eq!(passenger_page.get(0).unwrap().booking_id, 1);
+    assert_eq!(passenger_page.get(2).unwrap().booking_id, 3);
+}
+
+#[test]
+#[should_panic(expected = "Limit too large")]
+fn test_booking_pagination_limit_too_large_should_panic() {
+    let env = new_env();
+    let contracts = register_contracts(&env);
+    contracts.booking.get_paginated_bookings(&1, &101);
 }
