@@ -141,12 +141,13 @@ impl BookingContract {
         token: Address,
     ) -> u64 {
         passenger.require_auth();
+        assert!(price > 0, "Invalid booking price");
 
         let booking_id = BookingStorage::next_id(&env);
 
         let booking = Booking {
             booking_id,
-            passenger,
+            passenger: passenger.clone(),
             airline,
             flight_number,
             from_airport,
@@ -159,6 +160,7 @@ impl BookingContract {
             created_at: env.ledger().timestamp(),
         };
 
+        // Atomic storage write with validation guard
         BookingStorage::set(&env, booking_id, &booking);
 
         // Canonical schema: (actor, timestamp, primary_id, ...payload)
