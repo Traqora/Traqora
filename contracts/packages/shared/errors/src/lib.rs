@@ -31,8 +31,7 @@
 
 #![no_std]
 
-use soroban_sdk::{contracterror, Env, String};
-
+use soroban_sdk::{contracterror, Env};
 /// Canonical error type for all Traqora Soroban contracts.
 ///
 /// Use [`panic_with_error!`] to abort contract execution with one of these
@@ -201,8 +200,6 @@ impl SimulationError {
         }
     }
 }
-
-/// Abort contract execution with a [`ContractError`] discriminant.
 ///
 /// This macro wraps `soroban_sdk::panic_with_error!` so that callers only need
 /// to import `errors::panic_with_error` instead of the SDK macro directly.
