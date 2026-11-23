@@ -179,14 +179,19 @@ impl BookingContract {
         booking_id
     }
 
-    // Accept payment for the booking and hold in escrow
+    // Accept payment for the booking and hold in escrow (idempotent)
     pub fn pay_for_booking(env: Env, booking_id: u64) {
-        let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        let mut booking = match BookingStorage::get(&env, booking_id) {
+            Some(b) => b,
+            None => panic!("Booking not found"),
+        };
 
-        assert!(
-            booking.status == symbol_short!("pending"),
-            "Already paid or cancelled"
-        );
+        if booking.status == symbol_short!("confirmed")
+            || booking.status == symbol_short!("completed")
+            || booking.status == symbol_short!("refunded")
+        {
+            return;
+        }
 
         booking.passenger.require_auth();
 
@@ -212,7 +217,7 @@ impl BookingContract {
                 &booking.flight_number,
                 &booking.from_airport,
                 &booking.to_airport,
-                &String::from_str(&env, "TBD"), // Seat is assigned later or TBD initially
+                &String::from_str(&env, "TBD"),
                 &booking.price,
             );
         }
