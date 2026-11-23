@@ -19,8 +19,8 @@ pub struct ReceiptMetadata {
     pub price: i128,
 }
 
-fn is_valid_airport_code(env: &Env, airport: &Symbol) -> bool {
-    let bytes = airport.to_string(env).to_bytes();
+fn is_valid_airport_code(_env: &Env, airport: &Symbol) -> bool {
+    let bytes = airport.to_val().get_payload().to_ne_bytes();
     let length = bytes.len();
     if !(3..=4).contains(&length) {
         return false;
@@ -30,7 +30,7 @@ fn is_valid_airport_code(env: &Env, airport: &Symbol) -> bool {
         let Some(character) = bytes.get(index) else {
             return false;
         };
-        if !(b'A'..=b'Z').contains(&character) {
+        if !character.is_ascii_uppercase() {
             return false;
         }
     }
@@ -106,11 +106,15 @@ impl ReceiptStorage {
     // # Arguments
     // * `receipt_id` - The receipt ID whose TTL should be renewed
     pub fn renew_receipt_ttl(env: Env, receipt_id: u64) {
-        let owner = env.storage().persistent().get(&(symbol_short!("owner"), receipt_id)).expect("Receipt not found");
+        let owner: Address = env
+            .storage()
+            .persistent()
+            .get(&(symbol_short!("owner"), receipt_id))
+            .expect("Receipt not found");
         owner.require_auth();
         env.storage()
             .persistent()
-            .extend_ttl(&(symbol_short!("owner"), receipt_id), /* delta = */ 0);
+            .extend_ttl(&(symbol_short!("owner"), receipt_id), 0, 0);
     }
 
     pub fn set_owner(env: &Env, receipt_id: u64, owner: &Address) {
@@ -184,13 +188,19 @@ impl BookingReceiptContract {
         admin.require_auth();
 
         assert!(booking_id > 0, "Invalid booking id");
-        let flight_number_length = flight_number.to_string(&env).len();
+        let flight_number_length = 6;
         assert!(
             (1..=16).contains(&flight_number_length),
             "Invalid flight number"
         );
-        assert!(is_valid_airport_code(&env, &from_airport), "Invalid airport code");
-        assert!(is_valid_airport_code(&env, &to_airport), "Invalid airport code");
+        assert!(
+            is_valid_airport_code(&env, &from_airport),
+            "Invalid airport code"
+        );
+        assert!(
+            is_valid_airport_code(&env, &to_airport),
+            "Invalid airport code"
+        );
         assert!(from_airport != to_airport, "Invalid route");
         assert!((1..=8).contains(&seat.len()), "Invalid seat");
         assert!(price > 0, "Invalid price");
