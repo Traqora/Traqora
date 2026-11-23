@@ -436,13 +436,36 @@ impl BookingContract {
 
     // Original API wrappers for backward compatibility
     pub fn cancel_booking(env: Env, passenger: Address, booking_id: u64) {
+        let booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        assert!(passenger == booking.passenger, "Unauthorized passenger");
         passenger.require_auth();
         Self::refund_passenger(env, booking_id);
     }
 
     pub fn complete_booking(env: Env, airline: Address, booking_id: u64) {
+        let booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
+        assert!(airline == booking.airline, "Unauthorized airline");
         airline.require_auth();
         Self::release_payment_to_airline(env, booking_id);
+    }
+
+    /// Protected query entrypoint enforcing that only permitted actors (passenger, airline,
+    /// or trusted oracle) can query protected booking records.
+    pub fn get_booking_authorized(
+        env: Env,
+        caller: Address,
+        booking_id: u64,
+    ) -> Option<Booking> {
+        caller.require_auth();
+        let booking = BookingStorage::get(&env, booking_id)?;
+        let trusted_oracle = BookingStorage::get_trusted_oracle(&env);
+
+        let is_permitted = caller == booking.passenger
+            || caller == booking.airline
+            || trusted_oracle.map_or(false, |oracle| caller == oracle);
+
+        assert!(is_permitted, "Unauthorized query access");
+        Some(booking)
     }
 
     // Settle cancellation payouts from escrow according to refund basis points.
