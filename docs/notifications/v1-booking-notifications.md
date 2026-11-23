@@ -23,3 +23,7 @@ Notes:
 - Channels are constrained by user preferences and compliance flags (for push, `pushEnabled`, `pushOptedIn`, and type-specific push preferences). A skipped/disabled channel is not a delivery failure.
 - Event producers must supply stable identity inputs so the same logical event produces the same idempotency key across retries/re-enqueues.
 - v1 scope is limited to booking, payment, schedule-change, cancellation, and refund messages listed above.
+
+## Booking confirmation support contact
+
+The booking confirmation view (`mobile/BookingConfirmationScreen.tsx`) accepts an optional `supportContact` prop (`phone`, `email`, `hours`). When provided, it renders a "Need help?" section that shows the support route and the traveler's booking reference (`TRAQ-{bookingId}`) so it can be quoted to support. The section contains no other customer data, and is omitted entirely when no support contact is supplied. Phone numbers are linked with `tel:` and emails with `mailto:`; the section uses a labelled `<section>` landmark for accessibility.

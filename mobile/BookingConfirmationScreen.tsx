@@ -27,6 +27,16 @@ function formatSegmentTime(localTime: string | undefined, isoTime: string, timeZ
   return timeZone ? `${base} (${timeZone})` : base;
 }
 
+/** Support route shown to the traveler. Contains no customer PII. */
+export interface SupportContact {
+  /** Support phone number, displayed as text and linked via tel:. */
+  phone?: string;
+  /** Support email address, linked via mailto:. */
+  email?: string;
+  /** Support hours or other short routing note. */
+  hours?: string;
+}
+
 interface BookingConfirmationProps {
   bookingId: string;
   itinerary: ItinerarySegment[];
@@ -36,6 +46,8 @@ interface BookingConfirmationProps {
   onViewDashboard?: () => void;
   /** Optional human-readable separate-ticket risk explanation. */
   selfTransferExplanation?: string;
+  /** Optional support contact route; the section is omitted when not provided. */
+  supportContact?: SupportContact;
 }
 
 export default function BookingConfirmationScreen({
@@ -46,15 +58,17 @@ export default function BookingConfirmationScreen({
   transactionHash,
   onViewDashboard,
   selfTransferExplanation,
+  supportContact,
 }: BookingConfirmationProps) {
   const hasSelfTransfer = itinerary.some((seg) => seg.separateTicket === true);
+  const bookingReference = `TRAQ-${bookingId}`;
 
   return (
     <div className="booking-confirmation-container">
       <div className="content">
         <div className="header-container">
           <h1 className="success-title">Booking Confirmed!</h1>
-          <p className="booking-ref">Reference: TRAQ-{bookingId}</p>
+          <p className="booking-ref">Reference: {bookingReference}</p>
         </div>
 
         <div className="card">
@@ -117,6 +131,33 @@ export default function BookingConfirmationScreen({
             </div>
           )}
         </div>
+
+        {supportContact && (supportContact.phone || supportContact.email || supportContact.hours) && (
+          <section className="card support-contact" aria-labelledby="support-contact-title">
+            <h2 id="support-contact-title" className="section-title">Need help?</h2>
+            <p className="support-reference">
+              When contacting support, please quote booking reference{' '}
+              <strong>{bookingReference}</strong>.
+            </p>
+            {supportContact.phone && (
+              <p className="support-phone">
+                Phone:{' '}
+                <a href={`tel:${supportContact.phone.replace(/[^+\d]/g, '')}`}>
+                  {supportContact.phone}
+                </a>
+              </p>
+            )}
+            {supportContact.email && (
+              <p className="support-email">
+                Email:{' '}
+                <a href={`mailto:${supportContact.email}`}>{supportContact.email}</a>
+              </p>
+            )}
+            {supportContact.hours && (
+              <p className="support-hours">Hours: {supportContact.hours}</p>
+            )}
+          </section>
+        )}
 
         <button className="button" onClick={onViewDashboard}>
           Go to Dashboard
