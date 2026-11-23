@@ -87,3 +87,45 @@ fn test_refund_flow() {
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
 }
+
+#[test]
+#[should_panic(expected = "Invalid booking price")]
+fn test_create_booking_atomic_validation_failure_zero_price() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    // Zero price should fail validation and leave no booking or partial records
+    contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL000"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &0,
+        &contracts.token.address,
+    );
+}
+
+#[test]
+#[should_panic(expected = "Invalid booking price")]
+fn test_create_booking_atomic_validation_failure_negative_price() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    // Negative price should fail validation atomically
+    contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL000"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &-100,
+        &contracts.token.address,
+    );
+}
