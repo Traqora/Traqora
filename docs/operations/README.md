@@ -20,4 +20,5 @@ To prevent duplicate bookings and ensure idempotent retries:
 ## Support and operations guides
 
 - [Booking Operations View](BOOKING_OPERATIONS_VIEW.md): the read-only operator table for booking, supplier, payment and reconciliation state.
+- [Payment Reconciliation Procedures](payment-reconciliation.md): steps for operators to safely reconcile wallet, backend, supplier, and booking records.
 - [Traveler Support Escalation](TRAVELER_SUPPORT_ESCALATION.md): how support handles payment, supplier, booking, cancellation and refund incidents, including audit requirements.
