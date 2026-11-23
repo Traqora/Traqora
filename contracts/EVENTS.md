@@ -50,6 +50,7 @@ enums are the vocabulary, the tables are the actual event log.
 | topics                      | data fields                                                              | description                              |
 |-----------------------------|--------------------------------------------------------------------------|------------------------------------------|
 | `(booking, created)`        | `(passenger, timestamp, booking_id, airline, flight_number, price)`      | New booking created in pending state     |
+| `(booking, state_transition)`| `(caller, timestamp, booking_id, old_state, new_state)`                   | Booking state transition recorded        |
 | `(booking, paid)`           | `(passenger, timestamp, booking_id, amount)`                             | Payment escrowed; booking confirmed      |
 | `(booking, released)`       | `(airline \| oracle, timestamp, booking_id, released_amount)`             | Escrow released to airline post-flight   |
 | `(booking, refunded)`       | `(passenger | oracle, timestamp, booking_id, refunded_amount)`           | Escrow refunded to passenger             |
