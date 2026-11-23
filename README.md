@@ -17,7 +17,7 @@ Key benefits include:
 ## Features
 
 ### Flight Booking
-Users can search and book flights directly with airlines using idempotent references.
+Users can search and book flights directly with airlines, supported by idempotent supplier references and automatic reconciliation to prevent duplicate submissions.
 
 ### Smart Contract Management
 All bookings are handled through secure Soroban-based smart contracts on the Stellar network.
