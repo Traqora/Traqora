@@ -1,13 +1,35 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, FlatList, ActivityIndicator, Linking } from 'react-native';
 import { searchMobileFlights } from '../api';
 import { Flight } from '../../../packages/client/lib/api';
 
 interface SearchScreenProps {
   onBack: () => void;
+  bookingReference?: string;
+  supportEmail?: string;
+  supportPhone?: string;
 }
 
-export default function SearchScreen({ onBack }: SearchScreenProps) {
+export const DEFAULT_SUPPORT_EMAIL = 'support@example-airline.invalid';
+export const DEFAULT_SUPPORT_PHONE = '+1-800-000-0000';
+
+export function buildSupportMailto(bookingReference: string | undefined, supportEmail: string): string {
+  const subject = bookingReference
+    ? `Support request for booking ${bookingReference}`
+    : 'Support request';
+  return `mailto:${supportEmail}?subject=${encodeURIComponent(subject)}`;
+}
+
+export function buildSupportTel(supportPhone: string): string {
+  return `tel:${supportPhone.replace(/[^+\d]/g, '')}`;
+}
+
+export default function SearchScreen({
+  onBack,
+  bookingReference,
+  supportEmail = DEFAULT_SUPPORT_EMAIL,
+  supportPhone = DEFAULT_SUPPORT_PHONE,
+}: SearchScreenProps) {
   const [from, setFrom] = useState('JFK');
   const [to, setTo] = useState('LAX');
   const [date, setDate] = useState('2026-05-01');
@@ -25,26 +47,39 @@ export default function SearchScreen({ onBack }: SearchScreenProps) {
       setError(err.message || 'Search failed');
     } finally {
       setLoading(false);
-    };
+    }
   };
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity onPress={onBack} style={styles.backButton}>
+      <TouchableOpacity onPress={onBack} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Back to home">
         <Text style={styles.backButtonText}>← Back to Home</Text>
       </TouchableOpacity>
       <Text style={styles.header}>Flight Search</Text>
       <View style={styles.form}>
-        <TextInput style={styles.input} value={from} onChangeText={setFrom} placeholder="From (e.g. JFK)" />
-        <TextInput style={styles.input} value={to} onChangeText={setTo} placeholder="To (e.g. LAX)" />
-        <TextInput style={styles.input} value={date} onChangeText={setDate} placeholder="Date (YYYY-MM-DD)" />
-        <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
+        <TextInput style={styles.input} value={from} onChangeText={setFrom} placeholder="From (e.g. JFK)" accessibilityLabel="Departure airport" />
+        <TextInput style={styles.input} value={to} onChangeText={setTo} placeholder="To (e.g. LAX)" accessibilityLabel="Arrival airport" />
+        <TextInput style={styles.input} value={date} onChangeText={setDate} placeholder="Date (YYYY-MM-DD)" accessibilityLabel="Travel date" />
+        <TouchableOpacity style={styles.searchButton} onPress={handleSearch} accessibilityRole="button" accessibilityLabel="Search flights">
           <Text style={styles.searchButtonText}>Search</Text>
         </TouchableOpacity>
       </View>
 
       {loading && <ActivityIndicator size="large" color="#d97706" style={{ marginTop: 20 }} />}
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error && <Text style={styles.error} accessibilityRole="alert">{error}</Text>}
+
+      <View style={styles.supportCard} accessibilityLabel="Support contact">
+        <Text style={styles.supportTitle}>Need help?</Text>
+        {bookingReference ? (
+          <Text style={styles.supportText}>Booking reference: {bookingReference}</Text>
+        ) : null}
+        <TouchableOpacity onPress={() => Linking.openURL(buildSupportMailto(bookingReference, supportEmail))} accessibilityRole="link" accessibilityLabel="Email support">
+          <Text style={styles.supportLink}>Email: {supportEmail}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => Linking.openURL(buildSupportTel(supportPhone))} accessibilityRole="link" accessibilityLabel="Call support">
+          <Text style={styles.supportLink}>Phone: {supportPhone}</Text>
+        </TouchableOpacity>
+      </View>
 
       <FlatList
         data={flights}
@@ -115,6 +150,28 @@ const styles = StyleSheet.create({
   error: {
     color: '#dc2626',
     marginTop: 10,
+  },
+  supportCard: {
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  supportTitle: {
+    fontWeight: '600',
+    fontSize: 16,
+    color: '#1f2937',
+    marginBottom: 4,
+  },
+  supportText: {
+    color: '#374151',
+    marginBottom: 4,
+  },
+  supportLink: {
+    color: '#d97706',
+    marginTop: 4,
   },
   listContainer: {
     paddingBottom: 20,
