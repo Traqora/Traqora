@@ -338,3 +338,24 @@ fn test_flight_booking_reconcile_reference_timeout_recovery() {
     let id2 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     assert_eq!(id1, id2);
 }
+
+#[test]
+#[should_panic(expected = "Seat already reserved")]
+fn test_flight_booking_concurrent_duplicate_seat_reservation_rejected()
+{
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger1 = Address::generate(&env);
+    let passenger2 = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FLCONCUR");
+    let seat = Symbol::new(&env, "20B");
+
+    // First reservation succeeds
+    client.reserve_seat(&passenger1, &flight_id, &seat, &1_000);
+
+    // Concurrent/subsequent attempt for the exact same seat must be rejected deterministically
+    client.reserve_seat(&passenger2, &flight_id, &seat, &1_000);
+}
