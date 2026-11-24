@@ -5,11 +5,12 @@ import { AppDataSource } from '../../../db/dataSource';
 import { Booking, BookingStatus } from '../../../db/entities/Booking';
 import { adminGuard } from '../../../middleware/adminAuth';
 import { auditLog } from '../../../middleware/adminAudit';
-import { adminPaginationSchema } from '../../schemas/common';
+import { adminPaginationSchema, paginationSchema } from '../../schemas/common';
 import { BadRequestError, NotFoundError } from '../../../utils/errors';
 import { createPaginationMeta } from '../../../types/pagination';
 import { supportBookingService } from '../../../services/SupportBookingService';
 import { bookingRecoveryService, RECOVERY_ACTIONS } from '../../../services/bookingRecoveryService';
+import { bookingDeadLetterService } from '../../../services/bookingDeadLetterService';
 
 const router = Router();
 
@@ -27,6 +28,16 @@ const updateStatusSchema = z.object({
         'refund_rejected',
     ]),
     reason: z.string().optional(),
+});
+
+const recoverySchema = z.object({
+    action: z.enum(RECOVERY_ACTIONS),
+    reason: z.string().min(1).max(500),
+});
+
+const deadLetterListSchema = paginationSchema.extend({
+    state: z.enum(['open', 'resolved']).optional(),
+    bookingId: z.string().uuid().optional(),
 });
 
 // GET /api/v1/admin/bookings
@@ -74,6 +85,71 @@ router.get('/lookup', requireAdmin, asyncHandler(async (req: Request, res: Respo
     return res.json({ success: true, data: summary });
 }));
 
+// GET /api/v1/admin/bookings/dead-letters
+// Quarantined booking work that exhausted automatic recovery. Registered before
+// /:id so "dead-letters" is not treated as a booking id.
+router.get('/dead-letters', ...adminGuard('booking:read'), asyncHandler(async (req: Request, res: Response) => {
+    const parsed = deadLetterListSchema.safeParse(req.query);
+    if (!parsed.success) {
+        throw new BadRequestError('Validation Error', parsed.error.flatten());
+    }
+    const { page, limit, state, bookingId } = parsed.data;
+    const { entries, total } = await bookingDeadLetterService.list({
+        state,
+        bookingId,
+        limit,
+        offset: (page - 1) * limit,
+    });
+    return res.json({
+        success: true,
+        data: entries,
+        pagination: createPaginationMeta(page, limit, total),
+    });
+}));
+
+// GET /api/v1/admin/bookings/dead-letters/:id
+router.get('/dead-letters/:id', ...adminGuard('booking:read'), asyncHandler(async (req: Request, res: Response) => {
+    const deadLetter = await bookingDeadLetterService.get(req.params.id);
+    if (!deadLetter) {
+        throw new NotFoundError('Dead-letter entry not found.');
+    }
+    return res.json({ success: true, data: deadLetter });
+}));
+
+// POST /api/v1/admin/bookings/dead-letters/:id/recover
+// Recovery is audited by the booking recovery service, which also resolves the
+// dead-letter entry with the acting admin and audit-log reference.
+router.post('/dead-letters/:id/recover', ...adminGuard('booking:reconcile'), asyncHandler(async (req: Request, res: Response) => {
+    const parsed = recoverySchema.safeParse(req.body);
+    if (!parsed.success) {
+        throw new BadRequestError('Validation Error', parsed.error.flatten());
+    }
+    const idempotencyKey = req.header('Idempotency-Key');
+    if (!idempotencyKey) {
+        throw new BadRequestError('Idempotency-Key header is required.');
+    }
+
+    const result = await bookingRecoveryService.recoverFromDeadLetter({
+        deadLetterId: req.params.id,
+        action: parsed.data.action,
+        reason: parsed.data.reason,
+        idempotencyKey,
+        admin: req.admin ?? null,
+        ipAddress: req.ip,
+    });
+
+    res.locals.resourceId = result.booking.id;
+    return res.status(200).json({
+        success: true,
+        data: {
+            deadLetter: result.deadLetter,
+            booking: result.booking,
+            auditLogId: result.auditLogId,
+        },
+        idempotentReplay: result.replayed,
+    });
+}));
+
 // GET /api/v1/admin/bookings/:id
 router.get('/:id', ...adminGuard('booking:read'), asyncHandler(async (req: Request, res: Response) => {
 
@@ -111,11 +187,6 @@ router.patch(
         return res.json({ success: true, data: saved });
     })
 );
-
-const recoverySchema = z.object({
-    action: z.enum(RECOVERY_ACTIONS),
-    reason: z.string().min(1).max(500),
-});
 
 // POST /api/v1/admin/bookings/:id/recovery
 // The service writes its own AdminAuditLog row inside the same transaction as

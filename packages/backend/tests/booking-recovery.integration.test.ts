@@ -1,6 +1,7 @@
 import type { DataSource } from 'typeorm';
 import { AdminAuditLog } from '../src/db/entities/AdminAuditLog';
 import { Booking, BookingStatus } from '../src/db/entities/Booking';
+import { BookingDeadLetter } from '../src/db/entities/BookingDeadLetter';
 import { IdempotencyKey } from '../src/db/entities/IdempotencyKey';
 import {
     BookingRecoveryService,
@@ -186,5 +187,101 @@ describe('Booking recovery service (#1171)', () => {
         });
         expect(keys).toHaveLength(1);
         expect(keys[0].path).toBe(`${'/api/v1/admin/bookings'}/${bookingId}/recovery`);
+    });
+
+    it('resolves open dead-letter entries when the booking is recovered', async () => {
+        const stuckBookingId = 'booking-dead-letter-1';
+        await dataSource.getRepository<Booking>(Booking).save({
+            id: stuckBookingId,
+            status: 'failed' as BookingStatus,
+            amountCents: 50000,
+            lastError: 'Confirmation retries exhausted after 3 attempts',
+        } as Booking);
+
+        const deadLetter = await dataSource
+            .getRepository<BookingDeadLetter>(BookingDeadLetter)
+            .save({
+                id: 'dead-letter-1',
+                bookingId: stuckBookingId,
+                operation: 'CONFIRM_TRANSACTION',
+                bookingStatus: 'failed',
+                attempts: 3,
+                reason: 'Confirmation retries exhausted after 3 attempts',
+                state: 'open',
+            } as BookingDeadLetter);
+
+        const result = await service.recoverBooking(
+            input({
+                bookingId: stuckBookingId,
+                idempotencyKey: 'dead-letter-recovery-key-1',
+            }),
+        );
+
+        const resolved = await dataSource
+            .getRepository<BookingDeadLetter>(BookingDeadLetter)
+            .findOne({ where: { id: deadLetter.id } });
+
+        expect(resolved).toMatchObject({
+            state: 'resolved',
+            resolvedBy: admin.adminId,
+            resolutionAction: 'retry_confirmation',
+            auditLogId: result.auditLogId,
+        });
+    });
+
+    it('recovers from a dead-letter id and replays the same key safely', async () => {
+        const stuckBookingId = 'booking-dead-letter-2';
+        await dataSource.getRepository<Booking>(Booking).save({
+            id: stuckBookingId,
+            status: 'failed' as BookingStatus,
+            amountCents: 50000,
+            lastError: 'Confirmation retries exhausted after 3 attempts',
+        } as Booking);
+
+        const deadLetter = await dataSource
+            .getRepository<BookingDeadLetter>(BookingDeadLetter)
+            .save({
+                id: 'dead-letter-2',
+                bookingId: stuckBookingId,
+                operation: 'CONFIRM_TRANSACTION',
+                bookingStatus: 'failed',
+                attempts: 3,
+                reason: 'Confirmation retries exhausted after 3 attempts',
+                state: 'open',
+            } as BookingDeadLetter);
+
+        const request = {
+            deadLetterId: deadLetter.id,
+            action: 'retry_confirmation' as const,
+            reason: 'RPC recovered',
+            idempotencyKey: 'dead-letter-recovery-key-2',
+            admin,
+            ipAddress: '127.0.0.1',
+        };
+
+        const first = await service.recoverFromDeadLetter(request);
+        expect(first.replayed).toBe(false);
+        expect(first.booking.status).toBe('onchain_pending');
+        expect(first.deadLetter.state).toBe('resolved');
+        expect(first.deadLetter.auditLogId).toBe(first.auditLogId);
+
+        const second = await service.recoverFromDeadLetter(request);
+        expect(second.replayed).toBe(true);
+        expect(second.auditLogId).toBe(first.auditLogId);
+    });
+
+    it('returns not found for an unknown dead-letter id', async () => {
+        await expect(
+            service.recoverFromDeadLetter({
+                deadLetterId: 'missing-dead-letter',
+                action: 'mark_failed',
+                reason: 'cleanup',
+                idempotencyKey: 'dead-letter-missing',
+                admin,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 404,
+            code: 'DEAD_LETTER_NOT_FOUND',
+        });
     });
 });

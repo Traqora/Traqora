@@ -182,11 +182,13 @@ describe('ConfirmationRetryService (#1131)', () => {
   let repository: FakeRepository;
   let broadcast: jest.Mock;
   let releaseSeat: jest.Mock;
+  let captureDeadLetter: jest.Mock;
 
   beforeEach(() => {
     repository = new FakeRepository();
     broadcast = jest.fn();
     releaseSeat = jest.fn(async () => undefined);
+    captureDeadLetter = jest.fn(async () => undefined);
   });
 
   function createService(confirm: jest.Mock, overrides: Record<string, unknown> = {}) {
@@ -198,6 +200,7 @@ describe('ConfirmationRetryService (#1131)', () => {
       sleep: jest.fn(async () => undefined),
       broadcast,
       releaseSeat,
+      captureDeadLetter,
       random: () => 0,
       ...overrides,
     });
@@ -221,6 +224,7 @@ describe('ConfirmationRetryService (#1131)', () => {
     expect(repository.saves).toHaveLength(1);
     expect(broadcast).toHaveBeenCalledWith(target);
     expect(releaseSeat).not.toHaveBeenCalled();
+    expect(captureDeadLetter).not.toHaveBeenCalled();
   });
 
   it('pending path: persists attempts and the next backoff time without failing', async () => {
@@ -235,6 +239,7 @@ describe('ConfirmationRetryService (#1131)', () => {
     expect(target.confirmationAttempts).toBe(1);
     expect(target.confirmationNextAttemptAt?.getTime()).toBe(NOW.getTime() + 1000);
     expect(broadcast).not.toHaveBeenCalled();
+    expect(captureDeadLetter).not.toHaveBeenCalled();
   });
 
   it('exhausted path: transitions to a terminal failed state with a clear reason', async () => {
@@ -250,6 +255,15 @@ describe('ConfirmationRetryService (#1131)', () => {
     expect(target.confirmationNextAttemptAt).toBeNull();
     expect(target.lastError).toContain('Confirmation retries exhausted');
     expect(broadcast).toHaveBeenCalledWith(target);
+    expect(captureDeadLetter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        booking: target,
+        previousStatus: 'onchain_submitted',
+        outcome: 'left_pending',
+        attempts: 3,
+        reason: expect.stringContaining('Confirmation retries exhausted'),
+      }),
+    );
   });
 
   it('definitive failure: marks failed immediately and releases the seat once', async () => {
@@ -269,6 +283,15 @@ describe('ConfirmationRetryService (#1131)', () => {
     expect(target.confirmationNextAttemptAt).toBeNull();
     expect(releaseSeat).toHaveBeenCalledTimes(1);
     expect(broadcast).toHaveBeenCalledWith(target);
+    expect(captureDeadLetter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        booking: target,
+        previousStatus: 'onchain_submitted',
+        outcome: 'failed',
+        attempts: 1,
+        reason: 'insufficient budget',
+      }),
+    );
   });
 
   it('treats thrown confirmation errors as retryable attempts', async () => {
@@ -283,6 +306,18 @@ describe('ConfirmationRetryService (#1131)', () => {
     expect(result.decision.terminal).toBe(true);
     expect(target.status).toBe('failed');
     expect(target.lastError).toContain('RPC unavailable');
+  });
+
+  it('does not fail the attempt when dead-letter capture fails', async () => {
+    const target = booking({ confirmationAttempts: 2 });
+    repository.bookings.set(target.id, target);
+    captureDeadLetter.mockRejectedValueOnce(new Error('dead-letter store down'));
+    const confirm = jest.fn(async () => confirmResult('left_pending', target));
+
+    const result = await createService(confirm).processBooking(target.id);
+
+    expect(result.decision.terminal).toBe(true);
+    expect(target.status).toBe('failed');
   });
 
   it('skips bookings without a transaction hash', async () => {

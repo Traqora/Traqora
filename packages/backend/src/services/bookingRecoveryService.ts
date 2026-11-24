@@ -2,9 +2,11 @@ import { DataSource } from 'typeorm';
 import { AppDataSource } from '../db/dataSource';
 import { AdminAuditLog } from '../db/entities/AdminAuditLog';
 import { Booking, BookingStatus } from '../db/entities/Booking';
+import { BookingDeadLetter } from '../db/entities/BookingDeadLetter';
 import { IdempotencyKey } from '../db/entities/IdempotencyKey';
 import { AdminPayload } from '../middleware/adminAuth';
 import { AppError } from './ErrorHandlingService';
+import { resolveOpenBookingDeadLetters } from './bookingDeadLetterService';
 import { getOrCreateIdempotencyKey, hashObject } from './idempotency';
 
 /** Closed set of v1 recovery actions. Each has exactly one target status. */
@@ -25,12 +27,22 @@ export interface RecoverBookingInput {
     idempotencyKey: string;
     admin: AdminPayload | null;
     ipAddress?: string;
+    /** Set when the recovery was initiated from a dead-letter entry (#1132). */
+    deadLetterId?: string;
 }
 
 export interface RecoverBookingResult {
     booking: Booking;
     auditLogId: string;
     replayed: boolean;
+}
+
+export interface RecoverDeadLetterInput extends Omit<RecoverBookingInput, 'bookingId'> {
+    deadLetterId: string;
+}
+
+export interface RecoverDeadLetterResult extends RecoverBookingResult {
+    deadLetter: BookingDeadLetter;
 }
 
 const appError = (statusCode: number, code: string, message: string): AppError =>
@@ -121,16 +133,73 @@ export class BookingRecoveryService {
                     reason,
                     previousStatus,
                     newStatus: saved.status,
+                    ...(input.deadLetterId ? { deadLetterId: input.deadLetterId } : {}),
                 }),
                 ipAddress: input.ipAddress ?? 'unknown',
             });
             const savedAudit = await manager.getRepository(AdminAuditLog).save(audit);
+
+            await resolveOpenBookingDeadLetters(manager, {
+                bookingId: saved.id,
+                adminId: input.admin?.adminId ?? 'system',
+                action: input.action,
+                reason,
+                auditLogId: savedAudit.id,
+            });
 
             record.resourceId = savedAudit.id;
             await manager.getRepository(IdempotencyKey).save(record);
 
             return { booking: saved, auditLogId: savedAudit.id, replayed: false };
         });
+    }
+
+    /**
+     * Recover the booking behind a quarantined dead-letter entry. The booking
+     * recovery transaction resolves the entry and records the acting admin, so
+     * this method is a thin, auditable lookup over `recoverBooking`.
+     */
+    async recoverFromDeadLetter(
+        input: RecoverDeadLetterInput,
+    ): Promise<RecoverDeadLetterResult> {
+        const deadLetter = await this.dataSource
+            .getRepository(BookingDeadLetter)
+            .findOne({ where: { id: input.deadLetterId } });
+
+        if (!deadLetter) {
+            throw appError(404, 'DEAD_LETTER_NOT_FOUND', 'Dead-letter entry not found.');
+        }
+
+        if (deadLetter.state === 'resolved') {
+            const booking = await this.dataSource.getRepository(Booking).findOne({
+                where: { id: deadLetter.bookingId },
+            });
+            if (!booking) {
+                throw appError(404, 'RECOVERY_BOOKING_NOT_FOUND', 'Booking not found.');
+            }
+            return {
+                booking,
+                auditLogId: deadLetter.auditLogId ?? '',
+                replayed: true,
+                deadLetter,
+            };
+        }
+
+        const result = await this.recoverBooking({
+            bookingId: deadLetter.bookingId,
+            action: input.action,
+            reason: input.reason,
+            idempotencyKey: input.idempotencyKey,
+            admin: input.admin,
+            ipAddress: input.ipAddress,
+            deadLetterId: deadLetter.id,
+        });
+
+        const resolved = await this.dataSource
+            .getRepository(BookingDeadLetter)
+            .findOne({ where: { id: deadLetter.id } });
+
+        return { ...result, deadLetter: resolved ?? deadLetter };
     }
 }
 

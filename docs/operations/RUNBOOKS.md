@@ -254,6 +254,7 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 - The gauge reports the age of the oldest booking in each pending status. It has a single low-cardinality label, `status`. No booking id is ever used as a label.
 - A backup job refreshes the gauge every minute using the `(status, updatedAt)` index from migration `1756000000000`. Override the schedule with `PENDING_BOOKING_AGE_CRON`.
 - A bounded confirmation retry worker (#1131) sweeps `onchain_pending`/`onchain_submitted` bookings with a transaction hash every minute. It retries with exponential backoff up to `CONFIRMATION_RETRY_MAX_ATTEMPTS` (default 8) and then moves the booking to `failed` with `lastError = "Confirmation retries exhausted after N attempts…"`. Override the schedule with `CONFIRMATION_RETRY_CRON`; tune with `CONFIRMATION_RETRY_BASE_DELAY_MS`, `CONFIRMATION_RETRY_MAX_DELAY_MS` and `CONFIRMATION_RETRY_BATCH_SIZE`.
+- Terminal confirmation failures are also quarantined in `booking_dead_letters` (#1132). List open entries with `GET /api/v1/admin/bookings/dead-letters?state=open`. Entries keep a privacy-safe snapshot (booking reference, flight id, transaction hash, attempts, reason) and never contain passenger or payment secrets.
 
 **Diagnosis:**
 - Read the gauge per status to see which pending stage is stuck.
@@ -269,6 +270,7 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 - `retry_confirmation` moves the booking to `onchain_pending`. `mark_failed` moves it to `failed`.
 - The reason is required and is stored on the booking and in the `AdminAuditLog` entry.
 - Reuse the same `Idempotency-Key` when retrying a request. A replay returns the original audit entry without changing state again. Changing the action or reason under the same key is rejected with `RECOVERY_KEY_CONFLICT`.
+- For quarantined work, use `POST /api/v1/admin/bookings/dead-letters/:id/recover` with the same action/reason body and `Idempotency-Key`. This requires `booking:reconcile`, applies the recovery through the same audited transaction, and marks the dead-letter entry resolved with the acting admin and audit-log reference. The booking-level `POST /api/v1/admin/bookings/:id/recovery` also resolves any open dead-letter entries for that booking.
 - Verify the resulting status and audit entry before closing the alert.
 
 **Prevention:**

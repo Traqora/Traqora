@@ -19,6 +19,10 @@ import {
   ConfirmBookingTxResult,
   ConfirmOutcome,
 } from "./bookingConfirmRetry";
+import {
+  bookingDeadLetterService,
+  CaptureBookingDeadLetterInput,
+} from "./bookingDeadLetterService";
 
 export const CONFIRMATION_RETRY_STATUSES: readonly BookingStatus[] = [
   "onchain_pending",
@@ -195,6 +199,9 @@ export interface ConfirmationRetryServiceOptions {
   sleep?: (ms: number) => Promise<void>;
   broadcast?: (booking: Booking) => void;
   releaseSeat?: (booking: Booking) => Promise<void>;
+  captureDeadLetter?: (
+    input: CaptureBookingDeadLetterInput,
+  ) => Promise<unknown> | void;
   random?: () => number;
   batchSize?: number;
 }
@@ -219,6 +226,12 @@ const defaultReleaseSeat = async (booking: Booking): Promise<void> => {
   );
 };
 
+const defaultCaptureDeadLetter = async (
+  input: CaptureBookingDeadLetterInput,
+): Promise<void> => {
+  await bookingDeadLetterService.captureSafely(input);
+};
+
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -230,6 +243,9 @@ export class ConfirmationRetryService {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly broadcast: (booking: Booking) => void;
   private readonly releaseSeat: (booking: Booking) => Promise<void>;
+  private readonly captureDeadLetter: (
+    input: CaptureBookingDeadLetterInput,
+  ) => Promise<unknown> | void;
   private readonly random: () => number;
   private readonly batchSize: number;
   private readonly locks = new Map<string, Promise<void>>();
@@ -242,6 +258,8 @@ export class ConfirmationRetryService {
     this.sleep = options.sleep ?? defaultSleep;
     this.broadcast = options.broadcast ?? defaultBroadcast;
     this.releaseSeat = options.releaseSeat ?? defaultReleaseSeat;
+    this.captureDeadLetter =
+      options.captureDeadLetter ?? defaultCaptureDeadLetter;
     this.random = options.random ?? Math.random;
     this.batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   }
@@ -331,6 +349,7 @@ export class ConfirmationRetryService {
     let result: ConfirmBookingTxResult | null = null;
     let outcome: ConfirmationAttemptOutcome;
     let reason: string | undefined;
+    const previousStatus = booking.status;
 
     try {
       result = await this.confirm(bookingId);
@@ -351,7 +370,6 @@ export class ConfirmationRetryService {
       random: this.random,
     });
 
-    const previousStatus = booking.status;
     const target = result?.booking ?? booking;
     target.confirmationAttempts = decision.attempts;
     target.confirmationNextAttemptAt = decision.nextAttemptAt;
@@ -365,6 +383,23 @@ export class ConfirmationRetryService {
     }
 
     await this.repository.save(target);
+
+    if (decision.status === "failed" && previousStatus !== "failed") {
+      try {
+        await this.captureDeadLetter({
+          booking: target,
+          previousStatus,
+          outcome: decision.outcome,
+          attempts: decision.attempts,
+          reason: target.lastError ?? decision.lastError,
+        });
+      } catch (error) {
+        logger.warn("Failed to quarantine terminal booking confirmation work", {
+          bookingId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     if (result?.changed && result.outcome === "failed") {
       try {

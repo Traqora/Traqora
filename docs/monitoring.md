@@ -107,7 +107,11 @@ error when the function rejects. Booking's asynchronous confirmation poll record
 once at confirmation, terminal transaction failure, or exhausted retries. The
 bounded retry worker (`jobs/confirmationRetryJob.ts`) uses the same policy for
 bookings whose in-process poll was lost; exhausted retries surface as `failed`
-bookings with a `Confirmation retries exhausted…` `lastError`.
+bookings with a `Confirmation retries exhausted…` `lastError`. Terminal
+confirmation failures are also quarantined in `booking_dead_letters` (#1132)
+with privacy-safe context; list them via
+`GET /api/v1/admin/bookings/dead-letters?state=open`. Quarantine adds no
+per-booking Prometheus labels, so metric cardinality stays bounded.
 
 Recording rules and burn-rate alerts live in
 `monitoring/prometheus/slo-rules.yml` (loaded via `prometheus.yml`):

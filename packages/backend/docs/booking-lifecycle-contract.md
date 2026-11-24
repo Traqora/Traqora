@@ -183,3 +183,62 @@ signals. Attempts are serialized per booking in-process, and a new transaction
 submission or an admin `retry_confirmation` resets the retry budget.
 
 Regression tests: `packages/backend/src/services/__tests__/confirmationRetry.test.ts`.
+
+---
+
+## 4. Booking dead-letter recovery path (#1132)
+
+Implementation: `packages/backend/src/db/entities/BookingDeadLetter.ts`,
+`packages/backend/src/services/bookingDeadLetterService.ts`, and the admin routes
+in `packages/backend/src/api/routes/admin/bookings.ts`.
+
+When a booking's on-chain confirmation reaches a terminal `failed` state the
+bounded retry worker (#1131) captures a dead-letter entry. Both exhausted retry
+budgets and definitive on-chain failures are captured; the entry keeps the
+failure context even after an operator recovers the booking.
+
+### Captured context
+
+Entries are stored in `booking_dead_letters` with only privacy-safe fields:
+
+| Field | Meaning |
+| --- | --- |
+| `bookingId` | Booking being quarantined. |
+| `operation` | Closed set; currently `CONFIRM_TRANSACTION`. |
+| `bookingStatus` | Booking status after the terminal transition. |
+| `attempts` | Attempts spent before quarantine. |
+| `reason` | Terminal `lastError`, truncated to 1000 characters. |
+| `context` | `previousStatus`, `outcome`, privacy-safe `bookingReference`, `flightId`, `sorobanTxHash`, `amountCents`. |
+
+Passenger identity, contact details, passport data, payment intent/client
+secrets, and wallet addresses are never copied into the entry. Re-capturing an
+open entry for the same booking and operation updates it in place rather than
+creating duplicates.
+
+### Operator endpoints
+
+| Method and path | Permission | Purpose |
+| --- | --- | --- |
+| `GET /api/v1/admin/bookings/dead-letters` | `booking:read` | Paginated list; filters `state=open|resolved` and `bookingId`. |
+| `GET /api/v1/admin/bookings/dead-letters/:id` | `booking:read` | Inspect one entry. |
+| `POST /api/v1/admin/bookings/dead-letters/:id/recover` | `booking:reconcile` | Recover the underlying booking with an audited action. |
+
+The recovery body is the same as the booking recovery endpoint:
+
+```json
+{ "action": "retry_confirmation" | "mark_failed", "reason": "..." }
+```
+
+`Idempotency-Key` is required. Recovery delegates to the booking recovery
+service, so the status correction and `AdminAuditLog` row are written in one
+transaction. Every open dead-letter entry for that booking is then marked
+`resolved` with `resolvedBy`, `resolutionAction`, `resolutionReason`, and the
+`auditLogId`. Resolved entries are retained for investigation.
+
+Reusing the same `Idempotency-Key` returns the original audit reference without
+repeating the state change. Recovering an already-resolved dead-letter id also
+returns the current booking and original audit reference with
+`idempotentReplay: true`.
+
+Regression tests: `packages/backend/src/services/__tests__/bookingDeadLetter.test.ts`
+and `packages/backend/tests/booking-recovery.integration.test.ts`.
