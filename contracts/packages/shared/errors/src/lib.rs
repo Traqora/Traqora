@@ -161,6 +161,25 @@ pub struct SimulationError {
 /// - Explicit contract rejections or panics (`SimulationContractRejection`)
 /// - Unknown or unexpected simulation errors (`SimulationUnknownError`)
 impl SimulationError {
+    pub fn map_simulation_failure(env: &Env, raw_message: &str, diagnostic_context: &str) -> Self {
+        let code = if raw_message.contains("insufficient balance") || raw_message.contains("Balance") {
+            ContractError::SimulationInsufficientBalance
+        } else if raw_message.contains("auth") || raw_message.contains("Signer") || raw_message.contains("Unauthorized") {
+            ContractError::SimulationAuthFailure
+        } else if raw_message.contains("footprint") || raw_message.contains("TTL") || raw_message.contains("LedgerEntryNotFound") {
+            ContractError::SimulationFootprintError
+        } else if raw_message.contains("panic") || raw_message.contains("ContractError") || raw_message.contains("Error(") {
+            ContractError::SimulationContractRejection
+        } else {
+            ContractError::SimulationUnknownError
+        };
+
+        Self {
+            code,
+            message: String::from_str(env, raw_message),
+            diagnostic: String::from_str(env, diagnostic_context),
+        }
+    }
 }
 
 /// Abort contract execution with a [`ContractError`] discriminant.
