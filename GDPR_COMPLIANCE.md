@@ -38,6 +38,10 @@ Data stored on the Stellar blockchain is distributed globally. Users are informe
 
 Personal and operational data is retained no longer than necessary. The authoritative windows are implemented in `packages/backend/src/services/DataRetentionService.ts` and `packages/backend/src/services/analytics/dataRetentionService.ts`.
 
+### Traveler data inventory
+
+The v1 traveler data map covers account, profile, passenger, travel document, search, booking, refund, notification, consent, deletion request, and audit records. Each entry records its purpose, lawful basis, retention period, deletion behavior, and legal exceptions. See [docs/privacy/TRAVELER_DATA_RETENTION.md](docs/privacy/TRAVELER_DATA_RETENTION.md) for the full matrix and the machine-readable registry in `packages/backend/src/services/governance/travelerDataRetention.ts`.
+
 ### Audit and compliance records
 
 | Data category | Archived (cold storage) | Deleted | Implementation |

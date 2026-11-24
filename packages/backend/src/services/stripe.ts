@@ -18,6 +18,10 @@ const stripeCircuitBreaker = new CircuitBreaker('stripe-api', {
   recoveryTimeoutMs: 30_000,
 });
 
+/** Read-only circuit state for the operations health view. No credentials are exposed. */
+export const getStripeCircuitState = (): 'CLOSED' | 'OPEN' | 'HALF_OPEN' =>
+  stripeCircuitBreaker.getState();
+
 export const executeStripeOperation = async <T>(
   operationName: string,
   fn: () => Promise<T>,

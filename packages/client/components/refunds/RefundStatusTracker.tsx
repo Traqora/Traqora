@@ -29,28 +29,36 @@ export type RefundReason =
   | "service_issue"
   | "other";
 
+export type RefundOutcome =
+  | "pending"
+  | "partial"
+  | "full"
+  | "delayed"
+  | "rejected"
+  | "failed"
+  | "unknown";
+
 export interface Refund {
   id: string;
   status: RefundStatus;
+  /** Derived traveler-facing outcome; raw status alone cannot show partial refunds. */
+  outcome?: RefundOutcome;
+  outcomeLabel?: string;
+  netRefundCents?: number;
   reason: RefundReason;
   reasonDetails?: string;
   requestedAmountCents: number;
   approvedAmountCents?: number;
   processingFeeCents: number;
   isEligible: boolean;
-  eligibilityNotes?: string;
   requiresManualReview: boolean;
-  reviewedBy?: string;
   reviewedAt?: string;
-  reviewNotes?: string;
   stripeRefundId?: string;
   sorobanTxHash?: string;
   createdAt: string;
   updatedAt: string;
   isDelayed?: boolean;
   delayedUntil?: string;
-  cancelledAt?: string;
-  cancellationReason?: string;
 }
 
 function useTimeRemaining(delayedUntil?: string): number | null {
@@ -273,7 +281,7 @@ const getTimeline = (refund: Refund): TimelineEvent[] => {
     events.push({
       status: "rejected",
       timestamp: refund.updatedAt,
-      description: refund.reviewNotes || "Refund request rejected",
+      description: "Refund request rejected",
     });
   }
 
@@ -288,8 +296,8 @@ const getTimeline = (refund: Refund): TimelineEvent[] => {
   if (refund.status === "delayed_cancelled") {
     events.push({
       status: "delayed_cancelled",
-      timestamp: refund.cancelledAt || refund.updatedAt,
-      description: refund.cancellationReason || "Refund cancelled",
+      timestamp: refund.updatedAt,
+      description: "Delayed refund was cancelled",
     });
   }
 
@@ -297,10 +305,17 @@ const getTimeline = (refund: Refund): TimelineEvent[] => {
 };
 
 export function RefundStatusTracker({ refund }: RefundStatusTrackerProps) {
-  const config = statusConfig[refund.status];
+  // An unrecognised status must never crash the history view.
+  const config = statusConfig[refund.status] ?? {
+    label: "Status Update",
+    icon: <Clock className="h-4 w-4" />,
+    color: "bg-yellow-100 text-yellow-800",
+    description: "Your refund is being reviewed",
+  };
   const timeline = getTimeline(refund);
   const finalAmount = refund.approvedAmountCents ?? refund.requestedAmountCents;
-  const netRefund = finalAmount - refund.processingFeeCents;
+  // Prefer the server-computed value so client float math cannot alter money.
+  const netRefund = refund.netRefundCents ?? Math.max(0, finalAmount - refund.processingFeeCents);
   const timeRemaining = useTimeRemaining(refund.delayedUntil);
   const isDelayedRefund = refund.isDelayed && refund.delayedUntil;
 
@@ -324,6 +339,26 @@ export function RefundStatusTracker({ refund }: RefundStatusTrackerProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">{config.description}</p>
+
+          {refund.outcomeLabel && (
+            <div className="rounded-md border bg-muted/40 p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Outcome</p>
+              <p className="text-sm font-medium" data-testid="refund-outcome">
+                {refund.outcomeLabel}
+              </p>
+              {refund.outcome === "partial" && refund.approvedAmountCents !== undefined && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Only part of the requested amount was returned. The remainder is not marked as
+                  refunded.
+                </p>
+              )}
+              {refund.outcome === "unknown" && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  We need to review this refund before confirming the result.
+                </p>
+              )}
+            </div>
+          )}
 
           <Separator />
 
@@ -393,21 +428,6 @@ export function RefundStatusTracker({ refund }: RefundStatusTrackerProps) {
                   For security, refunds above the threshold are held for the SLA period. 
                   You can cancel during this time.
                 </p>
-              </div>
-            </>
-          )}
-
-          {refund.reviewNotes && refund.status !== "completed" && (
-            <>
-              <Separator />
-              <div>
-                <p className="text-sm font-medium mb-1">Review Notes</p>
-                <p className="text-sm text-muted-foreground">{refund.reviewNotes}</p>
-                {refund.reviewedBy && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Reviewed by: {refund.reviewedBy}
-                  </p>
-                )}
               </div>
             </>
           )}

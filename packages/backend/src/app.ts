@@ -18,6 +18,8 @@ import { adminAuthRoutes } from './api/routes/admin/auth';
 import { adminFlightRoutes } from './api/routes/admin/flights';
 import { adminUserRoutes } from './api/routes/admin/users';
 import { adminBookingRoutes } from './api/routes/admin/bookings';
+import { adminOperationsRoutes } from './api/routes/admin/operations';
+import { adminSupportRoutes } from './api/routes/admin/support';
 import { adminAnalyticsRoutes } from './api/routes/admin/analytics';
 import { adminRefundRoutes } from './api/routes/admin/refunds';
 import { tenantAnalyticsRoutes } from './api/routes/admin/tenantAnalytics';
@@ -29,6 +31,10 @@ import { authRoutes } from './api/routes/auth';
 import swaggerUi from 'swagger-ui-express';
 import { openApiDocument } from './api/openapi/generator';
 import { validateRequest } from './middleware/validationMiddleware';
+import {
+  corsOriginMatcher,
+  resolveCorsAllowedOrigins,
+} from './config/browserSecurity';
 
 // @ts-ignore
 import type { Application } from 'express';
@@ -59,6 +65,7 @@ import { AppError } from './services/ErrorHandlingService';
 import { requestLogger } from './middleware/requestLogger';
 import { analyticsAuditLogger } from './middleware/audit-logger';
 import { auditLog as auditLogger } from './middleware/audit';
+import { authRateLimiter } from './middleware/highRiskRateLimit';
 
 export interface AppOptions {
   flightSearchService?: FlightSearchService;
@@ -135,7 +142,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use(securityMiddleware);
   app.use(
     cors({
-      origin: config.corsOrigin,
+      origin: corsOriginMatcher(resolveCorsAllowedOrigins(config)),
       credentials: true,
     })
   );
@@ -189,20 +196,27 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/analytics', analyticsRoutes);
 
 
-  app.use('/api/v1/auth', validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
+  app.use('/api/v1/auth', authRateLimiter, validateRequest('/api/v1/auth/challenge'), validateRequest('/api/v1/auth/verify'), validateRequest('/api/v1/auth/refresh'), authRoutes);
   app.use('/api/v1/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/flights', createFlightRoutes(flightSearchService, searchRateLimitMiddleware));
   app.use('/api/v1/flight-status', requireAuth, createFlightRoutes(flightSearchService));
   app.use('/api/v1/bookings', requireAuth, validateRequest('/api/v1/bookings'), bookingRoutes);
   app.use('/api/v1/self-transfer', requireAuth, selfTransferRoutes);
   app.use('/api/v1/refunds', requireAuth, validateRequest('/api/v1/refunds/request'), refundRoutes);
+  // Booking routes enforce explicit per-route auth/validation; Stripe webhook remains
+  // public and is authenticated by Stripe signature verification in-route.
+  app.use('/api/v1/bookings', bookingRoutes);
+  // Refund routes enforce explicit per-route authz/validation (user ownership or admin role).
+  app.use('/api/v1/refunds', refundRoutes);
   app.use('/api/v1/security', requireAuth, securityRoutes);
 
   // Admin routes
-  app.use('/api/v1/admin/auth', adminAuthRoutes);
+  app.use('/api/v1/admin/auth', authRateLimiter, adminAuthRoutes);
   app.use('/api/v1/admin/flights', adminFlightRoutes);
   app.use('/api/v1/admin/users', adminUserRoutes);
   app.use('/api/v1/admin/bookings', adminBookingRoutes);
+  app.use('/api/v1/admin/operations', adminOperationsRoutes);
+  app.use('/api/v1/admin/support', adminSupportRoutes);
   app.use('/api/v1/admin/analytics', analyticsAuditRoutes);
   app.use('/api/v1/admin/analytics', analyticsAuditLogger);
   app.use('/api/v1/admin/analytics', adminAnalyticsRoutes);
@@ -217,7 +231,7 @@ export const createApp = async (options: AppOptions = {}) => {
   app.use('/api/v1/ancillary', ancillaryRoutes);
   app.use('/api/v1/contract-events', contractEventRoutes);
   app.use('/api/v1/stellar-expert', stellarExpertRoutes);
-  app.use('/api/v1/transactions', transactionRoutes);
+  app.use('/api/v1/transactions', requireAuth, transactionRoutes);
   app.use('/api/v1/checkin', requireAuth, checkinRoutes);
   app.use('/api/v1/journeys', journeyRoutes);
   app.use('/api/v1/carbon', carbonRoutes);

@@ -56,6 +56,7 @@ The Dispute Resolution Contract enables fair and transparent resolution of refun
    └─ Both parties submit evidence
 
 2. Jury Selection Phase
+   ├─ Evidence period times out (advance_to_voting)
    ├─ TRQ token holders volunteer as jurors
    └─ Jury fills to configured size
 
@@ -203,7 +204,17 @@ pub fn submit_evidence(
 )
 ```
 
-#### 4. Jury Selection
+#### 4. Advance to Voting (Evidence Timeout)
+```rust
+pub fn advance_to_voting(env: Env, dispute_id: u64)
+```
+Permissionless. Once the evidence period has elapsed, anyone may call this to
+move the dispute out of the `Evidence` phase into `JurySelection` so the jury
+can be seated and voting can begin. Fails with `Evidence period not ended` if
+called before the deadline and `Not in evidence phase` if the dispute already
+advanced.
+
+#### 5. Jury Selection
 ```rust
 pub fn select_as_juror(
     env: Env,
@@ -213,7 +224,7 @@ pub fn select_as_juror(
 )
 ```
 
-#### 5. Commit Vote
+#### 6. Commit Vote
 ```rust
 pub fn commit_vote(
     env: Env,
@@ -223,7 +234,7 @@ pub fn commit_vote(
 )
 ```
 
-#### 6. Reveal Vote
+#### 7. Reveal Vote
 ```rust
 pub fn reveal_vote(
     env: Env,
@@ -234,12 +245,12 @@ pub fn reveal_vote(
 )
 ```
 
-#### 7. Finalize Dispute
+#### 8. Finalize Dispute
 ```rust
 pub fn finalize_dispute(env: Env, dispute_id: u64)
 ```
 
-#### 8. File Appeal
+#### 9. File Appeal
 ```rust
 pub fn file_appeal(
     env: Env,
@@ -249,12 +260,12 @@ pub fn file_appeal(
 )
 ```
 
-#### 9. Execute Verdict
+#### 10. Execute Verdict
 ```rust
 pub fn execute_verdict(env: Env, dispute_id: u64)
 ```
 
-#### 10. Claim Juror Reward
+#### 11. Claim Juror Reward
 ```rust
 pub fn claim_juror_reward(
     env: Env,
@@ -325,21 +336,24 @@ client.submit_evidence(
     description,
 );
 
-// 5. Jurors volunteer
+// 5. Advance to voting once the evidence period elapses (permissionless)
+client.advance_to_voting(dispute_id);
+
+// 6. Jurors volunteer
 client.select_as_juror(juror1, dispute_id, token_balance);
 
-// 6. Commit votes
+// 7. Commit votes
 let commit_hash = keccak256(vote + salt);
 client.commit_vote(juror1, dispute_id, commit_hash);
 
-// 7. Reveal votes
+// 8. Reveal votes
 client.reveal_vote(juror1, dispute_id, true, salt);
 
-// 8. Finalize and execute
+// 9. Finalize and execute
 client.finalize_dispute(dispute_id);
 client.execute_verdict(dispute_id);
 
-// 9. Claim rewards
+// 10. Claim rewards
 let reward = client.claim_juror_reward(juror1, dispute_id);
 ```
 
@@ -354,6 +368,7 @@ The contract emits the following events:
 - `("juror", "selected")` - Juror selected
 - `("vote", "committed")` - Vote committed
 - `("vote", "revealed")` - Vote revealed
+- `("phase", "voting")` - Advanced to voting after evidence timeout
 - `("phase", "reveal")` - Advanced to reveal phase
 - `("dispute", "finalized")` - Dispute finalized with verdict
 - `("dispute", "appealed")` - Dispute appealed

@@ -187,6 +187,14 @@ export interface Flight {
   fromCity?: string
   toCity?: string
   airline_name?: string
+  segments?: Array<{ origin: string; destination: string }>
+  date?: string
+  provenance?: {
+    source: string
+    imported_at: string
+    source_updated_at?: string
+    freshness: "fresh" | "stale" | "unknown"
+  }
 }
 
 export interface FlightSearchResponse {
@@ -195,6 +203,11 @@ export interface FlightSearchResponse {
     next_cursor: string | null
     has_more: boolean
     page_size: number
+  }
+  provider_results?: {
+    complete: boolean
+    succeeded: number
+    failed: number
   }
 }
 
@@ -486,6 +499,56 @@ export interface PerformanceSnapshot {
 }
 
 export type ApiResult<T> = { success: true; data: T } | { success: false; error: { message: string } }
+
+export interface AuditLogFilters {
+  action?: string;
+  actorType?: 'user' | 'admin' | 'system' | 'anonymous';
+  userId?: string;
+  adminId?: string;
+  resource?: string;
+  resourceId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  actorType: string;
+  userId: string | null;
+  adminId: string | null;
+  resource: string | null;
+  resourceId: string | null;
+  details: string | null;
+  metadata: Record<string, unknown> | null;
+  ipAddress: string;
+  userAgent: string | null;
+  createdAt: string;
+}
+
+export interface AuditLogPage {
+  data: AuditLogEntry[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}
+
+function buildAuditQuery(filters: AuditLogFilters): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+  return params.toString();
+}
 
 export function getAuthHeader(): Record<string, string> {
   if (typeof window === 'undefined') return {}
@@ -1245,19 +1308,9 @@ export const apiClient = {
     }
   },
 
-  analyzeSelfTransfer: async (
-    request: AnalyzeSelfTransferRequest
-  ): Promise<ApiResult<SelfTransferAnalysisResponse>> => {
-    try {
-      const query = new URLSearchParams({
-        bookingIds: request.bookingIds.join(","),
-      })
-      const body = await authedFetch(
-        `/api/v1/self-transfer/analyze?${query.toString()}`
-      )
-      return { success: true, data: body as SelfTransferAnalysisResponse }
+
     } catch (error: any) {
       return { success: false, error: { message: error.message } }
     }
   },
-}
+

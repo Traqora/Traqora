@@ -9,15 +9,19 @@ import { logger } from "../utils/logger";
 import { createJobLogger } from "./jobLogger";
 import { deadLetterQueue } from "./deadLetterQueue";
 
-/**
- * Check whether a "sent" log entry already exists for this idempotency key +
- * channel combination. Returns true when the channel should be skipped.
- */
+type DeliveryChannel = "email" | "sms" | "push";
+
+type ChannelOutcome = {
+  channel: DeliveryChannel;
+  status: "success" | "skipped_duplicate" | "error";
+  error?: string;
+};
+
 async function isDuplicateDelivery(
   logRepo: ReturnType<typeof AppDataSource.getRepository<NotificationLog>>,
   userId: string,
   type: string,
-  channel: string,
+  channel: DeliveryChannel,
   idempotencyKey: string,
 ): Promise<boolean> {
   const existing = await logRepo.findOne({
@@ -26,185 +30,226 @@ async function isDuplicateDelivery(
   return existing !== null;
 }
 
+function safeErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Unknown notification delivery error";
+  }
+}
+
+function isPushTypeEnabled(userPref: UserPreference, type: string): boolean {
+  if (type === "booking") return userPref.pushBookingEnabled;
+  if (type === "reminder") return userPref.pushReminderEnabled;
+  if (type === "refund" || type === "refund_initiated") return userPref.pushRefundEnabled;
+  if (type === "promotional") return userPref.pushPromoEnabled;
+  return true;
+}
+
+function toPushDeliveryType(type: string): string {
+  if (type === "promotional") return "marketing";
+  if (type === "flight_status_shared") return "flight_status";
+  if (type === "payment") return "payment";
+  return type;
+}
+
+async function recordDelivery(
+  logRepo: ReturnType<typeof AppDataSource.getRepository<NotificationLog>>,
+  params: {
+    userId: string;
+    channel: DeliveryChannel;
+    type: string;
+    payload: Record<string, unknown>;
+    status: "sent" | "failed";
+    attempts: number;
+    idempotencyKey: string;
+    errorMessage?: string;
+  },
+): Promise<void> {
+  const entry = logRepo.create({
+    userId: params.userId,
+    channel: params.channel,
+    type: params.type,
+    payload: params.payload,
+    status: params.status,
+    attempts: params.attempts,
+    idempotencyKey: params.idempotencyKey,
+    errorMessage: params.errorMessage,
+  });
+  await logRepo.save(entry);
+}
+
 export const setupNotificationWorker = () => {
   notificationQueue.process(async (job) => {
     const { userId, type, data, channels } = job.data;
-    // Derive idempotency key from caller-supplied value or the Bull job ID so
-    // that per-channel deduplication works correctly across retries.
     const idempotencyKey =
       job.data.idempotencyKey ?? `job:${job.id?.toString() ?? "unknown"}`;
 
     const log = createJobLogger("notification-worker", job.id?.toString() ?? undefined);
     log.start({ userId, type, idempotencyKey });
 
-    // In a real app we might fetch user details (e.g. email, phone) from a User service or entity
-    // For now we rely on UserPreference storing them.
     const userPrefRepo = AppDataSource.getRepository(UserPreference);
     const logRepo = AppDataSource.getRepository(NotificationLog);
 
     const userPref = await userPrefRepo.findOne({ where: { userId } });
-
     if (!userPref) {
-      log.fail({ step: "load_user_preference", error: `User preferences not found for user: ${userId}` });
-      throw new Error(`User preferences not found for user: ${userId}`);
+      const error = `User preferences not found for user: ${userId}`;
+      log.fail({ step: "load_user_preference", error });
+      throw new Error(error);
     }
     log.step("load_user_preference");
 
-    const targetChannels = channels || ["email", "sms", "push"];
-    const results = [];
+    const targetChannels: DeliveryChannel[] = (channels?.length
+      ? channels
+      : ["email", "sms", "push"]) as DeliveryChannel[];
+    const results: ChannelOutcome[] = [];
+    const attempts = job.attemptsMade + 1;
 
-    // Email
-    if (
-      targetChannels.includes("email") &&
-      userPref.emailEnabled &&
-      userPref.email
-    ) {
-      if (await isDuplicateDelivery(logRepo, userId, type, "email", idempotencyKey)) {
-        logger.info("notification-worker: skipping duplicate email delivery", { userId, type, idempotencyKey });
-        results.push({ channel: "email", status: "skipped_duplicate" });
-      } else {
-        try {
-          await emailService.send(userPref.email, type, data);
-          const entry = logRepo.create({
-            userId,
-            channel: "email",
-            type,
-            payload: job.data,
-            status: "sent",
-            attempts: job.attemptsMade + 1,
-            idempotencyKey,
-          });
-          await logRepo.save(entry);
-          results.push({ channel: "email", status: "success" });
-        } catch (error: any) {
-          const entry = logRepo.create({
-            userId,
-            channel: "email",
-            type,
-            payload: job.data,
-            status: "failed",
-            errorMessage: error.message,
-            attempts: job.attemptsMade + 1,
-            idempotencyKey,
-          });
-          await logRepo.save(entry);
-          results.push({
-            channel: "email",
-            status: "error",
-            error: error.message,
-          });
-        }
+    for (const channel of targetChannels) {
+      const baseLog = { userId, channel, type, idempotencyKey };
+
+      if (await isDuplicateDelivery(logRepo, userId, type, channel, idempotencyKey)) {
+        logger.info("notification-worker: skipping duplicate delivery", baseLog);
+        results.push({ channel, status: "skipped_duplicate" });
+        continue;
       }
-    }
 
-    // SMS
-    if (
-      targetChannels.includes("sms") &&
-      userPref.smsEnabled &&
-      userPref.phoneNumber
-    ) {
-      if (await isDuplicateDelivery(logRepo, userId, type, "sms", idempotencyKey)) {
-        logger.info("notification-worker: skipping duplicate sms delivery", { userId, type, idempotencyKey });
-        results.push({ channel: "sms", status: "skipped_duplicate" });
-      } else {
-        try {
-          await smsService.send(userPref.phoneNumber, type, data);
-          const entry = logRepo.create({
-            userId,
-            channel: "sms",
-            type,
-            payload: job.data,
-            status: "sent",
-            attempts: job.attemptsMade + 1,
-            idempotencyKey,
-          });
-          await logRepo.save(entry);
-          results.push({ channel: "sms", status: "success" });
-        } catch (error: any) {
-          const entry = logRepo.create({
-            userId,
-            channel: "sms",
-            type,
-            payload: job.data,
-            status: "failed",
-            errorMessage: error.message,
-            attempts: job.attemptsMade + 1,
-            idempotencyKey,
-          });
-          await logRepo.save(entry);
-          results.push({ channel: "sms", status: "error", error: error.message });
+      if (channel === "email") {
+        if (!userPref.emailEnabled || !userPref.email) {
+          continue;
         }
-      }
-    }
-
-    // Push
-    const pushPreferenceEnabled =
-      type === "booking"
-        ? userPref.pushBookingEnabled
-        : type === "reminder"
-          ? userPref.pushReminderEnabled
-          : type === "refund" || type === "refund_initiated"
-            ? userPref.pushRefundEnabled
-            : type === "promotional"
-              ? userPref.pushPromoEnabled
-              : true;
-    if (
-      targetChannels.includes("push") &&
-      userPref.pushEnabled &&
-      userPref.pushOptedIn &&
-      pushPreferenceEnabled
-    ) {
-      if (await isDuplicateDelivery(logRepo, userId, type, "push", idempotencyKey)) {
-        logger.info("notification-worker: skipping duplicate push delivery", { userId, type, idempotencyKey });
-        results.push({ channel: "push", status: "skipped_duplicate" });
-      } else {
         try {
-          const pushType =
-            type === "promotional"
-              ? "marketing"
-              : type === "flight_status_shared"
-                ? "flight_status"
-                : type;
-          const delivery = await pushNotificationService.sendTypedPush(userId, pushType, data);
+          await emailService.send(userPref.email, type, data ?? {});
+          await recordDelivery(logRepo, {
+            userId,
+            channel,
+            type,
+            payload: job.data as Record<string, unknown>,
+            status: "sent",
+            attempts,
+            idempotencyKey,
+          });
+          results.push({ channel, status: "success" });
+        } catch (error) {
+          const message = safeErrorMessage(error);
+          logger.error("notification-worker: email delivery failed", { ...baseLog, error: message });
+          await recordDelivery(logRepo, {
+            userId,
+            channel,
+            type,
+            payload: job.data as Record<string, unknown>,
+            status: "failed",
+            attempts,
+            idempotencyKey,
+            errorMessage: message,
+          }).catch((persistError) => {
+            logger.error("notification-worker: failed to persist email delivery error", {
+              ...baseLog,
+              error: safeErrorMessage(persistError),
+            });
+          });
+          results.push({ channel, status: "error", error: message });
+        }
+        continue;
+      }
+
+      if (channel === "sms") {
+        if (!userPref.smsEnabled || !userPref.phoneNumber) {
+          continue;
+        }
+        try {
+          await smsService.send(userPref.phoneNumber, type, data ?? {});
+          await recordDelivery(logRepo, {
+            userId,
+            channel,
+            type,
+            payload: job.data as Record<string, unknown>,
+            status: "sent",
+            attempts,
+            idempotencyKey,
+          });
+          results.push({ channel, status: "success" });
+        } catch (error) {
+          const message = safeErrorMessage(error);
+          logger.error("notification-worker: sms delivery failed", { ...baseLog, error: message });
+          await recordDelivery(logRepo, {
+            userId,
+            channel,
+            type,
+            payload: job.data as Record<string, unknown>,
+            status: "failed",
+            attempts,
+            idempotencyKey,
+            errorMessage: message,
+          }).catch((persistError) => {
+            logger.error("notification-worker: failed to persist sms delivery error", {
+              ...baseLog,
+              error: safeErrorMessage(persistError),
+            });
+          });
+          results.push({ channel, status: "error", error: message });
+        }
+        continue;
+      }
+
+      if (channel === "push") {
+        const enabled = userPref.pushEnabled && userPref.pushOptedIn && isPushTypeEnabled(userPref, type);
+        if (!enabled) {
+          continue;
+        }
+        try {
+          const delivery = await pushNotificationService.sendTypedPush(
+            userId,
+            toPushDeliveryType(type) as any,
+            (data ?? {}) as Record<string, any>,
+          );
           if (delivery.failed > 0) {
             throw new Error(`Push delivery failed for ${delivery.failed} device(s)`);
           }
-          const entry = logRepo.create({
+          await recordDelivery(logRepo, {
             userId,
-            channel: "push",
+            channel,
             type,
-            payload: job.data,
+            payload: job.data as Record<string, unknown>,
             status: "sent",
-            attempts: job.attemptsMade + 1,
+            attempts,
             idempotencyKey,
           });
-          await logRepo.save(entry);
-          results.push({ channel: "push", status: "success" });
-        } catch (error: any) {
-          const entry = logRepo.create({
+          results.push({ channel, status: "success" });
+        } catch (error) {
+          const message = safeErrorMessage(error);
+          logger.error("notification-worker: push delivery failed", { ...baseLog, error: message });
+          await recordDelivery(logRepo, {
             userId,
-            channel: "push",
+            channel,
             type,
-            payload: job.data,
+            payload: job.data as Record<string, unknown>,
             status: "failed",
-            errorMessage: error.message,
-            attempts: job.attemptsMade + 1,
+            attempts,
             idempotencyKey,
+            errorMessage: message,
+          }).catch((persistError) => {
+            logger.error("notification-worker: failed to persist push delivery error", {
+              ...baseLog,
+              error: safeErrorMessage(persistError),
+            });
           });
-          await logRepo.save(entry);
-          results.push({ channel: "push", status: "error", error: error.message });
+          results.push({ channel, status: "error", error: message });
         }
       }
     }
 
-    // Channels that already succeeded on a previous attempt are skipped rather than
-    // re-sent, so only genuinely failed channels drive a Bull retry.
     const failures = results.filter((r) => r.status === "error");
     if (failures.length > 0) {
-      const error = new Error(`Failed to send notification via ${failures.map((failure) => failure.channel).join(", ")}`);
+      const error = new Error(
+        `Failed to send notification via ${failures.map((failure) => failure.channel).join(", ")}`,
+      );
       log.fail({ step: "deliver", error: error.message, channels: results });
       throw error;
     }
+
     log.complete({ channels: results });
     return results;
   });
@@ -222,8 +267,6 @@ export const setupNotificationWorker = () => {
     const isFinalAttempt = job.attemptsMade >= maxAttempts;
 
     if (isFinalAttempt) {
-      // Bull will not retry this job again — quarantine it instead of letting it
-      // disappear once Bull removes/expires the failed job record.
       deadLetterQueue
         .add({
           id: job.id?.toString() ?? "unknown",

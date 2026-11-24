@@ -8,6 +8,9 @@ import { NotificationService } from './NotificationService';
 import { RefundAuditService } from './refundAuditService';
 import { logger } from '../utils/logger';
 import { withRetries } from './retry';
+import { isDelayedRefundReady } from './refundTiming';
+import { percentageOfCents } from './refundArithmetic';
+import { verifyRefundToOriginalDestination } from './refundDestination';
 
 export interface RefundPolicyFactors {
   bookingStatus: string;
@@ -53,6 +56,51 @@ export interface AppliedFareRule {
   ruleValue: number | string | boolean;
   ruleDescription: string;
   priority: number;
+}
+
+/**
+ * A non-mutating estimate returned before a cancellation is confirmed.
+ * Monetary figures mirror the eligibility policy used by the refund flow so
+ * the estimate cannot disagree with the amount actually approved later.
+ */
+export interface CancellationQuote {
+  bookingId: string;
+  outcome: 'eligible' | 'manual_review' | 'ineligible';
+  reason: string;
+  currency: string;
+  originalAmountCents: number;
+  estimatedRefundCents: number;
+  refundPercentage: number;
+  fees: CancellationQuoteFees;
+  tier: string;
+  factors: RefundPolicyFactors;
+  /** Diagnostic fare-rule detail. `estimatedRefundCents` remains the authoritative figure. */
+  breakdown?: PartialRefundBreakdown;
+  quotedAt: string;
+  expiresAt: string;
+}
+
+export interface CancellationQuoteFees {
+  processingFeeCents: number;
+  cancellationFeeCents: number;
+  totalFeeCents: number;
+}
+
+/** How long a cancellation quote remains valid before it must be regenerated. */
+export const CANCELLATION_QUOTE_TTL_MS = 15 * 60 * 1000;
+
+/** Monetary amounts are stored in cents; USD is the platform settlement currency. */
+export const DEFAULT_QUOTE_CURRENCY = 'USD';
+
+/** Raised when a booking cannot produce an honest cancellation quote. */
+export class QuoteUnavailableError extends Error {
+  constructor(
+    public readonly code: 'MISSING_FLIGHT' | 'MISSING_DEPARTURE_TIME' | 'MISSING_AMOUNT',
+    message: string
+  ) {
+    super(message);
+    this.name = 'QuoteUnavailableError';
+  }
 }
 
 export interface CreateRefundRequest {
@@ -165,6 +213,15 @@ function getUnusedSegmentRatio(booking: Booking): number {
 
 function getTicketType(booking: Booking, rules: FareRules): RefundPolicyFactors['ticketType'] {
   return rules.ticketType ?? (booking as RefundableBookingMetadata).ticketType ?? 'standard';
+}
+
+function getQuoteCurrency(booking: Booking): string {
+  const rawData = booking.flight?.rawData as Record<string, unknown> | undefined;
+  const candidate = rawData?.currency;
+  if (typeof candidate === 'string' && /^[A-Z]{3}$/.test(candidate)) {
+    return candidate;
+  }
+  return DEFAULT_QUOTE_CURRENCY;
 }
 
 export class RefundService {
@@ -291,6 +348,70 @@ export class RefundService {
       partialRefundBreakdown,
     };
   }
+
+  /**
+   * Produce a non-mutating cancellation quote for a booking.
+   * Uses a single eligibility pass so the displayed estimate matches the
+   * policy and amount that the refund flow will apply at confirmation.
+   */
+  public async getCancellationQuote(booking: Booking): Promise<CancellationQuote> {
+    if (!booking?.flight) {
+      throw new QuoteUnavailableError(
+        'MISSING_FLIGHT',
+        'Cancellation quote unavailable: booking has no flight relation'
+      );
+    }
+    if (!(booking.flight.departureTime instanceof Date) || Number.isNaN(booking.flight.departureTime.getTime())) {
+      throw new QuoteUnavailableError(
+        'MISSING_DEPARTURE_TIME',
+        'Cancellation quote unavailable: flight departure time is missing'
+      );
+    }
+    if (typeof booking.amountCents !== 'number' || !Number.isFinite(booking.amountCents)) {
+      throw new QuoteUnavailableError(
+        'MISSING_AMOUNT',
+        'Cancellation quote unavailable: booking amount is missing'
+      );
+    }
+
+    const eligibility = await this.checkEligibility(booking);
+    const processingFeeCents = eligibility.processingFeeCents;
+
+    const now = new Date();
+    const departure = booking.flight.departureTime;
+    const expiryWindow = new Date(now.getTime() + CANCELLATION_QUOTE_TTL_MS);
+    // A quote is never valid past the flight it covers.
+    const expiresAt = departure.getTime() > now.getTime() && departure.getTime() < expiryWindow.getTime()
+      ? departure
+      : expiryWindow;
+
+    return {
+      bookingId: booking.id,
+      outcome: eligibility.requiresManualReview
+        ? 'manual_review'
+        : eligibility.isEligible
+          ? 'eligible'
+          : 'ineligible',
+      reason: eligibility.reason,
+      currency: getQuoteCurrency(booking),
+      originalAmountCents: booking.amountCents,
+      estimatedRefundCents: eligibility.refundAmountCents,
+      refundPercentage: eligibility.refundPercentage,
+      fees: {
+        processingFeeCents,
+        // The eligibility policy applied by the refund flow never levies a
+        // separate cancellation fee, so none is deducted from the estimate.
+        cancellationFeeCents: 0,
+        totalFeeCents: processingFeeCents,
+      },
+      tier: eligibility.tier,
+      factors: eligibility.factors,
+      breakdown: eligibility.partialRefundBreakdown,
+      quotedAt: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    };
+  }
+
   /**
    * Create a new refund request
    * Automatically determines if refund should be delayed based on amount
@@ -313,8 +434,9 @@ export class RefundService {
       throw new Error('Refund not found');
     }
 
-    // Calculate refund amount based on requested amount and percentage
-    const refundAmount = Math.floor((refund.requestedAmountCents * refundPercentage) / 100);
+    // Calculate refund amount with decimal-safe integer arithmetic (issue #1153).
+    // A fractional percentage must not lose or invent a cent through floats.
+    const refundAmount = percentageOfCents(refund.requestedAmountCents, refundPercentage);
     const finalAmount = refundAmount - refund.processingFeeCents;
 
     refund.approvedAmountCents = Math.max(0, finalAmount);
@@ -369,6 +491,11 @@ export class RefundService {
     refund.status = 'processing';
     await refundRepo.save(refund);
 
+    // Remains true when no card rail is involved. Once a Stripe refund is
+    // attempted it becomes true only when the rail confirms the money is
+    // returning to the original destination (issue #1154).
+    let stripeRailConfirmed = true;
+
     try {
       // Step 1: Process Stripe refund
       if (refund.booking.stripePaymentIntentId && refund.approvedAmountCents! > 0) {
@@ -390,6 +517,35 @@ export class RefundService {
           }
         );
 
+        // Confirm the rail is returning the money to the original payment
+        // destination (issue #1154). An unverified response does not fail the
+        // operation outright, but it must never be reported as a completed
+        // refund: the refund stays `stripe_refunded`, which the derived
+        // traveler outcome reports as in progress (#1155).
+        const destinationVerification = verifyRefundToOriginalDestination(
+          {
+            id: stripeRefund.id,
+            status: stripeRefund.status,
+            payment_intent:
+              typeof stripeRefund.payment_intent === 'string' ? stripeRefund.payment_intent : null,
+            amount: stripeRefund.amount,
+            currency: stripeRefund.currency,
+            destination: stripeRefund.destination,
+            failure_reason: stripeRefund.failure_reason,
+          },
+          {
+            paymentIntentId: refund.booking.stripePaymentIntentId!,
+            amountCents: refund.approvedAmountCents!,
+          }
+        );
+        stripeRailConfirmed = destinationVerification.verified && destinationVerification.status === 'succeeded';
+        if (!destinationVerification.verified) {
+          logger.warn(`Stripe refund destination could not be verified for ${refundId}`, {
+            reason: destinationVerification.reason,
+            stripeRefundId: stripeRefund.id,
+          });
+        }
+
         refund.stripeRefundId = stripeRefund.id;
         refund.status = 'stripe_refunded';
         await refundRepo.save(refund);
@@ -403,10 +559,14 @@ export class RefundService {
           metadata: {
             stripeRefundId: stripeRefund.id,
             amount: refund.approvedAmountCents,
+            destinationVerified: destinationVerification.verified,
+            destinationStatus: destinationVerification.status,
           },
         });
 
-        logger.info(`Stripe refund ${stripeRefund.id} created for refund ${refundId}`);
+        logger.info(`Stripe refund ${stripeRefund.id} created for refund ${refundId}`, {
+          destinationVerified: destinationVerification.verified,
+        });
       }
 
       // Step 2: Build Soroban refund transaction
@@ -423,8 +583,13 @@ export class RefundService {
 
         logger.info(`Soroban refund XDR prepared for refund ${refundId}`);
       } else {
-        // No on-chain booking, mark as completed
-        refund.status = 'completed';
+        // No on-chain booking. Only a verified, settled card refund for the
+        // full approved amount may be marked complete. A partial refund, a
+        // pending rail, or an unverified destination stays visible as in
+        // progress instead of falsely closing the booking (issue #1155).
+        const fullyReturned =
+          stripeRailConfirmed && refund.approvedAmountCents! >= refund.requestedAmountCents;
+        refund.status = fullyReturned ? 'completed' : 'stripe_refunded';
         await refundRepo.save(refund);
       }
 
@@ -1048,7 +1213,7 @@ export class RefundService {
       },
       relations: ['booking', 'booking.passenger', 'booking.flight'],
       order: { delayedUntil: 'ASC' },
-    }).then((refunds) => refunds.filter((r) => r.delayedUntil && r.delayedUntil <= now));
+    }).then((refunds) => refunds.filter((r) => isDelayedRefundReady(r, now)));
   }
 
   /**
@@ -1201,8 +1366,8 @@ export class RefundService {
       });
     }
     
-    // Calculate base refund amount
-    const baseRefundAmountCents = Math.floor((originalAmountCents * baseRefundPercentage) / 100);
+    // Calculate base refund amount with decimal-safe integer arithmetic (#1153).
+    const baseRefundAmountCents = percentageOfCents(originalAmountCents, baseRefundPercentage);
     
     // Rule: Segment usage adjustment (priority 5)
     const segmentAdjustmentFactor = unusedSegmentRatio;
@@ -1221,8 +1386,8 @@ export class RefundService {
     // Rule: Processing fee calculation (priority 6)
     const processingFeePercent = rules.processingFeePercent ?? (hoursUntilDeparture >= 168 ? 2 : hoursUntilDeparture >= 72 ? 5 : 10);
     const processingFeeMaxCents = rules.processingFeeMaxCents ?? (hoursUntilDeparture >= 168 ? 500 : booking.amountCents);
-    const processingFeeCents = baseRefundPercentage > 0 
-      ? Math.min(processingFeeMaxCents, Math.floor(booking.amountCents * (processingFeePercent / 100)))
+    const processingFeeCents = baseRefundPercentage > 0
+      ? Math.min(processingFeeMaxCents, percentageOfCents(booking.amountCents, processingFeePercent))
       : 0;
     const processingFeePercentage = processingFeeCents > 0 
       ? (processingFeeCents / originalAmountCents) * 100 

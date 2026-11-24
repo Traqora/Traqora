@@ -7,7 +7,7 @@
 
 import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../../../utils/errorHandler';
-import { requireAdmin, requireRole } from '../../../middleware/adminAuth';
+import { requireAdmin, requirePermission } from '../../../middleware/adminAuth';
 import { AppDataSource } from '../../../db/dataSource';
 import { Booking } from '../../../db/entities/Booking';
 import { Tenant } from '../../../db/entities/Tenant';
@@ -25,7 +25,7 @@ const router = Router();
 router.post(
   '/tenants',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { name, slug, contractId, organizationId, ownerWallet, rateLimitRpm } = req.body as {
       name?: string;
@@ -76,7 +76,7 @@ router.post(
 router.get(
   '/tenants',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (_req: Request, res: Response) => {
     const tenantRepo = AppDataSource.getRepository(Tenant);
     const tenants = await tenantRepo.find({ order: { createdAt: 'DESC' } });
@@ -91,7 +91,7 @@ router.get(
 router.patch(
   '/tenants/:tenantId/members',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { tenantId } = req.params;
     const { walletAddress, role } = req.body as { walletAddress?: string; role?: string };
@@ -133,7 +133,7 @@ router.patch(
 router.patch(
   '/tenants/:tenantId/config',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { tenantId } = req.params;
     const { rateLimitRpm, config } = req.body as { rateLimitRpm?: number; config?: Record<string, unknown> };
@@ -164,7 +164,7 @@ router.patch(
 router.get(
   '/tenants/:tenantId/summary',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { tenantId } = req.params;
     if (!isValidTenantId(tenantId)) {
@@ -218,7 +218,7 @@ router.get(
 router.get(
   '/cross-tenant/summary',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (_req: Request, res: Response) => {
     const bookingRepo = AppDataSource.getRepository(Booking);
 

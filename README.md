@@ -132,7 +132,12 @@ flowchart TB
 - **`monitoring/`** — Prometheus, Grafana, Loki and Alertmanager configuration (see [docs/monitoring.md](./docs/monitoring.md)).
 - **`terraform/`** — Infrastructure as code for cloud environments.
 
-For deployment procedures see [docs/deployment-guide.md](./docs/deployment-guide.md) and the [Contract Deployment Runbook](./docs/operations/CONTRACT_DEPLOYMENT_RUNBOOK.md).
+For deployment procedures see [docs/deployment-guide.md](./docs/deployment-guide.md), the [V1 Operator Deployment Runbook](./docs/operations/V1_DEPLOYMENT_RUNBOOK.md) and the [Contract Deployment Runbook](./docs/operations/CONTRACT_DEPLOYMENT_RUNBOOK.md). Release accountability is recorded in the [V1 Launch Readiness Sign-off](./docs/LAUNCH_READINESS.md).
+
+### V1 booking surface
+
+- [V1 booking detail contract](./packages/client/docs/V1_BOOKING_DETAIL_CONTRACT.md): missing, unauthorized, pending and unavailable detail states, plus supplier schedule change display.
+- [V1 cancellation eligibility rules](./packages/backend/docs/CANCELLATION_ELIGIBILITY.md): decision matrix combining platform status with supplier fare rules.
 
 ## Glossary
 
@@ -247,3 +252,4 @@ We welcome contributions from the community. Please refer to our [Contributing G
 
 This project is licensed under the MIT License. See the LICENSE file for more information.
 
+<!-- Keep zero-downtime migrations, backup restore, env-drift checks, and GDPR erasure export aligned. -->

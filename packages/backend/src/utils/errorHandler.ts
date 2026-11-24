@@ -47,6 +47,14 @@ const errorTypeMap: Record<string, { type: string; title: string }> = {
     type: 'https://traqora.com/errors/conflict',
     title: 'Conflict',
   },
+  OFFER_EXPIRED: {
+    type: 'https://traqora.com/errors/offer-expired',
+    title: 'Offer Expired',
+  },
+  WALLET_REJECTED: {
+    type: 'https://traqora.com/errors/wallet-rejected',
+    title: 'Wallet Rejected',
+  },
   UNPROCESSABLE_ENTITY: {
     type: 'https://traqora.com/errors/unprocessable-entity',
     title: 'Unprocessable Entity',

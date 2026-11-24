@@ -6,6 +6,92 @@ This guide explains how the Traqora Soroban contracts are tested, and how to add
 
 ## Overview
 
+The Traqora smart contract test suite provides comprehensive coverage of all contract modules with:
+- **90%+ line coverage target** via cargo-llvm-cov
+- **Property-based tests** using proptest for invariant verification
+- **Integration tests** for multi-contract workflows
+- **Edge case handling** for critical operations
+- **Automated CI validation** on every PR
+
+## Test Organization
+
+### Test Files and Responsibilities
+
+#### Core Integration Tests
+- **`integration_test.rs`**: Full booking → loyalty → refund workflow
+- **`comprehensive_integration_test.rs`**: Extended workflows including:
+  - Booking creation → payment → refund policy application → cancellation
+  - Booking with dispute resolution → settlement
+  - Multi-airline loyalty point accumulation
+  - Refund policy changes and reapplication
+  - Governance proposal references
+
+#### Property-Based Tests
+- **`fuzz_property_test.rs`**: Token invariant testing
+  - Total supply conservation across transfers
+  - Allowance and transfer_from compliance
+- **`advanced_property_tests.rs`**: Critical invariant tests
+  - Token total supply invariants
+  - Refund amount bounds (never exceeds price)
+  - Booking ID sequencing and uniqueness
+  - Loyalty points scaling with price
+
+#### Contract-Specific Tests
+- **`admin_multisig_test.rs`**: Admin multisig contract (149 tests, from PR #81)
+- **`booking_test.rs`**: Booking contract operations
+- **`refund_automation_integration_test.rs`**: Automated refund flow
+  - Refund tier boundaries (full/partial/no-refund) and settlement balances
+  - Policy automation idempotency: repeated `cancel_booking` / `automate_refund` panics with `Booking already cancelled` (no double settlement)
+- **`dispute_resolution_test.rs`**: Basic dispute resolution
+- **`dispute_resolution_advanced_test.rs`**: Enhanced dispute handling
+  - Multiple arbiter scenarios
+  - Jury rotation fairness
+  - Escrow security verification
+  - Independent dispute resolution
+- **`loyalty_test.rs`**: Loyalty points system
+- **`airline_test.rs`**: Airline registration and verification
+- **`governance_test.rs`**: Governance proposal system
+- **`oracle_test.rs`**: Price/data oracle integration
+
+#### Security & Edge Cases
+- **`access_test.rs`**: Authorization and access control
+- **`proxy_access_test.rs`**: Proxy contract access patterns
+- **`storage_version_test.rs`**: Contract versioning and upgrades
+- **`proxy_test.rs`**: Proxy contract behavior
+- **`token_test.rs`**: Token contract comprehensive tests
+- **`flight_registry_test.rs`**: Flight data registry
+- **`event_assertions_test.rs`**: Event emission validation
+
+#### Common Utilities
+- **`common.rs`**: Shared test fixtures and helper functions
+  - Environment setup with mock auth
+  - Actor (admin, passenger, airline) generation
+  - Contract registration and initialization
+  - Token initialization
+  - Airline registration and verification
+
+## Coverage Targets by Module
+
+| Module | Target | Priority |
+|--------|--------|----------|
+| Token (TRQ) | 95%+ | Critical |
+| Booking | 90%+ | Critical |
+| Refund | 90%+ | Critical |
+| Refund Automation | 90%+ | Critical |
+| Dispute Resolution | 92%+ | High |
+| Loyalty | 88%+ | High |
+| Airline | 85%+ | Medium |
+| Governance | 85%+ | Medium |
+| Oracle | 85%+ | Medium |
+| Admin/Multisig | 93%+ | Critical |
+
+## Running Tests
+
+### Run All Tests
+```bash
+cd contracts
+cargo test
+```
 The contracts in this repository are Soroban smart contracts written in Rust. They are tested with the **soroban-sdk testutils** environment (`soroban-sdk` built with the `testutils` feature), which provides an in-memory ledger that lets tests exercise contract calls without a network, Stellar RPC, or real wallet signatures.
 
 Tests live in the dedicated crates:
@@ -254,6 +340,60 @@ let res = contracts.governance.try_transfer_ownership(&attacker, &owner);
 assert!(res.is_err());
 ```
 
+## Gas Snapshots
+
+Per-release gas/byte-size snapshots guard against per-contract cost regressions.
+Soroban charges CPU budget in proportion to the executed WASM, so the compiled
+contract byte size is used as a stable, environment-independent gas proxy.
+
+### Capture a snapshot
+```bash
+./scripts/gas-snapshot.sh capture \
+  contracts/target/wasm32-unknown-unknown/release \
+  contracts/gas-snapshots/v0.1.0.json --release v0.1.0
+```
+
+### Compare against the previous release
+```bash
+./scripts/gas-snapshot.sh compare \
+  contracts/gas-snapshots/v0.2.0.json \
+  contracts/gas-snapshots/v0.1.0.json --threshold 5
+```
+
+`compare` exits non-zero when a contract grows beyond the threshold percentage
+(default 5) or is missing relative to the baseline. New contracts and size
+reductions are accepted. The `gas-snapshot` job in `.github/workflows/cd.yml`
+runs this automatically on `v*` tags. See `gas-snapshots/README.md` for details.
+
+### Test the gas-snapshot tool
+```bash
+cd contracts
+cargo test -p gas-snapshot
+```
+
+## Event Documentation Drift Check
+
+`contracts/EVENTS.md` is the operator-facing reference for every event the
+contracts emit. It is hand-maintained and silently drifts whenever an event is
+added, renamed, or removed. The `events-docs-check` tool extracts every event
+topic pair from the contract sources and diffs it against the tables in
+`EVENTS.md`, reporting both **undocumented** events (emitted but missing from the
+doc) and **stale** docs (documented but no longer emitted).
+
+### Run the check
+```bash
+./scripts/check-events-docs.sh
+```
+
+It exits non-zero when `EVENTS.md` drifts from the sources, so it can gate CI.
+
+### Test the events-docs-check tool
+```bash
+cd contracts
+cargo test -p events-docs-check
+```
+
+## Key Testing Patterns
 Note that with `mock_all_auths()` the host authorizes every call; the `try_*` pattern asserts the *contract's* role/ownership checks, not signature failures.
 
 ### Time-dependent behavior
@@ -411,21 +551,25 @@ cargo llvm-cov --summary-only --fail-under-lines 90
 | `contract_errors_test.rs` | Contract error paths and rejection handling. |
 | `booking_receipt_test.rs` | Booking receipt generation. |
 | `flight_booking_test.rs`, `flight_registry_test.rs`, `airline_test.rs` | Flight booking, registry data, airline registration/verification. |
+| `architecture_regression_test.rs` | Cross-contract architecture happy paths and failure modes. |
 | `token_test.rs`, `fuzz_property_test.rs` | Token behavior and invariant testing. |
 | `refund_test.rs`, `refund_automation_integration_test.rs` | Refund flows and automation. |
 | `dispute_test.rs`, `dispute_resolution_test.rs`, `dispute_resolution_advanced_test.rs` | Disputes, arbiters, escrow security, jury rotation. |
 | `loyalty_test.rs`, `loyalty_expiry_test.rs` | Loyalty points, tiers, and points expiry. |
 | `governance_test.rs`, `access_test.rs` | Governance proposals, roles, ownership, access control. |
+| `contract_snapshot_review_test.rs` | Snapshot review policy and durable-ledger regression checks. |
 | `oracle_test.rs` | Price/data oracle integration. |
 | `proxy_test.rs`, `proxy_access_test.rs`, `proxy_delegate_upgrade_test.rs` | Proxy contract behavior, access patterns, and delegate/upgrade flows. |
 | `upgrade_mechanism_test.rs`, `storage_version_test.rs` | Contract upgrades and storage versioning. |
 | `admin_multisig_test.rs` | Admin multisig operations. |
 | `event_assertions_test.rs` | Event schema validation across contracts. |
 | `advanced_property_tests.rs` | Critical invariant checks (supply, refund bounds, id sequencing, points scaling). |
+| `proptest_invariant_test.rs` | Scoped proptest invariant test for token supply conservation. |
+| `time_helpers_test.rs`, `upgrade_quickref_test.rs` | Ledger-time helper regressions and upgrade quick-reference coverage. |
 
 `packages/integration-tests/test_snapshots/` and `contracts/test_snapshots/` hold stored ledger snapshots (`Env`-serialized JSON). They are written by `soroban-sdk` relative to the current working directory, so **run the suite from `contracts/`** (`cargo test --locked`) to keep them in one place. They are diagnostic artifacts, not golden assertions — nothing reads them back.
 
-The suite's assertions are functional (in-process state checks). For upgrade work, the enforced check is the snapshot *review policy* in `packages/integration-tests/src/snapshot_review.rs`, which asserts that a change removes no durable ledger entry and does not rewrite the authorization log. See [docs/operations/CONTRACT_SNAPSHOT_REVIEW.md](../docs/operations/CONTRACT_SNAPSHOT_REVIEW.md).
+The suite's assertions are functional (in-process state checks). For upgrade work, the enforced check is the snapshot *review policy* in the `packages/integration-tests/src/snapshot_review` module, which asserts that a change removes no durable ledger entry and does not rewrite the authorization log. See [docs/operations/CONTRACT_SNAPSHOT_REVIEW.md](../docs/operations/CONTRACT_SNAPSHOT_REVIEW.md).
 
 ---
 

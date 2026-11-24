@@ -1,64 +1,36 @@
 import { Router, Request, Response } from 'express';
-import { z } from 'zod';
 import { queryAuditLogs, verifyAuditChain } from '../../middleware/audit';
-import { requireAdmin, requireRole } from '../../middleware/adminAuth';
+import { requireAdmin, requirePermission } from '../../middleware/adminAuth';
 import { requireAuth } from '../../middleware/authMiddleware';
 import { asyncHandler } from '../../utils/errorHandler';
 import { SecurityAuditLog } from '../../db/entities/SecurityAuditLog';
 import { getLogger } from '../../services/logger';
 import { createPaginationMeta } from '../../types/pagination';
+import {
+  auditExportQuerySchema,
+  auditQuerySchema,
+  type AuditFilters,
+} from '../schemas/audit';
 
 const router = Router();
 const logger = getLogger({ component: 'audit-routes' });
 
-const auditQuerySchema = z.object({
-  action: z.string().optional(),
-  actorType: z.enum(['user', 'admin', 'system', 'anonymous']).optional(),
-  userId: z.string().optional(),
-  adminId: z.string().optional(),
-  resource: z.string().optional(),
-  resourceId: z.string().optional(),
-  from: z.string().datetime().optional(),
-  to: z.string().datetime().optional(),
-  page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().positive().max(500).default(50),
-});
-
 function buildFiltersFromQuery(
   raw: Record<string, unknown>,
   overrides?: Record<string, unknown>,
-): {
-  action?: string;
-  actorType?: 'user' | 'admin' | 'system' | 'anonymous';
-  userId?: string;
-  adminId?: string;
-  resource?: string;
-  resourceId?: string;
-  from?: string;
-  to?: string;
-  page?: number;
-  limit?: number;
-} {
+): AuditFilters {
   const parsed = auditQuerySchema.parse(raw);
-  return {
-    action: parsed.action,
-    actorType: parsed.actorType,
-    userId: parsed.userId,
-    adminId: parsed.adminId,
-    resource: parsed.resource,
-    resourceId: parsed.resourceId,
-    from: parsed.from,
-    to: parsed.to,
-    page: parsed.page,
-    limit: parsed.limit,
-    ...overrides,
-  };
+  return { ...parsed, ...overrides };
+}
+
+function buildExportFilters(raw: Record<string, unknown>): AuditFilters {
+  return auditExportQuerySchema.parse(raw);
 }
 
 router.get(
   '/audit-logs',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const filters = buildFiltersFromQuery(req.query);
     const result = await queryAuditLogs(filters);
@@ -79,9 +51,9 @@ router.get(
 router.get(
   '/audit-logs/export',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
-    const filters = buildFiltersFromQuery({ ...req.query, limit: 10_000 });
+    const filters = buildExportFilters({ ...req.query });
     const result = await queryAuditLogs(filters);
     const csv = generateCsv(result.logs);
 
@@ -118,7 +90,7 @@ router.get(
 router.get(
   '/audit-logs/chain-verify',
   requireAdmin,
-  requireRole('admin'),
+  requirePermission('analytics:read'),
   asyncHandler(async (req: Request, res: Response) => {
     const { adminId, userId } = req.query;
     const result = await verifyAuditChain({

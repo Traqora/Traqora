@@ -41,6 +41,8 @@ import {
 } from '../types/flight';
 import { OffchainFlightDataProvider } from './offchainFlightDataProvider';
 
+import { recordSupplierRequest } from './operationsHealthService';
+
 export interface NamedFlightDataProvider {
   /** Stable identifier used in logs and error messages (e.g. "repository"). */
   name: string;
@@ -52,6 +54,18 @@ export interface FailoverAttempt {
   succeeded: boolean;
   latencyMs: number;
   error?: string;
+}
+
+export interface ProviderResultSummary {
+  /** False when at least one provider failed and another returned results. */
+  complete: boolean;
+  succeeded: number;
+  failed: number;
+}
+
+export interface CollectedFlightSearch {
+  flights: Flight[];
+  provider_results: ProviderResultSummary;
 }
 
 export class FlightProviderUnavailableError extends Error {
@@ -91,6 +105,7 @@ export class FailoverFlightDataProvider implements OffchainFlightDataProvider {
       try {
         const flights = await provider.search(criteria, pagination);
         const latencyMs = Date.now() - startedAt;
+        recordSupplierRequest(true);
         attempts.push({ provider: name, succeeded: true, latencyMs });
         if (attempts.length > 1) {
           logger.warn('Flight provider failover succeeded (#779)', {
@@ -104,6 +119,7 @@ export class FailoverFlightDataProvider implements OffchainFlightDataProvider {
         return flights;
       } catch (error) {
         const latencyMs = Date.now() - startedAt;
+        recordSupplierRequest(false);
         const message = error instanceof Error ? error.message : String(error);
         attempts.push({
           provider: name,
@@ -121,4 +137,90 @@ export class FailoverFlightDataProvider implements OffchainFlightDataProvider {
 
     throw new FlightProviderUnavailableError(attempts);
   }
+
+  /**
+   * Asks every provider and keeps the flights that came back.
+   * A mix of success and failure is a partial result: usable flights are
+   * returned with counts only. Upstream error text is redacted before it is
+   * logged or attached to a total-failure error, and it is never returned to
+   * the caller of a partial result.
+   */
+  async searchAll(
+    criteria: FlightSearchCriteria,
+    pagination: FlightPagination,
+  ): Promise<CollectedFlightSearch> {
+    if (this.providers.length === 0) {
+      throw new FlightProviderUnavailableError([]);
+    }
+
+    const flights: Flight[] = [];
+    const seen = new Set<string>();
+    const attempts: FailoverAttempt[] = [];
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const { name, provider } of this.providers) {
+      const startedAt = Date.now();
+      try {
+        const result = await provider.search(criteria, pagination);
+        const latencyMs = Date.now() - startedAt;
+        recordSupplierRequest(true);
+        succeeded += 1;
+        attempts.push({ provider: name, succeeded: true, latencyMs });
+        for (const flight of result) {
+          if (seen.has(flight.id)) continue;
+          seen.add(flight.id);
+          flights.push(flight);
+        }
+      } catch (error) {
+        const latencyMs = Date.now() - startedAt;
+        recordSupplierRequest(false);
+        const raw = error instanceof Error ? error.message : String(error);
+        const safeError = redactProviderSecrets(raw);
+        failed += 1;
+        attempts.push({
+          provider: name,
+          succeeded: false,
+          latencyMs,
+          error: safeError,
+        });
+        logger.warn('Flight provider failed during partial search (#913)', {
+          provider: name,
+          latencyMs,
+          error: safeError,
+        });
+      }
+    }
+
+    if (succeeded === 0) {
+      throw new FlightProviderUnavailableError(attempts);
+    }
+
+    return {
+      flights,
+      provider_results: {
+        complete: failed === 0,
+        succeeded,
+        failed,
+      },
+    };
+  }
+}
+
+const SECRET_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /bearer\s+\S+/gi, replacement: 'bearer [redacted]' },
+  {
+    pattern: /\b(api[_-]?key|client[_-]?secret|password|token|authorization|secret)\b\s*[:=]\s*\S+/gi,
+    replacement: '$1=[redacted]',
+  },
+  { pattern: /\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]+\b/g, replacement: '[redacted]' },
+  { pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, replacement: '[redacted]' },
+];
+
+/** Strip credentials and tokens from an upstream provider error. */
+export function redactProviderSecrets(message: string): string {
+  return SECRET_PATTERNS.reduce(
+    (current, { pattern, replacement }) => current.replace(pattern, replacement),
+    message,
+  );
 }

@@ -7,6 +7,13 @@ import { AppDataSource } from '../db/dataSource';
 import { NotificationLog } from '../db/entities/NotificationLog';
 import { logger } from '../utils/logger';
 import type { NotificationChannel, DeliveryStatus } from '../types/notification';
+import {
+  isValidDeliveryTransition,
+  sanitizeDeliveryMetadata,
+  type DeliveryLifecycleState,
+} from './deliveryLifecycle';
+
+export const DELIVERY_LIFECYCLE_KEY = 'deliveryLifecycle';
 
 export interface NotificationHistoryEntry {
   id: string;
@@ -72,7 +79,8 @@ export class NotificationHistoryService {
         body: entry.body,
         recipient: entry.recipient,
         externalId: entry.externalId,
-        metadata: entry.metadata,
+        metadata: sanitizeDeliveryMetadata(entry.metadata),
+        [DELIVERY_LIFECYCLE_KEY]: entry.status === 'failed' ? 'failed' : 'accepted',
       },
       errorMessage: entry.errorMessage,
       attempts: 1,
@@ -105,7 +113,7 @@ export class NotificationHistoryService {
     log.status = status;
     if (errorMessage) log.errorMessage = errorMessage;
     if (metadata) {
-      log.payload = { ...log.payload, ...metadata };
+      log.payload = { ...log.payload, ...sanitizeDeliveryMetadata(metadata) };
     }
     log.attempts += 1;
 
@@ -117,6 +125,95 @@ export class NotificationHistoryService {
     });
 
     return updated;
+  }
+
+  /**
+   * Record a delivery lifecycle transition on an existing log entry.
+   * Invalid transitions are ignored so a late provider callback cannot move
+   * a notification backwards or resurrect a terminal one.
+   */
+  async recordLifecycleTransition(
+    logId: string,
+    next: DeliveryLifecycleState,
+    metadata?: Record<string, unknown>,
+    errorMessage?: string
+  ): Promise<NotificationLog | null> {
+    const log = await this.repository.findOne({ where: { id: logId } });
+    if (!log) return null;
+
+    const payload = (log.payload ?? {}) as Record<string, unknown>;
+    const current = payload[DELIVERY_LIFECYCLE_KEY] as DeliveryLifecycleState | undefined;
+    if (!isValidDeliveryTransition(current, next)) {
+      logger.info('Ignoring invalid delivery lifecycle transition', {
+        id: logId,
+        current,
+        next,
+      });
+      return log;
+    }
+
+    return this.updateStatus(
+      logId,
+      this.statusForLifecycleState(next),
+      errorMessage,
+      {
+        ...sanitizeDeliveryMetadata(metadata),
+        [DELIVERY_LIFECYCLE_KEY]: next,
+      }
+    );
+  }
+
+  /** Map a lifecycle state onto the persisted DeliveryStatus column. */
+  private statusForLifecycleState(state: DeliveryLifecycleState): DeliveryStatus {
+    switch (state) {
+      case 'accepted':
+        return 'sent';
+      case 'delivered':
+        return 'delivered';
+      case 'failed':
+        return 'failed';
+      case 'retrying':
+        return 'pending';
+      case 'terminal':
+        return 'failed';
+    }
+  }
+
+  /** Provider accepted the message for delivery. */
+  async recordProviderAcceptance(
+    logId: string,
+    providerExternalId?: string,
+    metadata?: Record<string, unknown>
+  ): Promise<NotificationLog | null> {
+    return this.recordLifecycleTransition(logId, 'accepted', {
+      ...(providerExternalId ? { externalId: providerExternalId } : {}),
+      ...metadata,
+    });
+  }
+
+  /** Delivery failed; stores a sanitized error, never the message secret. */
+  async recordDeliveryFailure(
+    logId: string,
+    errorMessage: string,
+    metadata?: Record<string, unknown>
+  ): Promise<NotificationLog | null> {
+    return this.recordLifecycleTransition(logId, 'failed', metadata, errorMessage);
+  }
+
+  /** A retry is scheduled or in flight. */
+  async recordRetry(
+    logId: string,
+    metadata?: Record<string, unknown>
+  ): Promise<NotificationLog | null> {
+    return this.recordLifecycleTransition(logId, 'retrying', metadata);
+  }
+
+  /** No further attempts will be made. */
+  async markTerminal(
+    logId: string,
+    metadata?: Record<string, unknown>
+  ): Promise<NotificationLog | null> {
+    return this.recordLifecycleTransition(logId, 'terminal', metadata);
   }
 
   /**
@@ -250,8 +347,9 @@ export class NotificationHistoryService {
   /**
    * Get failed notifications for retry
    */
-  async getFailedNotifications(maxAge: number = 3600000): Promise<NotificationLog[]> {
+  async getFailedNotifications(maxAge: number = 3600000, limit: number = 100): Promise<NotificationLog[]> {
     const cutoffDate = new Date(Date.now() - maxAge);
+    const safeLimit = Math.max(1, Math.min(limit, 500));
 
     return this.repository
       .createQueryBuilder('log')
@@ -259,6 +357,7 @@ export class NotificationHistoryService {
       .andWhere('log.attempts < :maxAttempts', { maxAttempts: 3 })
       .andWhere('log.createdAt >= :cutoffDate', { cutoffDate })
       .orderBy('log.createdAt', 'DESC')
+      .take(safeLimit)
       .getMany();
   }
 
@@ -286,14 +385,40 @@ export class NotificationHistoryService {
   /**
    * Get history by notification ID
    */
-  async getHistoryByNotificationId(notificationId: string): Promise<NotificationHistoryEntry[]> {
-    const logs = await this.repository
+  async getHistoryByNotificationId(
+    notificationId: string,
+    options: { limit?: number } = {},
+  ): Promise<NotificationHistoryEntry[]> {
+    const safeLimit = Math.max(1, Math.min(options.limit ?? 100, 500));
+    const queryBuilder = this.repository
       .createQueryBuilder('log')
-      .where('log.payload::text LIKE :notificationId', {
-        notificationId: `%${notificationId}%`,
-      })
       .orderBy('log.createdAt', 'DESC')
-      .getMany();
+      .take(safeLimit);
+
+    // Prefer indexed column matches; avoid payload text scans when possible.
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(notificationId)) {
+      queryBuilder.where('log.id = :notificationId', { notificationId });
+    } else {
+      queryBuilder.where('log.idempotencyKey = :notificationId', { notificationId });
+    }
+
+    let logs = await queryBuilder.getMany();
+
+    // Backward-compatible fallback for legacy records that only stored the value in payload.
+    if (logs.length === 0) {
+      const likePattern = `%${notificationId}%`;
+      const driverType = AppDataSource.options.type;
+      const payloadCondition =
+        driverType === 'postgres'
+          ? 'CAST(log.payload AS TEXT) LIKE :notificationId'
+          : 'log.payload LIKE :notificationId';
+      logs = await this.repository
+        .createQueryBuilder('log')
+        .where(payloadCondition, { notificationId: likePattern })
+        .orderBy('log.createdAt', 'DESC')
+        .take(safeLimit)
+        .getMany();
+    }
 
     return logs.map(log => this.mapToHistoryEntry(log));
   }

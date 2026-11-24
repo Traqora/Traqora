@@ -175,7 +175,7 @@ function bookingBody(flightId: string, suffix = '1') {
       email: `smoke${suffix}@example.com`,
       firstName: 'Smoke',
       lastName: `Test${suffix}`,
-      sorobanAddress: `GSMOKE${suffix.toUpperCase()}`,
+      sorobanAddress: WALLET_ADDRESS,
     },
   };
 }

@@ -345,3 +345,48 @@ fn test_batch_create_flights_enforces_max_batch_size() {
         .airline
         .batch_create_flights(&actors.airline, &batch);
 }
+
+#[test]
+fn test_reconcile_and_reserve_seat_timeout_recovery() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    contracts.airline.initialize(&actors.admin);
+    register_and_verify_airline(&env, &contracts.airline, &actors.admin, &actors.airline);
+
+    let flight_id = contracts.airline.create_flight(
+        &actors.airline,
+        &Symbol::new(&env, "TQ801"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1_700_000_000,
+        &1_700_100_000,
+        &10,
+        &250_0000000i128,
+        &Symbol::new(&env, "USDC"),
+    );
+
+    let request_ref = Symbol::new(&env, "req_timeout_123");
+
+    // First attempt (simulates timeout outcome uncertainty -> reconcile and reserve)
+    let res1 = contracts.airline.reconcile_and_reserve_seat(
+        &actors.airline,
+        &flight_id,
+        request_ref.clone(),
+    );
+    assert_eq!(res1, flight_id);
+
+    let flight_after_first = contracts.airline.get_flight(&flight_id).unwrap();
+    assert_eq!(flight_after_first.available_seats, 9);
+
+    // Retry with same request reference after timeout (should reconcile and return existing mapping without decrementing again)
+    let res2 = contracts.airline.reconcile_and_reserve_seat(
+        &actors.airline,
+        &flight_id,
+        request_ref,
+    );
+    assert_eq!(res2, flight_id);
+
+    let flight_after_retry = contracts.airline.get_flight(&flight_id).unwrap();
+    assert_eq!(flight_after_retry.available_seats, 9);
+}
