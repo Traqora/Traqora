@@ -92,6 +92,17 @@ export class Booking {
   @Column({ type: 'integer', default: 0 })
   contractSubmitAttempts!: number;
 
+  /**
+   * Bounded on-chain confirmation retry state (#1131). `confirmationAttempts`
+   * counts attempts already spent; `confirmationNextAttemptAt` is the earliest
+   * time the worker may retry after backoff (null means due immediately).
+   */
+  @Column({ type: 'integer', default: 0 })
+  confirmationAttempts?: number;
+
+  @Column({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', nullable: true })
+  confirmationNextAttemptAt?: Date | null;
+
   @Column({ type: 'text', nullable: true })
   lastError?: string | null;
 

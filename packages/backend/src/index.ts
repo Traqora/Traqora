@@ -20,6 +20,7 @@ async function startServer() {
       contractMonitorModule,
       contractBookingReconciliationModule,
       pendingBookingAgeModule,
+      confirmationRetryModule,
     ] = await Promise.all([
       import('./app'),
       import('./db/dataSource'),
@@ -30,6 +31,7 @@ async function startServer() {
       import('./services/contractMonitor'),
       import('./jobs/contractBookingReconciliationJob'),
       import('./jobs/pendingBookingAgeJob'),
+      import('./jobs/confirmationRetryJob'),
     ]);
 
     await verifyConnectivity();
@@ -57,6 +59,7 @@ async function startServer() {
         contractMonitorModule.contractMonitor.startMonitoring(5000);
         contractBookingReconciliationModule.initContractBookingReconciliationCron();
         pendingBookingAgeModule.initPendingBookingAgeCron();
+        confirmationRetryModule.initConfirmationRetryCron();
 
         const wallets = [
           { address: process.env.OPERATIONAL_WALLET_ADDRESS || '', type: 'operational' },

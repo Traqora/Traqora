@@ -252,6 +252,12 @@ async function performConfirmBookingTx(
 
   if (decision.changed || metadataChanged) {
     booking.status = decision.toStatus;
+    if (decision.outcome === "confirmed") {
+      booking.confirmationAttempts = 0;
+      booking.confirmationNextAttemptAt = null;
+    } else if (decision.outcome === "failed") {
+      booking.confirmationNextAttemptAt = null;
+    }
     if (decision.outcome === "confirmed" && decision.onChainBookingId) {
       booking.sorobanBookingId = decision.onChainBookingId;
     }

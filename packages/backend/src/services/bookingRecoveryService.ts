@@ -104,6 +104,10 @@ export class BookingRecoveryService {
             const previousStatus = booking.status;
             booking.status = ACTION_TARGET_STATUS[input.action];
             booking.lastError = reason;
+            if (input.action === 'retry_confirmation') {
+                booking.confirmationAttempts = 0;
+                booking.confirmationNextAttemptAt = null;
+            }
             const saved = await manager.getRepository(Booking).save(booking);
 
             const audit = manager.getRepository(AdminAuditLog).create({

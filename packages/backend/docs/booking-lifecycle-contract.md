@@ -137,3 +137,49 @@ the single owner of the transition and is unit-tested for idempotent replay in
 both directions (confirmed + failed).
 
 Regression tests: `packages/backend/src/services/__tests__/bookingConfirmRetry.test.ts`.
+
+---
+
+## 3. Bounded confirmation retry worker (#1131)
+
+Implementation: `packages/backend/src/services/confirmationRetry.ts`
+(`decideConfirmationRetry`, `ConfirmationRetryService`) and
+`packages/backend/src/jobs/confirmationRetryJob.ts`, started from
+`packages/backend/src/index.ts`.
+
+The post-submission poll (`BookingOrchestrationService.pollTransactionStatus`)
+now delegates to `retryUntilSettled`. A periodic sweep
+(`CONFIRMATION_RETRY_CRON`, default `*/1 * * * *`) is the durable safety net for
+bookings whose in-process poll was lost on restart.
+
+### Inputs
+
+Bookings in `onchain_pending` or `onchain_submitted` with a `sorobanTxHash`,
+whose `confirmationNextAttemptAt` is null or in the past. The batch is bounded
+by `CONFIRMATION_RETRY_BATCH_SIZE` (default 50).
+
+### Policy
+
+| Env var                             | Default | Meaning                                      |
+| ----------------------------------- | ------- | -------------------------------------------- |
+| `CONFIRMATION_RETRY_MAX_ATTEMPTS`   | 8       | Total attempts before terminal failure       |
+| `CONFIRMATION_RETRY_BASE_DELAY_MS`  | 5000    | First backoff delay                          |
+| `CONFIRMATION_RETRY_MAX_DELAY_MS`   | 60000   | Backoff ceiling (exponential, +20% jitter)   |
+| `CONFIRMATION_RETRY_BATCH_SIZE`     | 50      | Bookings processed per sweep                 |
+| `CONFIRMATION_RETRY_CRON`           | `*/1 * * * *` | Sweep schedule                        |
+
+### Outcomes
+
+| Result                         | Persisted state                                              |
+| ------------------------------ | ------------------------------------------------------------ |
+| `confirmed` / `already_confirmed` | `confirmed`, attempts reset to 0, next attempt cleared    |
+| On-chain `failed`              | `failed`, `lastError` from the chain, seat released once      |
+| `pending` / `not_found` / error below budget | unchanged status, attempts +1, `confirmationNextAttemptAt` set |
+| Attempt budget exhausted       | `failed` with `lastError = "Confirmation retries exhausted after N attempts…"` and no further retries |
+
+The exhausted/failed row is the visible terminal state: it is returned by the
+booking and transaction APIs and fires the normal failed-booking operational
+signals. Attempts are serialized per booking in-process, and a new transaction
+submission or an admin `retry_confirmation` resets the retry budget.
+
+Regression tests: `packages/backend/src/services/__tests__/confirmationRetry.test.ts`.

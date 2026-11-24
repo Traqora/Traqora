@@ -6,13 +6,11 @@ import { Passenger } from "../db/entities/Passenger";
 import { TravelDocument, DocumentType } from "../db/entities/TravelDocument";
 import { GroupBooking } from "../db/entities/GroupBooking";
 
-import { getTransactionStatus, signAndSubmitCreateBooking } from "./soroban";
-import type { TransactionStatus } from "./soroban";
+import { signAndSubmitCreateBooking } from "./soroban";
 import { GroupBookingService } from "./groupBooking";
 import { bookingReferenceForBookingId } from "./bookingReference";
 
 import { logger } from "../utils/logger";
-import { withRetries } from "./retry";
 import { config } from "../config";
 import { BadRequestError, ConflictError } from "../utils/errors";
 import { assertTrustedStablecoin, parseAllowlist } from "./stablecoinIssuerAllowlist";
@@ -27,13 +25,13 @@ import type {
   ChangeFeeTier,
   SeasonalFareOverride,
 } from "./fareRulesService";
-import { getWebSocketServer } from "../websockets/server";
 import { executeIdempotentOperation, hashObject } from "./idempotency";
 import { assertCheckoutActionable } from "./checkoutOfferExpiry";
 import { assertPassengerAgeRules, type PassengerAgeInput } from "./passengerAgeRules";
 import { resolveStoredTicketingDeadline } from "./ticketingDeadline";
 import { requireProviderOfferId } from "./providerOfferTracking";
 import { recordSloLatency } from "./metrics";
+import { confirmationRetryService } from "./confirmationRetry";
 
 // ── Booking cancel policy engine (#785) ────────────────────────────────────
 //
@@ -453,12 +451,7 @@ export class BookingOrchestrationService {
 
             const savedBooking = await this.bookingRepo.save(booking);
 
-            this.pollTransactionStatus(
-              savedBooking.id,
-              result.txHash,
-              result.innerTxHash,
-              result.feeBumpTxHash,
-            ).catch(
+            this.pollTransactionStatus(savedBooking.id).catch(
               (err) => {
                 logger.error("Error polling transaction status", {
                   bookingId: savedBooking.id,
@@ -492,115 +485,18 @@ export class BookingOrchestrationService {
     return booking;
   }
 
-  private async pollTransactionStatus(
-    bookingId: string,
-    txHash: string,
-    innerTxHash?: string | null,
-    feeBumpTxHash?: string | null,
-  ) {
+  private async pollTransactionStatus(bookingId: string) {
+    const start = Date.now();
     try {
-      await withRetries(
-        async () => {
-          const status = await getTransactionStatus(txHash, {
-            innerTxHash,
-            feeBumpTxHash,
-          });
-
-          const booking = await this.bookingRepo.findOne({
-            where: { id: bookingId },
-            relations: ["flight"],
-          });
-          if (!booking) return;
-
-          applyTransactionMetadata(booking, status);
-
-          if (status.status === "success") {
-            booking.status = "confirmed";
-            if (status.result) {
-              booking.sorobanBookingId = status.result.toString();
-            }
-            await this.bookingRepo.save(booking);
-            logger.info("Booking confirmed on-chain", { bookingId, txHash });
-
-            // Broadcast booking status update via WebSocket
-            try {
-              const wsServer = getWebSocketServer();
-              wsServer.broadcastBookingStatus(bookingId, "confirmed");
-            } catch (wsError) {
-              logger.warn("Failed to broadcast booking status via WebSocket", {
-                bookingId,
-                error: wsError,
-              });
-            }
-            terminalFailed = false;
-          } else if (status.status === "failed") {
-            booking.status = "failed";
-            booking.lastError = status.error || "Transaction failed";
-            await this.bookingRepo.save(booking);
-
-            await this.flightRepo.increment(
-              { id: booking.flight.id },
-              "seatsAvailable",
-              1,
-            );
-            logger.error("Booking failed on-chain", {
-              bookingId,
-              txHash,
-              error: status.error,
-            });
-
-            // Broadcast booking status update via WebSocket
-            try {
-              const wsServer = getWebSocketServer();
-              wsServer.broadcastBookingStatus(bookingId, "failed");
-            } catch (wsError) {
-              logger.warn("Failed to broadcast booking status via WebSocket", {
-                bookingId,
-                error: wsError,
-              });
-            }
-            terminalFailed = true;
-          } else if (status.status === "pending") {
-            throw new Error("Transaction still pending");
-          } else if (status.status === "not_found") {
-            throw new Error("Transaction not found yet");
-          }
-        },
-        {
-          maxAttempts: 20,
-          delayMs: 5000,
-          backoff: true,
-        },
-      );
-      if (terminalFailed !== undefined) {
-        recordSloLatency("booking", (Date.now() - start) / 1000, terminalFailed);
-      }
+      const result = await confirmationRetryService.retryUntilSettled(bookingId);
+      const terminalFailed = result?.decision.status === "failed";
+      recordSloLatency("booking", (Date.now() - start) / 1000, terminalFailed);
     } catch (error: any) {
       recordSloLatency("booking", (Date.now() - start) / 1000, true);
-      logger.error("Max retries reached for booking status polling", {
+      logger.error("Confirmation retry failed during booking poll", {
         bookingId,
-        txHash,
         error: error.message,
       });
-      const booking = await this.bookingRepo.findOne({
-        where: { id: bookingId },
-      });
-      if (booking && booking.status === "onchain_submitted") {
-        booking.status = "failed";
-        booking.lastError = "Transaction status polling timed out";
-        await this.bookingRepo.save(booking);
-
-        // Broadcast booking status update via WebSocket
-        try {
-          const wsServer = getWebSocketServer();
-          wsServer.broadcastBookingStatus(bookingId, "failed");
-        } catch (wsError) {
-          logger.warn("Failed to broadcast booking status via WebSocket", {
-            bookingId,
-            error: wsError,
-          });
-        }
-      }
     }
   }
 
@@ -1311,20 +1207,4 @@ function isBookingEditable(status: string): boolean {
     "confirmed",
   ];
   return editableStatuses.includes(status);
-}
-
-/** Copy fee-bump/inner-hash metadata from the resolved status (#923). */
-function applyTransactionMetadata(
-  booking: Booking,
-  status: TransactionStatus,
-): void {
-  if (status.innerTxHash) {
-    booking.sorobanInnerTxHash = status.innerTxHash;
-  }
-  if (status.feeBumpTxHash) {
-    booking.sorobanFeeBumpTxHash = status.feeBumpTxHash;
-  }
-  if (status.isFeeBump !== undefined) {
-    booking.sorobanIsFeeBump = status.isFeeBump;
-  }
 }

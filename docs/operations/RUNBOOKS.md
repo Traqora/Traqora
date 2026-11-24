@@ -253,6 +253,7 @@ These runbooks provide step-by-step procedures for common incidents. Each runboo
 - `traqora_pending_booking_age_seconds{status=~"onchain_pending|onchain_submitted"}` above 1800s for 10m fires `StuckBookingOnchainPending`.
 - The gauge reports the age of the oldest booking in each pending status. It has a single low-cardinality label, `status`. No booking id is ever used as a label.
 - A backup job refreshes the gauge every minute using the `(status, updatedAt)` index from migration `1756000000000`. Override the schedule with `PENDING_BOOKING_AGE_CRON`.
+- A bounded confirmation retry worker (#1131) sweeps `onchain_pending`/`onchain_submitted` bookings with a transaction hash every minute. It retries with exponential backoff up to `CONFIRMATION_RETRY_MAX_ATTEMPTS` (default 8) and then moves the booking to `failed` with `lastError = "Confirmation retries exhausted after N attempts…"`. Override the schedule with `CONFIRMATION_RETRY_CRON`; tune with `CONFIRMATION_RETRY_BASE_DELAY_MS`, `CONFIRMATION_RETRY_MAX_DELAY_MS` and `CONFIRMATION_RETRY_BATCH_SIZE`.
 
 **Diagnosis:**
 - Read the gauge per status to see which pending stage is stuck.
