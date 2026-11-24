@@ -543,3 +543,7 @@ let events = server.get_events(GetEventsRequest {
 | `(booking, paid)` | `(passenger, timestamp, booking_id, amount)` | Booking paid |
 | `(booking, released)` | `(airline, timestamp, booking_id)` | Payment released to airline |
 | `(booking, refunded)` | `(passenger, timestamp, booking_id)` | Booking refunded |
+
+| `(booking, paid)` | `(passenger, timestamp, booking_id, amount)` | Booking paid |
+| `(booking, released)` | `(airline, timestamp, booking_id)` | Payment released to airline |
+| `(booking, refunded)` | `(passenger, timestamp, booking_id)` | Booking refunded |
