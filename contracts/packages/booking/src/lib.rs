@@ -185,7 +185,7 @@ impl BookingContract {
 
         assert!(
             booking.status == symbol_short!("pending"),
-            "Already paid or cancelled"
+            "Invalid booking status transition: expected pending"
         );
 
         booking.passenger.require_auth();
@@ -238,7 +238,7 @@ impl BookingContract {
 
         assert!(
             booking.status == symbol_short!("confirmed"),
-            "Invalid booking status"
+            "Invalid booking status transition: expected confirmed"
         );
         assert!(booking.amount_escrowed > 0, "No funds in escrow");
 
@@ -329,7 +329,7 @@ impl BookingContract {
         booking.passenger.require_auth();
         env.storage()
             .persistent()
-            .extend_ttl(&booking_id, /* delta = */ 0);
+            .extend_ttl(&booking_id, 0, 0);
     }
 
     // Helper to get booking details
