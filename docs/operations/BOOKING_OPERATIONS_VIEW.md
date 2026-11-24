@@ -21,8 +21,10 @@ The booking operations view gives authorized operators one read-only table of th
 | `bookingState` | Authoritative application booking state | Always present |
 | `supplierState` | Last known airline or provider state | `unavailable` |
 | `paymentReference` | Payment intent or on-chain transaction reference | `null` |
+| `contractState` | Backend status implied by the latest indexed contract event | `unavailable` |
 | `reconciliationStatus` | `not_attempted`, `detected`, `repaired` or `needs_review` | `not_attempted` when no attempt exists |
 | `reconciliationDetail` | Last reconciliation error | `null` |
+| `mismatches` | Detected contradictions between sources; each has `type`, `severity` and `detail` | `[]` |
 | `flightNumber` | Flight number from the loaded flight relation | `unavailable` |
 | `departureTime` | Departure time from the loaded flight relation | `unavailable` |
 | `amountCents` | Booking amount in cents | Always present |
@@ -38,6 +40,24 @@ The booking operations view gives authorized operators one read-only table of th
 
 Only the most recent attempt per booking is used. Attempt rows are append-only, so a retry produces a new row and replaces the displayed result.
 
+The response also includes a `summary` object for the current page: `scannedBookings`, `mismatchedBookings`, `mismatchCount`, `byType` and `bySeverity`. Page-scoped counts avoid an unbounded scan of the booking table; use the existing pagination fields to inspect further pages.
+
+## Mismatch detection
+
+A mismatch is recorded only when two recorded sources contradict each other. Missing telemetry is not a mismatch.
+
+| Type | Severity | Trigger |
+| --- | --- | --- |
+| `contract_backend_mismatch` | `high` | The latest supported contract event implies a different backend status |
+| `supplier_backend_mismatch` | `high` | The supplier reports `CANCELLED` while the booking is not terminal |
+| `supplier_sync_conflict` | `medium` | The flight has an unresolved `CONFLICT` sync status |
+| `payment_reference_missing` | `high` | A paid-or-later booking has no Stripe or on-chain reference |
+| `payment_state_unresolved` | `medium` | A failed booking still has a payment reference |
+| `reconciliation_failed` | `high` | The latest reconciliation attempt failed |
+| `reconciliation_detected` | `medium` | The latest reconciliation attempt detected a mismatch without repairing it |
+
+Mismatch details contain operational state and reconciliation error text; the view does not add traveler personal data.
+
 ## Security and privacy
 
 - The endpoint sits behind `requireAdmin` and returns `401` for missing credentials and `403` when the role is insufficient.
@@ -49,6 +69,8 @@ Only the most recent attempt per booking is used. Attempt rows are append-only, 
 
 - The table has a caption and column headers with `scope="col"`.
 - The status filter has a visible label.
+- The reconciliation summary has its own heading and is described as page-scoped.
+- Mismatch lists are labelled and use text, not colour alone, to convey severity.
 - Loading, empty, forbidden and error states are announced through a live region or an alert.
 
 ## Related documents

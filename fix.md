@@ -1,10 +1,10 @@
-#1134 Generate a stable traveler booking reference
+#1135 Add booking reconciliation dashboard data
 Repo Avatar
 Traqora/Traqora
 V1 area: Confirmation and reconciliation
 
 Goal
-Create a non-sensitive human-readable reference that is unique and never derived from personal data.
+Expose mismatches between supplier, payment, contract, and backend status to authorized operators.
 
 Acceptance criteria
  The stated v1 outcome is implemented without expanding the documented v1 scope.
