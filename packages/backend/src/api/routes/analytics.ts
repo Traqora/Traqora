@@ -11,12 +11,12 @@
  * analytics over PriceHistory, not alert management.
  */
 
-import { Router, Request, Response } from 'express';
-import { z } from 'zod';
-import { asyncHandler } from '../../utils/errorHandler';
-import { PriceOracleService } from '../../services/PriceOracleService';
-import { PricePredictionService } from '../../services/PricePredictionService';
-import { logger } from '../../utils/logger';
+import { Router, Request, Response } from "express";
+import { z } from "zod";
+import { asyncHandler } from "../../utils/errorHandler";
+import { PriceOracleService } from "../../services/PriceOracleService";
+import { PricePredictionService } from "../../services/PricePredictionService";
+import { logger } from "../../utils/logger";
 
 const router = Router();
 
@@ -28,14 +28,18 @@ const pricePredictionSchema = z.object({
 });
 
 const fareTrendSchema = z.object({
-  window: z.enum(['30', '60', '90']).default('30'),
+  window: z.enum(["30", "60", "90"]).default("30"),
 });
 
 /** Matches the flightId shape used elsewhere (alerts.ts, priceMonitor.ts,
  * PriceOracleService) so prediction/trend lookups line up with the same
  * PriceHistory rows the price-monitor cron and manual /alerts/check both
  * write to. */
-function routeFlightId(origin: string, destination: string, date: string): string {
+function routeFlightId(
+  origin: string,
+  destination: string,
+  date: string,
+): string {
   return `${origin}-${destination}-${date}`;
 }
 
@@ -47,7 +51,7 @@ function routeFlightId(origin: string, destination: string, date: string): strin
  * for the method — a statistical two-window trend comparison, not ML).
  */
 router.get(
-  '/price-prediction',
+  "/price-prediction",
   asyncHandler(async (req: Request, res: Response) => {
     const parsed = pricePredictionSchema.safeParse(req.query);
     if (!parsed.success) {
@@ -59,26 +63,42 @@ router.get(
     const oracle = PriceOracleService.getInstance();
     const predictor = PricePredictionService.getInstance();
 
-    logger.debug('analytics: price prediction request', { origin, destination, date });
+    logger.debug("analytics: price prediction request", {
+      origin,
+      destination,
+      date,
+    });
 
     const flightId = routeFlightId(origin, destination, date);
     const [priceData] = await oracle.fetchPrices([flightId]);
 
     if (!priceData) {
-      res.status(404).json({ error: 'No pricing data available for this route and date' });
+      res
+        .status(404)
+        .json({ error: "No pricing data available for this route and date" });
       return;
     }
 
-    const prediction = await predictor.predict(flightId, priceData.price, priceData.currency);
+    const prediction = await predictor.predict(
+      flightId,
+      priceData.price,
+      priceData.currency,
+    );
+    const oracleConfidence = oracle.getConfidenceScore();
+    const confidence = Math.min(prediction.confidence, oracleConfidence);
 
     res.json({
       route: { origin, destination, date, passengers },
       prediction: {
         ...prediction,
+        confidence,
+        confidenceLabel:
+          confidence >= 0.7 ? "high" : confidence >= 0.4 ? "medium" : "low",
         estimatedPrice: prediction.estimatedPrice * passengers,
       },
+      oracleConfidence,
       generatedAt: new Date().toISOString(),
-      note: 'Predictions are based on historical price patterns and should not be relied upon as guarantees.',
+      note: "Predictions are based on historical price patterns and should not be relied upon as guarantees.",
     });
   }),
 );
@@ -91,7 +111,7 @@ router.get(
  * (`ORIGIN-DEST-YYYY-MM-DD`) other services already key PriceHistory by.
  */
 router.get(
-  '/fare-trends/:route',
+  "/fare-trends/:route",
   asyncHandler(async (req: Request, res: Response) => {
     const { route } = req.params;
     const parsed = fareTrendSchema.safeParse(req.query);
@@ -101,17 +121,21 @@ router.get(
     }
 
     const windowDays = parseInt(parsed.data.window, 10);
-    logger.debug('analytics: fare trend request', { route, windowDays });
+    logger.debug("analytics: fare trend request", { route, windowDays });
 
     const predictor = PricePredictionService.getInstance();
-    const { dataPoints, summary } = await predictor.getFareTrend(route, windowDays);
+    const { dataPoints, summary } = await predictor.getFareTrend(
+      route,
+      windowDays,
+    );
 
     const seasonalNote =
       summary.dataPointCount === 0
-        ? 'No price history yet for this route — check back after it has an active price alert.'
-        : summary.currentPrice !== null && summary.currentPrice > summary.avgPrice * 1.1
-          ? 'Prices are currently above average — consider waiting.'
-          : 'Prices are at or below average — a good time to book.';
+        ? "No price history yet for this route — check back after it has an active price alert."
+        : summary.currentPrice !== null &&
+            summary.currentPrice > summary.avgPrice * 1.1
+          ? "Prices are currently above average — consider waiting."
+          : "Prices are at or below average — a good time to book.";
 
     res.json({
       route,
@@ -129,7 +153,7 @@ router.get(
  * route's actual historical average (PricePredictionService).
  */
 router.get(
-  '/buy-signal',
+  "/buy-signal",
   asyncHandler(async (req: Request, res: Response) => {
     const parsed = pricePredictionSchema.safeParse(req.query);
     if (!parsed.success) {
@@ -144,8 +168,13 @@ router.get(
     const [priceData] = await oracle.fetchPrices([flightId]);
 
     const currentPrice = priceData?.price ?? 0;
-    const currency = priceData?.currency ?? 'USD';
-    const prediction = await predictor.predict(flightId, currentPrice, currency);
+    const currency = priceData?.currency ?? "USD";
+    const prediction = await predictor.predict(
+      flightId,
+      currentPrice,
+      currency,
+    );
+    const oracleConfidence = oracle.getConfidenceScore();
 
     res.json({
       route: { origin, destination, date },
@@ -154,9 +183,10 @@ router.get(
       avgPrice: prediction.estimatedPrice,
       priceVsAvg:
         prediction.estimatedPrice === 0
-          ? '0.0%'
+          ? "0.0%"
           : `${((currentPrice / prediction.estimatedPrice - 1) * 100).toFixed(1)}%`,
-      confidence: prediction.confidence,
+      confidence: Math.min(prediction.confidence, oracleConfidence),
+      oracleConfidence,
       dataPointCount: prediction.dataPointCount,
       generatedAt: new Date().toISOString(),
     });

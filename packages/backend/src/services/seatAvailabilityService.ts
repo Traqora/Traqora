@@ -50,6 +50,29 @@ export interface GroupSeatHold {
 // In-memory seat lock storage (in production, use Redis)
 const seatLocks: Map<string, Map<string, SeatLock>> = new Map();
 const groupSeatHolds: Map<string, Map<string, GroupSeatHold>> = new Map();
+const flightQueues = new Map<string, Promise<void>>();
+
+/** Serialize the read/check/write section for one flight in this process. */
+async function withFlightLock<T>(
+  flightId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = flightQueues.get(flightId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  flightQueues.set(flightId, queued);
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (flightQueues.get(flightId) === queued) flightQueues.delete(flightId);
+  }
+}
 
 export class SeatAvailabilityService {
   /**
@@ -130,87 +153,95 @@ export class SeatAvailabilityService {
       throw new BadRequestError("Seat count must be greater than zero");
     }
 
-    const availability = await this.getSeatAvailability(flightId);
-    if (availability.availableSeats < seatCount) {
-      throw new BadRequestError(
-        `Not enough available seats in the seat pool for group hold: requested ${seatCount}, available ${availability.availableSeats}`,
-      );
-    }
+    return withFlightLock(flightId, async () => {
+      const existing = groupSeatHolds.get(flightId)?.get(groupBookingId);
+      if (existing && existing.expiresAt > new Date()) {
+        return { seats: [...existing.seats], heldCount: existing.seats.length };
+      }
+      if (existing) await this.releaseGroupSeatHold(flightId, groupBookingId);
 
-    const allocatedSeats: string[] = [];
-    const availableSeatsList: string[] = [];
+      const availability = await this.getSeatAvailability(flightId);
+      if (availability.availableSeats < seatCount) {
+        throw new BadRequestError(
+          `Not enough available seats in the seat pool for group hold: requested ${seatCount}, available ${availability.availableSeats}`,
+        );
+      }
 
-    // Collect all currently available seat numbers
-    for (const [rowStr, row] of Object.entries(availability.seatMap)) {
-      for (const [col, seat] of Object.entries(row)) {
-        if (seat.available) {
-          availableSeatsList.push(`${rowStr}${col}`);
+      const allocatedSeats: string[] = [];
+      const availableSeatsList: string[] = [];
+
+      // Collect all currently available seat numbers
+      for (const [rowStr, row] of Object.entries(availability.seatMap)) {
+        for (const [col, seat] of Object.entries(row)) {
+          if (seat.available) {
+            availableSeatsList.push(`${rowStr}${col}`);
+          }
         }
       }
-    }
 
-    // Allocate preferred seats first if provided and available
-    if (preferredSeats && preferredSeats.length > 0) {
-      for (const seat of preferredSeats) {
-        if (
-          availableSeatsList.includes(seat) &&
-          !allocatedSeats.includes(seat) &&
-          allocatedSeats.length < seatCount
-        ) {
+      // Allocate preferred seats first if provided and available
+      if (preferredSeats && preferredSeats.length > 0) {
+        for (const seat of preferredSeats) {
+          if (
+            availableSeatsList.includes(seat) &&
+            !allocatedSeats.includes(seat) &&
+            allocatedSeats.length < seatCount
+          ) {
+            allocatedSeats.push(seat);
+          }
+        }
+      }
+
+      // Allocate remaining required seats from available seats
+      for (const seat of availableSeatsList) {
+        if (allocatedSeats.length >= seatCount) break;
+        if (!allocatedSeats.includes(seat)) {
           allocatedSeats.push(seat);
         }
       }
-    }
 
-    // Allocate remaining required seats from available seats
-    for (const seat of availableSeatsList) {
-      if (allocatedSeats.length >= seatCount) break;
-      if (!allocatedSeats.includes(seat)) {
-        allocatedSeats.push(seat);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + SEAT_LOCK_DURATION_MS);
+
+      if (!groupSeatHolds.has(flightId)) {
+        groupSeatHolds.set(flightId, new Map());
       }
-    }
 
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + SEAT_LOCK_DURATION_MS);
-
-    if (!groupSeatHolds.has(flightId)) {
-      groupSeatHolds.set(flightId, new Map());
-    }
-
-    groupSeatHolds.get(flightId)!.set(groupBookingId, {
-      groupBookingId,
-      seatCount,
-      seats: allocatedSeats,
-      lockedAt: now,
-      expiresAt,
-    });
-
-    // Also register locks for each allocated seat
-    if (!seatLocks.has(flightId)) {
-      seatLocks.set(flightId, new Map());
-    }
-
-    for (const seatNumber of allocatedSeats) {
-      seatLocks.get(flightId)!.set(seatNumber, {
-        bookingId: `group:${groupBookingId}`,
-        seatNumber,
+      groupSeatHolds.get(flightId)!.set(groupBookingId, {
+        groupBookingId,
+        seatCount,
+        seats: allocatedSeats,
         lockedAt: now,
         expiresAt,
       });
-    }
 
-    logger.info("Group seats held", {
-      flightId,
-      groupBookingId,
-      seatCount,
-      allocatedSeats,
-      expiresAt,
+      // Also register locks for each allocated seat
+      if (!seatLocks.has(flightId)) {
+        seatLocks.set(flightId, new Map());
+      }
+
+      for (const seatNumber of allocatedSeats) {
+        seatLocks.get(flightId)!.set(seatNumber, {
+          bookingId: `group:${groupBookingId}`,
+          seatNumber,
+          lockedAt: now,
+          expiresAt,
+        });
+      }
+
+      logger.info("Group seats held", {
+        flightId,
+        groupBookingId,
+        seatCount,
+        allocatedSeats,
+        expiresAt,
+      });
+
+      return {
+        seats: allocatedSeats,
+        heldCount: allocatedSeats.length,
+      };
     });
-
-    return {
-      seats: allocatedSeats,
-      heldCount: allocatedSeats.length,
-    };
   }
 
   /**
@@ -269,7 +300,10 @@ export class SeatAvailabilityService {
   }
 
   /** Return active holds without exposing mutable internal seat arrays. */
-  getActiveGroupSeatHolds(flightId: string, asOf: Date = new Date()): GroupSeatHold[] {
+  getActiveGroupSeatHolds(
+    flightId: string,
+    asOf: Date = new Date(),
+  ): GroupSeatHold[] {
     const holds = groupSeatHolds.get(flightId);
     if (!holds) return [];
 
@@ -297,43 +331,56 @@ export class SeatAvailabilityService {
       throw new BadRequestError(`Invalid seat number format: ${seatNumber}`);
     }
 
-    // Check if seat already locked
-    const existingLock = this.getSeatLock(flightId, seatNumber);
-    if (
-      existingLock &&
-      existingLock.bookingId !== bookingId &&
-      existingLock.bookingId !== `group:${bookingId}`
-    ) {
-      throw new BadRequestError(
-        `Seat ${seatNumber} is locked by another booking or group hold`,
-      );
-    }
+    return withFlightLock(flightId, async () => {
+      // Keep check-and-set inside the flight lock so simultaneous requests
+      // cannot both pass availability before either writes its lock.
+      const existingLock = this.getSeatLock(flightId, seatNumber);
+      if (
+        existingLock &&
+        existingLock.bookingId !== bookingId &&
+        existingLock.bookingId !== `group:${bookingId}`
+      ) {
+        throw new BadRequestError(
+          `Seat ${seatNumber} is locked by another booking or group hold`,
+        );
+      }
 
-    // Check if seat is occupied
-    const booking = await AppDataSource.getRepository(Booking).findOne({
-      where: { flight: { id: flightId } },
+      // findOne by flight alone could return a different seat and miss an
+      // existing booking for the requested seat.
+      const bookings = await AppDataSource.getRepository(Booking).find({
+        where: { flight: { id: flightId } },
+      });
+
+      if (
+        bookings.some(
+          (booking) => (booking as any).metadata?.seatNumber === seatNumber,
+        )
+      ) {
+        throw new BadRequestError(`Seat ${seatNumber} is already occupied`);
+      }
+
+      // Create lock
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + SEAT_LOCK_DURATION_MS);
+
+      if (!seatLocks.has(flightId)) {
+        seatLocks.set(flightId, new Map());
+      }
+
+      seatLocks.get(flightId)!.set(seatNumber, {
+        bookingId,
+        seatNumber,
+        lockedAt: now,
+        expiresAt,
+      });
+
+      logger.info("Seat locked", {
+        flightId,
+        seatNumber,
+        bookingId,
+        expiresAt,
+      });
     });
-
-    if (booking && (booking as any).metadata?.seatNumber === seatNumber) {
-      throw new BadRequestError(`Seat ${seatNumber} is already occupied`);
-    }
-
-    // Create lock
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + SEAT_LOCK_DURATION_MS);
-
-    if (!seatLocks.has(flightId)) {
-      seatLocks.set(flightId, new Map());
-    }
-
-    seatLocks.get(flightId)!.set(seatNumber, {
-      bookingId,
-      seatNumber,
-      lockedAt: now,
-      expiresAt,
-    });
-
-    logger.info("Seat locked", { flightId, seatNumber, bookingId, expiresAt });
   }
 
   /**
@@ -381,38 +428,38 @@ export class SeatAvailabilityService {
       throw new BadRequestError(`Invalid seat number format: ${seatNumber}`);
     }
 
-    const booking = await this.getBookingOrThrow(bookingId);
+    return withFlightLock(flightId, async () => {
+      const booking = await this.getBookingOrThrow(bookingId);
+      const availability = await this.getSeatAvailability(flightId);
+      const [rowStr, col] = [seatNumber.slice(0, -1), seatNumber.slice(-1)];
+      const row = parseInt(rowStr);
 
-    // Check if seat is available
-    const availability = await this.getSeatAvailability(flightId);
-    const [rowStr, col] = [seatNumber.slice(0, -1), seatNumber.slice(-1)];
-    const row = parseInt(rowStr);
+      if (!availability.seatMap[row] || !availability.seatMap[row][col]) {
+        throw new BadRequestError(`Invalid seat location: ${seatNumber}`);
+      }
 
-    if (!availability.seatMap[row] || !availability.seatMap[row][col]) {
-      throw new BadRequestError(`Invalid seat location: ${seatNumber}`);
-    }
+      const seatInfo = availability.seatMap[row][col];
+      if (!seatInfo.available) {
+        throw new BadRequestError(`Seat ${seatNumber} is not available`);
+      }
 
-    const seatInfo = availability.seatMap[row][col];
-    if (!seatInfo.available) {
-      throw new BadRequestError(`Seat ${seatNumber} is not available`);
-    }
+      // Persist while holding the same flight mutex used by temporary holds.
+      const metadata = (booking as any).metadata ?? {};
+      metadata.seatNumber = seatNumber;
+      metadata.seatType = seatInfo.type;
+      metadata.seatPrice = seatPrice;
+      metadata.seatPreference = preference ?? null;
+      metadata.seatSelectedAt = new Date().toISOString();
 
-    // Update booking with seat selection
-    const metadata = (booking as any).metadata ?? {};
-    metadata.seatNumber = seatNumber;
-    metadata.seatType = seatInfo.type;
-    metadata.seatPrice = seatPrice;
-    metadata.seatPreference = preference ?? null;
-    metadata.seatSelectedAt = new Date().toISOString();
+      (booking as any).metadata = metadata;
+      await AppDataSource.getRepository(Booking).save(booking);
 
-    (booking as any).metadata = metadata;
-    await AppDataSource.getRepository(Booking).save(booking);
-
-    logger.info("Seat selected", {
-      bookingId,
-      flightId,
-      seatNumber,
-      price: seatPrice,
+      logger.info("Seat selected", {
+        bookingId,
+        flightId,
+        seatNumber,
+        price: seatPrice,
+      });
     });
   }
 
@@ -492,7 +539,9 @@ export class SeatAvailabilityService {
     }
 
     if (cleanedCount > 0) {
-      logger.info("Cleaned up expired seat locks and group holds", { seatsReleased: cleanedCount });
+      logger.info("Cleaned up expired seat locks and group holds", {
+        seatsReleased: cleanedCount,
+      });
     }
 
     return cleanedCount;

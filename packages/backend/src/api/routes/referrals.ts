@@ -9,51 +9,68 @@
  *   POST /referrals/convert         — convert a referral when referee completes first booking
  */
 
-import { Router, Request, Response } from 'express';
-import { z } from 'zod';
-import { v4 as uuidv4 } from 'uuid';
-import { asyncHandler } from '../../utils/errorHandler';
-import { requireAuth } from '../../middleware/authMiddleware';
-import { LoyaltyStore } from '../../services/loyalty/store';
-import { LoyaltyAccount, ReferralStats } from '../../types/loyalty';
-import { logger } from '../../utils/logger';
-import { emailService } from '../../services/EmailService';
-import { BadRequestError } from '../../utils/errors';
+import { Router, Request, Response } from "express";
+import { z } from "zod";
+import { v4 as uuidv4 } from "uuid";
+import { asyncHandler } from "../../utils/errorHandler";
+import { requireAuth } from "../../middleware/authMiddleware";
+import { LoyaltyStore } from "../../services/loyalty/store";
+import { LoyaltyAccount, ReferralStats } from "../../types/loyalty";
+import { logger } from "../../utils/logger";
+import { emailService } from "../../services/EmailService";
+import { BadRequestError } from "../../utils/errors";
+import { detectReferralFraud } from "../../services/referralFraudHeuristics";
 
 const router = Router();
 
-const BASE_REFERRAL_POINTS  = 500;
+const BASE_REFERRAL_POINTS = 500;
 const REFEREE_WELCOME_POINTS = 100;
 const TIER_MULTIPLIERS: Record<string, number> = {
-  bronze:   1,
-  silver:   1.5,
-  gold:     2,
+  bronze: 1,
+  silver: 1.5,
+  gold: 2,
   platinum: 3,
-  diamond:  4,
+  diamond: 4,
 };
 
 const convertReferralSchema = z.object({
   referralCode: z.string().min(6).max(32),
-  refereeId:    z.string().min(1),
-  bookingId:    z.string().min(1),
+  refereeId: z.string().min(1),
+  bookingId: z.string().min(1),
   bookingValue: z.number().positive(),
 });
 
 const trackClickSchema = z.object({
   referralCode: z.string().min(6).max(32),
-  refereeIp:    z.string().optional(),
-  userAgent:    z.string().optional(),
+  refereeIp: z.string().optional(),
+  userAgent: z.string().optional(),
 });
 
 const inviteSchema = z.object({
-  email:       z.string().trim().email(),
+  email: z.string().trim().email(),
   inviterName: z.string().trim().min(1).max(80).optional(),
 });
 
-const INVITE_BASE_URL = process.env.APP_BASE_URL || 'https://traqora.com';
+const INVITE_BASE_URL = process.env.APP_BASE_URL || "https://traqora.com";
+const referralIpEventCounts = new Map<string, number>();
+
+function normalizeIp(ip?: string): string | undefined {
+  return (
+    ip
+      ?.replace(/^::ffff:/, "")
+      .trim()
+      .toLowerCase() || undefined
+  );
+}
 
 function emptyStats(): ReferralStats {
-  return { totalClicks: 0, totalConversions: 0, pendingPoints: 0, earnedPoints: 0, referees: [] };
+  return {
+    totalClicks: 0,
+    totalConversions: 0,
+    pendingPoints: 0,
+    earnedPoints: 0,
+    referees: [],
+  };
 }
 
 /**
@@ -63,23 +80,33 @@ function emptyStats(): ReferralStats {
  * getOrCreateAccount returns a defensive copy, so mutating it in place
  * (as the original implementation did) silently discarded every change.
  */
-function getOrCreateReferralCode(store: LoyaltyStore, userId: string): { code: string; existing: boolean } {
+function getOrCreateReferralCode(
+  store: LoyaltyStore,
+  userId: string,
+): { code: string; existing: boolean } {
   const account = store.getOrCreateAccount(userId);
   if (account.referralCode) {
     return { code: account.referralCode, existing: true };
   }
 
-  const code = `REF-${userId.slice(0, 6).toUpperCase()}-${uuidv4().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+  const code = `REF-${userId.slice(0, 6).toUpperCase()}-${uuidv4().replace(/-/g, "").slice(0, 8).toUpperCase()}`;
   account.referralCode = code;
   store.updateAccount(account);
   return { code, existing: false };
 }
 
-function findAccountByReferralCode(store: LoyaltyStore, referralCode: string): LoyaltyAccount | undefined {
-  const codePrefix = referralCode.replace('REF-', '').split('-')[0];
+function findAccountByReferralCode(
+  store: LoyaltyStore,
+  referralCode: string,
+): LoyaltyAccount | undefined {
+  const codePrefix = referralCode.replace("REF-", "").split("-")[0];
   return store
     .getAllAccounts()
-    .find((a) => a.referralCode === referralCode || a.userId.toUpperCase().startsWith(codePrefix));
+    .find(
+      (a) =>
+        a.referralCode === referralCode ||
+        a.userId.toUpperCase().startsWith(codePrefix),
+    );
 }
 
 /**
@@ -87,12 +114,12 @@ function findAccountByReferralCode(store: LoyaltyStore, referralCode: string): L
  * Authenticated — generates or retrieves a unique referral code for the current user.
  */
 router.post(
-  '/codes',
+  "/codes",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user?.walletAddress;
     if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
 
@@ -104,7 +131,7 @@ router.post(
       return;
     }
 
-    logger.info('referral: code generated', { userId, code });
+    logger.info("referral: code generated", { userId, code });
 
     res.status(201).json({ referralCode: code, userId, existing: false });
   }),
@@ -116,34 +143,35 @@ router.post(
  * generating their referral code first if they don't have one yet.
  */
 router.post(
-  '/invite',
+  "/invite",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user?.walletAddress;
     if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
 
     const parsed = inviteSchema.safeParse(req.body);
     if (!parsed.success) {
-      throw new BadRequestError('Validation error', parsed.error.flatten());
+      throw new BadRequestError("Validation error", parsed.error.flatten());
     }
 
     const { email, inviterName } = parsed.data;
     const store = LoyaltyStore.getInstance();
     const { code } = getOrCreateReferralCode(store, userId);
 
-    const displayName = inviterName ?? `${userId.slice(0, 4)}...${userId.slice(-4)}`;
+    const displayName =
+      inviterName ?? `${userId.slice(0, 4)}...${userId.slice(-4)}`;
     const inviteUrl = `${INVITE_BASE_URL}/signup?ref=${encodeURIComponent(code)}`;
 
-    await emailService.sendTemplate(email, 'referral-invite', {
+    await emailService.send(email, "referral-invite", {
       inviterName: displayName,
       referralCode: code,
       inviteUrl,
     });
 
-    logger.info('referral: invite sent', { userId, email, referralCode: code });
+    logger.info("referral: invite sent", { userId, email, referralCode: code });
 
     res.status(202).json({ invited: true, email, referralCode: code });
   }),
@@ -154,23 +182,23 @@ router.post(
  * Authenticated — returns referral stats for the current user.
  */
 router.get(
-  '/dashboard',
+  "/dashboard",
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user?.walletAddress;
     if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
 
-    const store   = LoyaltyStore.getInstance();
+    const store = LoyaltyStore.getInstance();
     const account = store.getOrCreateAccount(userId);
 
     res.json({
       userId,
       referralCode: account.referralCode ?? null,
       stats: account.referralStats ?? emptyStats(),
-      tier:  account.tier,
+      tier: account.tier,
     });
   }),
 );
@@ -178,11 +206,11 @@ router.get(
 /**
  * POST /referrals/track
  * Public — records a referral link click for attribution against the
- * referrer's dashboard stats. Self-referrals (referrer == referee IP) are
- * rejected rather than silently counted.
+ * referrer's dashboard stats. Suspicious signals are flagged for review while
+ * click attribution remains non-blocking.
  */
 router.post(
-  '/track',
+  "/track",
   asyncHandler(async (req: Request, res: Response) => {
     const parsed = trackClickSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -191,19 +219,33 @@ router.post(
     }
 
     const { referralCode, refereeIp, userAgent } = parsed.data;
-    const requesterIp = req.ip;
+    const requesterIp = normalizeIp(req.ip);
 
-    if (refereeIp && requesterIp && refereeIp === requesterIp) {
-      logger.warn('referral: self-referral attempt blocked', { referralCode, ip: requesterIp });
-      res.status(400).json({ error: 'Self-referrals are not permitted' });
+    const store = LoyaltyStore.getInstance();
+    const referrer = findAccountByReferralCode(store, referralCode);
+    if (!referrer) {
+      res.status(404).json({ error: "Referral code not found or expired" });
       return;
     }
 
-    const store   = LoyaltyStore.getInstance();
-    const referrer = findAccountByReferralCode(store, referralCode);
-    if (!referrer) {
-      res.status(404).json({ error: 'Referral code not found or expired' });
-      return;
+    const recentIpEventCount = requesterIp
+      ? (referralIpEventCounts.get(requesterIp) ?? 0)
+      : 0;
+    const fraudSignals = detectReferralFraud({
+      referrerId: referrer.userId,
+      refereeIp: requesterIp,
+      selfReferralByIp: Boolean(
+        refereeIp && normalizeIp(refereeIp) === requesterIp,
+      ),
+      recentIpEventCount,
+    });
+    if (requesterIp)
+      referralIpEventCounts.set(requesterIp, recentIpEventCount + 1);
+    if (fraudSignals.length > 0) {
+      logger.warn("referral: suspicious click flagged", {
+        referralCode,
+        signals: fraudSignals,
+      });
     }
 
     const stats = referrer.referralStats ?? emptyStats();
@@ -211,8 +253,12 @@ router.post(
     referrer.referralStats = stats;
     store.updateAccount(referrer);
 
-    logger.info('referral: click tracked', { referralCode, refereeIp, userAgent });
-    res.status(201).json({ tracked: true, referralCode });
+    logger.info("referral: click tracked", {
+      referralCode,
+      refereeIp,
+      userAgent,
+    });
+    res.status(201).json({ tracked: true, referralCode, fraudSignals });
   }),
 );
 
@@ -223,7 +269,7 @@ router.post(
  * Fraud guard: a referee can only convert once; self-referrals are rejected.
  */
 router.post(
-  '/convert',
+  "/convert",
   asyncHandler(async (req: Request, res: Response) => {
     const parsed = convertReferralSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -233,27 +279,50 @@ router.post(
 
     const { referralCode, refereeId, bookingId } = parsed.data;
 
-    const store    = LoyaltyStore.getInstance();
+    const store = LoyaltyStore.getInstance();
     const referrer = findAccountByReferralCode(store, referralCode);
 
     if (!referrer) {
-      res.status(404).json({ error: 'Referral code not found or expired' });
+      res.status(404).json({ error: "Referral code not found or expired" });
       return;
     }
 
-    if (referrer.userId === refereeId) {
-      res.status(400).json({ error: 'Self-referral is not permitted' });
-      return;
+    const normalizedIp = normalizeIp(req.ip);
+    const ipEventCount = normalizedIp
+      ? (referralIpEventCounts.get(normalizedIp) ?? 0)
+      : 0;
+    const priorConversionCount = (referrer.referralConversions ?? []).includes(
+      refereeId,
+    )
+      ? 1
+      : 0;
+    const fraudSignals = detectReferralFraud({
+      referrerId: referrer.userId,
+      refereeId,
+      refereeIp: normalizedIp,
+      recentIpEventCount: ipEventCount,
+      priorConversionCount,
+    });
+    if (fraudSignals.length > 0) {
+      logger.warn("referral: suspicious conversion flagged", {
+        referralCode,
+        refereeId,
+        bookingId,
+        signals: fraudSignals,
+      });
     }
 
     const conversions = referrer.referralConversions ?? [];
     if (conversions.includes(refereeId)) {
-      res.status(409).json({ error: 'Referee has already converted for this referral' });
+      res.status(409).json({
+        error: "Referee has already converted for this referral",
+        fraudSignals,
+      });
       return;
     }
 
-    const tier         = referrer.tier ?? 'bronze';
-    const multiplier   = TIER_MULTIPLIERS[tier] ?? 1;
+    const tier = referrer.tier ?? "bronze";
+    const multiplier = TIER_MULTIPLIERS[tier] ?? 1;
     const pointsEarned = Math.round(BASE_REFERRAL_POINTS * multiplier);
 
     conversions.push(refereeId);
@@ -268,18 +337,24 @@ router.post(
     store.updateAccount(referrer);
     store.getOrCreateAccount(refereeId);
 
-    logger.info('referral: conversion processed', { referralCode, refereeId, bookingId, pointsEarned });
+    logger.info("referral: conversion processed", {
+      referralCode,
+      refereeId,
+      bookingId,
+      pointsEarned,
+    });
 
     res.status(201).json({
       referralCode,
-      referrerId:            referrer.userId,
+      referrerId: referrer.userId,
       refereeId,
       bookingId,
       referrerPointsAwarded: pointsEarned,
-      refereePointsAwarded:  REFEREE_WELCOME_POINTS,
+      refereePointsAwarded: REFEREE_WELCOME_POINTS,
       tier,
       multiplier,
       processedAt: new Date().toISOString(),
+      fraudSignals,
     });
   }),
 );
