@@ -50,20 +50,12 @@ enums are the vocabulary, the tables are the actual event log.
 | topics                      | data fields                                                              | description                              |
 |-----------------------------|--------------------------------------------------------------------------|------------------------------------------|
 | `(booking, created)`        | `(passenger, timestamp, booking_id, airline, flight_number, price)`      | New booking created in pending state     |
+| `(booking, state_transition)`| `(caller, timestamp, booking_id, old_state, new_state)`                   | Booking state transition recorded        |
 | `(booking, paid)`           | `(passenger, timestamp, booking_id, amount)`                             | Payment escrowed; booking confirmed      |
-| `(booking, released)`       | `(airline \| oracle, timestamp, booking_id, amount)`                     | Escrow released to airline post-flight   |
-| `(booking, refunded)`       | `(passenger \| oracle, timestamp, booking_id, amount)`                   | Escrow refunded to passenger             |
-| `(booking, cancelled)`      | `(booking_id, passenger_refund, airline_amount)`                         | Booking cancelled; escrow split          |
-| `(booking, oracle)`         | `(admin, timestamp, oracle_address)`                                     | Trusted oracle address registered        |
-| topics                 | data fields                                                                             | description                            |
-|------------------------|------------------------------------------------------------------------------------------|----------------------------------------|
-| `(booking, oracle)`    | `(admin, timestamp, oracle)`                                                              | Trusted oracle address registered      |
-| `(booking, created)`   | `(passenger, timestamp, booking_id, airline, flight_number, price)`                       | New booking created in pending state   |
-| `(booking, paid)`      | `(passenger, timestamp, booking_id, amount)`                                              | Payment escrowed; booking confirmed    |
-| `(booking, released)`  | `(airline \| oracle, timestamp, booking_id, released_amount)`                             | Escrow released to airline post-flight |
-| `(booking, refunded)`  | `(passenger \| oracle, timestamp, booking_id, refunded_amount)`                           | Escrow refunded to passenger           |
+| `(booking, released)`       | `(airline \| oracle, timestamp, booking_id, released_amount)`             | Escrow released to airline post-flight   |
+| `(booking, refunded)`       | `(passenger | oracle, timestamp, booking_id, refunded_amount)`           | Escrow refunded to passenger             |
 | `(booking, cancelled)` | `(caller, timestamp, booking_id, passenger_refund, airline_amount)`                       | Booking cancelled; split of the escrow |
-
+| `(booking, oracle)`         | `(admin, timestamp, oracle)`                                             | Trusted oracle address registered        |
 ### Querying via Stellar SDK (JavaScript)
 
 ```js

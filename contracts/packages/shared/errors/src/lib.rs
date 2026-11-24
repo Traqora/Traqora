@@ -31,7 +31,7 @@
 
 #![no_std]
 
-use soroban_sdk::contracterror;
+use soroban_sdk::{contracterror, Env};
 
 /// Canonical error type for all Traqora Soroban contracts.
 ///
