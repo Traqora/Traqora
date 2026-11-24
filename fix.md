@@ -1,10 +1,10 @@
-#1132 Add a booking dead-letter recovery path
+#1134 Generate a stable traveler booking reference
 Repo Avatar
 Traqora/Traqora
 V1 area: Confirmation and reconciliation
 
 Goal
-Capture exhausted asynchronous work with enough safe context for audited operator recovery.
+Create a non-sensitive human-readable reference that is unique and never derived from personal data.
 
 Acceptance criteria
  The stated v1 outcome is implemented without expanding the documented v1 scope.

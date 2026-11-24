@@ -11,6 +11,8 @@ import { BookingApproval } from '../db/entities/BookingApproval';
 import { CheckIn } from '../db/entities/CheckIn';
 import { notificationService } from './NotificationService';
 import { seatAvailabilityService } from './seatAvailabilityService';
+import { generateBookingReference } from './bookingReference';
+import { config } from '../config';
 import { logger } from '../utils/logger';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors';
 import { v4 as uuidv4 } from 'uuid';
@@ -542,6 +544,9 @@ export class GroupBookingService {
       return;
     }
 
+    const memoSecret =
+      config.bookingMemoSecret || config.jwtSecret || config.stellarSecretKey;
+
     for (const member of group.members) {
       if (member.status !== 'paid' && member.role !== 'organizer') continue;
 
@@ -554,12 +559,20 @@ export class GroupBookingService {
 
       const savedPassenger = await passengerRepo.save(passenger);
 
+      const bookingReference = memoSecret
+        ? generateBookingReference(
+            `group-booking:${group.id}:member:${member.id}`,
+            memoSecret,
+          )
+        : null;
+
       const booking = bookingRepo.create({
         flight: { id: group.flightId } as any,
         passenger: savedPassenger,
         amountCents: member.shareAmountCents || 0,
         status: 'confirmed',
         idempotencyKey: `group_${group.id}_member_${member.id}`,
+        bookingReference,
       });
 
       await bookingRepo.save(booking);

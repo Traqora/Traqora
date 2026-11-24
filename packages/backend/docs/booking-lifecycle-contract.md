@@ -31,6 +31,26 @@ Regression coverage: `packages/backend/tests/idempotency.concurrency.test.ts`,
 `packages/backend/tests/bookings.integration.test.ts`, and
 `packages/backend/src/services/__tests__/bookingConfirmRetry.test.ts`.
 
+## 0.1 Stable traveler booking reference (#1134)
+
+Every new booking receives a human-readable reference of the form
+`TRQ-XXXXXXXXXXXXXXXX`, where the body is 16 Crockford base32 characters. The
+value is derived with HMAC-SHA256 from a stable booking seed and
+`BOOKING_MEMO_SECRET` (falling back to `JWT_SECRET`, then
+`STELLAR_SECRET_KEY`). It is deterministic for retries and fee-bump rebuilds,
+and the seed is a booking/group identifier, never a passenger name, email,
+phone number, or other personal data.
+
+The reference is stored on `bookings.bookingReference` under a unique index and
+is published as the Stellar `MEMO_TEXT` when the booking is submitted on-chain.
+Group bookings receive one reference per member booking. Existing bookings
+created before this field was introduced may have a null reference; the internal
+booking UUID remains the fallback identifier for those records.
+
+Implementation: `packages/backend/src/services/bookingReference.ts`,
+`bookingOrchestrationService.createBooking`, and
+`groupBooking.confirmGroupBooking`.
+
 ---
 
 ## 1. Booking cancel policy engine (#785)
