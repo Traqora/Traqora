@@ -13,8 +13,13 @@
  * Authentication: JWT required for analytics subscriptions.
  */
 
-import { Server } from 'socket.io';
-import { logger } from '../utils/logger';
+import { Server } from "socket.io";
+import { logger } from "../utils/logger";
+import {
+  analyticsAlertEventSchema,
+  distributionAnalyticsEventSchema,
+  revenueAnalyticsEventSchema,
+} from "../services/analyticsEventSchema";
 
 export interface DistributionEvent {
   distributionId: string;
@@ -32,8 +37,8 @@ export interface RevenueUpdate {
 
 export interface AnalyticsAlert {
   alertId: string;
-  type: 'anomaly' | 'cost_threshold' | 'distribution_anomaly';
-  severity: 'low' | 'medium' | 'high';
+  type: "anomaly" | "cost_threshold" | "distribution_anomaly";
+  severity: "low" | "medium" | "high";
   message: string;
   timestamp: Date;
 }
@@ -42,7 +47,10 @@ export interface AnalyticsAlert {
 const MESSAGE_LIMIT = 60;
 const WINDOW_MS = 60_000;
 
-const socketMessageCounts = new Map<string, { count: number; windowStart: number }>();
+const socketMessageCounts = new Map<
+  string,
+  { count: number; windowStart: number }
+>();
 
 function isRateLimited(socketId: string): boolean {
   const now = Date.now();
@@ -58,53 +66,95 @@ function isRateLimited(socketId: string): boolean {
   return false;
 }
 
-const ANALYTICS_ROOM = 'analytics';
+const ANALYTICS_ROOM = "analytics";
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 export function attachAnalyticsHandlers(io: Server): void {
-  io.on('connection', (socket) => {
-    socket.on('subscribe_analytics', () => {
+  io.on("connection", (socket) => {
+    socket.on("subscribe_analytics", () => {
       if (isRateLimited(socket.id)) {
-        socket.emit('error', { message: 'Rate limit exceeded. Retry after 60s.' });
+        socket.emit("error", {
+          message: "Rate limit exceeded. Retry after 60s.",
+        });
         return;
       }
       const user = (socket as any).data?.user;
       if (!user) {
-        socket.emit('error', { message: 'Authentication required for analytics subscription.' });
+        socket.emit("error", {
+          message: "Authentication required for analytics subscription.",
+        });
         return;
       }
       socket.join(ANALYTICS_ROOM);
-      logger.info(`Socket ${socket.id} joined analytics room (user=${user.sub ?? user.id ?? 'unknown'})`);
-      socket.emit('analytics_subscribed', { room: ANALYTICS_ROOM });
+      logger.info(
+        `Socket ${socket.id} joined analytics room (user=${user.sub ?? user.id ?? "unknown"})`,
+      );
+      socket.emit("analytics_subscribed", { room: ANALYTICS_ROOM });
     });
 
-    socket.on('unsubscribe_analytics', () => {
+    socket.on("unsubscribe_analytics", () => {
       socket.leave(ANALYTICS_ROOM);
       logger.info(`Socket ${socket.id} left analytics room`);
     });
 
-    socket.on('disconnect', () => {
+    socket.on("disconnect", () => {
       socketMessageCounts.delete(socket.id);
     });
   });
 
   // Heartbeat to keep connections alive and detect stale sockets
   setInterval(() => {
-    io.to(ANALYTICS_ROOM).emit('heartbeat', { ts: new Date() });
+    io.to(ANALYTICS_ROOM).emit("heartbeat", { ts: new Date() });
   }, HEARTBEAT_INTERVAL_MS).unref();
 }
 
-export function broadcastDistributionEvent(io: Server, event: DistributionEvent): void {
-  io.to(ANALYTICS_ROOM).emit('distribution_event', event);
-  logger.info(`Broadcast distribution_event: distributionId=${event.distributionId}`);
+export function broadcastDistributionEvent(
+  io: Server,
+  event: DistributionEvent,
+): void {
+  const parsed = distributionAnalyticsEventSchema.safeParse(event);
+  if (!parsed.success) {
+    logger.warn("analytics: dropping malformed distribution event", {
+      issues: parsed.error.issues.map(({ path, code }) => ({ path, code })),
+    });
+    return;
+  }
+  io.to(ANALYTICS_ROOM).emit("distribution_event", parsed.data);
+  logger.info(
+    `Broadcast distribution_event: distributionId=${event.distributionId}`,
+  );
 }
 
-export function broadcastRevenueUpdate(io: Server, update: RevenueUpdate): void {
-  io.to(ANALYTICS_ROOM).emit('revenue_update', update);
-  logger.info(`Broadcast revenue_update: bookingId=${update.bookingId} delta=${update.delta}`);
+export function broadcastRevenueUpdate(
+  io: Server,
+  update: RevenueUpdate,
+): void {
+  const parsed = revenueAnalyticsEventSchema.safeParse(update);
+  if (!parsed.success) {
+    logger.warn("analytics: dropping malformed revenue update", {
+      issues: parsed.error.issues.map(({ path, code }) => ({ path, code })),
+    });
+    return;
+  }
+  io.to(ANALYTICS_ROOM).emit("revenue_update", parsed.data);
+  logger.info(
+    `Broadcast revenue_update: bookingId=${update.bookingId} delta=${update.delta}`,
+  );
 }
 
-export function broadcastAnalyticsAlert(io: Server, alert: AnalyticsAlert): void {
-  io.to(ANALYTICS_ROOM).emit('analytics_alert', alert);
-  logger.info(`Broadcast analytics_alert: type=${alert.type} severity=${alert.severity}`);
+export function broadcastAnalyticsAlert(
+  io: Server,
+  alert: AnalyticsAlert,
+): void {
+  const parsed = analyticsAlertEventSchema.safeParse(alert);
+  if (!parsed.success) {
+    logger.warn("analytics: dropping malformed analytics alert", {
+      issues: parsed.error.issues.map(({ path, code }) => ({ path, code })),
+    });
+    return;
+  }
+  io.to(ANALYTICS_ROOM).emit("analytics_alert", parsed.data);
+  logger.info(
+    `Broadcast analytics_alert: type=${alert.type} severity=${alert.severity}`,
+  );
 }

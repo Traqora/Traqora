@@ -1,10 +1,10 @@
-import { logger } from '../utils/logger';
-import { invalidateAllFlightSearchCache } from './cache';
-import { config } from '../config';
-import axios from 'axios';
+import { logger } from "../utils/logger";
+import { invalidateAllFlightSearchCache } from "./cache";
+import { config } from "../config";
+import axios from "axios";
 
 // Supported currencies
-export type SupportedCurrency = 'USD' | 'EUR' | 'GBP' | 'XLM' | 'USDC' | 'USDT';
+export type SupportedCurrency = "USD" | "EUR" | "GBP" | "XLM" | "USDC" | "USDT";
 
 /**
  * Whether a new rate is different enough to matter.
@@ -24,7 +24,10 @@ const rateMoved = (previous: number | undefined, next: number): boolean => {
   if (previous === undefined || !Number.isFinite(previous)) {
     return true;
   }
-  return Math.abs(next - previous) / Math.max(Math.abs(previous), Number.EPSILON) > RATE_CHANGE_TOLERANCE;
+  return (
+    Math.abs(next - previous) / Math.max(Math.abs(previous), Number.EPSILON) >
+    RATE_CHANGE_TOLERANCE
+  );
 };
 
 export interface CurrencyRate {
@@ -39,6 +42,7 @@ export interface FlightPrice {
   currency: string;
   timestamp: Date;
   source: string;
+  confidenceScore: number;
 }
 
 export interface ConversionQuote {
@@ -57,7 +61,16 @@ export class PriceOracleService {
   // Search results embed the USD/XLM conversion, so the rate window is
   // env-configurable rather than a hard-coded constant.
   private cacheExpiryMs = config.oracleRateCacheTtlSeconds * 1000;
-  private readonly API_URL = process.env.ORACLE_API_URL || 'https://api.coincap.io/v2/rates';
+  private refreshPromise: Promise<Map<SupportedCurrency, CurrencyRate>> | null =
+    null;
+  private lastRefreshAttemptAt = 0;
+  private lastSuccessfulRefreshAt: number | null = null;
+  private readonly minimumRefreshIntervalMs = Math.max(
+    1000,
+    Math.min(this.cacheExpiryMs / 2, 30_000),
+  );
+  private readonly API_URL =
+    process.env.ORACLE_API_URL || "https://api.coincap.io/v2/rates";
   private readonly FALLBACK_RATES: Record<SupportedCurrency, number> = {
     USD: 1.0,
     EUR: 0.92,
@@ -92,11 +105,28 @@ export class PriceOracleService {
   /**
    * Fetches current exchange rates for all supported currencies
    */
-  public async fetchExchangeRates(): Promise<Map<SupportedCurrency, CurrencyRate>> {
+  public async fetchExchangeRates(): Promise<
+    Map<SupportedCurrency, CurrencyRate>
+  > {
+    if (this.refreshPromise) return this.refreshPromise;
+
+    const pending = this.updateExchangeRates();
+    this.refreshPromise = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.refreshPromise === pending) this.refreshPromise = null;
+    }
+  }
+
+  private async updateExchangeRates(): Promise<
+    Map<SupportedCurrency, CurrencyRate>
+  > {
     try {
       const response = await axios.get(this.API_URL, { timeout: 5000 });
       const data = response.data.data;
       let changed = false;
+      let validRateCount = 0;
 
       // Update cache with real rates
       if (Array.isArray(data)) {
@@ -105,6 +135,8 @@ export class PriceOracleService {
           if (currency) {
             const previous = this.rateCache.get(currency);
             const rate = parseFloat(rateData.rateUsd);
+            if (!Number.isFinite(rate) || rate <= 0) return;
+            validRateCount += 1;
             if (rateMoved(previous?.rate, rate)) {
               changed = true;
             }
@@ -117,7 +149,9 @@ export class PriceOracleService {
         });
       }
 
-      logger.info('Exchange rates updated successfully');
+      if (validRateCount > 0) this.lastSuccessfulRefreshAt = Date.now();
+
+      logger.info("Exchange rates updated successfully");
 
       // Cached search results embed the USD/XLM conversion, so a rate change
       // makes every cached conversion stale. Invalidation is best-effort and
@@ -128,9 +162,39 @@ export class PriceOracleService {
 
       return this.rateCache;
     } catch (error) {
-      logger.warn('Failed to fetch exchange rates, using cached/fallback rates', error);
+      logger.warn(
+        "Failed to fetch exchange rates, using cached/fallback rates",
+        error,
+      );
       return this.rateCache;
     }
+  }
+
+  /** Confidence in the cached conversion rates, reduced as provider data ages. */
+  public getConfidenceScore(now = Date.now()): number {
+    if (this.lastSuccessfulRefreshAt === null) return 0.25;
+    const age = Math.max(0, now - this.lastSuccessfulRefreshAt);
+    return Math.max(
+      0,
+      Math.min(1, 1 - age / Math.max(this.cacheExpiryMs * 3, 1)),
+    );
+  }
+
+  private refreshIfStale(): void {
+    const stale = Array.from(this.rateCache.values()).some(
+      (rate) => Date.now() - rate.timestamp.getTime() > this.cacheExpiryMs,
+    );
+    const now = Date.now();
+    if (
+      !stale ||
+      now - this.lastRefreshAttemptAt < this.minimumRefreshIntervalMs
+    )
+      return;
+
+    this.lastRefreshAttemptAt = now;
+    this.fetchExchangeRates().catch((error) =>
+      logger.error("Failed to refresh exchange rates", error),
+    );
   }
 
   /**
@@ -139,6 +203,8 @@ export class PriceOracleService {
    */
   public invalidateRateCache(): void {
     this.rateCache.clear();
+    this.lastSuccessfulRefreshAt = null;
+    this.lastRefreshAttemptAt = 0;
     this.initializeCache();
   }
 
@@ -149,12 +215,12 @@ export class PriceOracleService {
 
   private mapCurrencyId(id: string): SupportedCurrency | null {
     const mapping: Record<string, SupportedCurrency> = {
-      'usd': 'USD',
-      'eur': 'EUR',
-      'gbp': 'GBP',
-      'stellar': 'XLM',
-      'usd-coin': 'USDC',
-      'tether': 'USDT',
+      usd: "USD",
+      eur: "EUR",
+      gbp: "GBP",
+      stellar: "XLM",
+      "usd-coin": "USDC",
+      tether: "USDT",
     };
     return mapping[id.toLowerCase()] || null;
   }
@@ -168,16 +234,9 @@ export class PriceOracleService {
       logger.warn(`No rate found for ${currency}, using fallback`);
       return this.FALLBACK_RATES[currency] || 1.0;
     }
-    
-    // Check if cache is expired
-    const age = Date.now() - cached.timestamp.getTime();
-    if (age > this.cacheExpiryMs) {
-      // Async refresh cache
-      this.fetchExchangeRates().catch(err => 
-        logger.error('Failed to refresh exchange rates', err)
-      );
-    }
-    
+
+    this.refreshIfStale();
+
     return cached.rate;
   }
 
@@ -187,19 +246,19 @@ export class PriceOracleService {
   public convertCurrency(
     amount: number,
     fromCurrency: SupportedCurrency,
-    toCurrency: SupportedCurrency
+    toCurrency: SupportedCurrency,
   ): ConversionQuote {
     const fromRate = this.getRate(fromCurrency);
     const toRate = this.getRate(toCurrency);
-    
+
     // Convert to USD base first, then to target
     const usdAmount = amount / fromRate;
     const convertedAmount = usdAmount * toRate;
-    
+
     // Calculate conversion fee (0.5%)
     const fee = convertedAmount * 0.005;
     const finalAmount = convertedAmount - fee;
-    
+
     return {
       fromCurrency,
       toCurrency,
@@ -216,7 +275,7 @@ export class PriceOracleService {
    */
   public async fetchPrices(
     flightIds: string[],
-    targetCurrency: SupportedCurrency = 'USD'
+    targetCurrency: SupportedCurrency = "USD",
   ): Promise<FlightPrice[]> {
     const maxRetries = 3;
     let retries = 0;
@@ -228,12 +287,17 @@ export class PriceOracleService {
       } catch (error) {
         retries++;
         const delay = Math.pow(2, retries) * 1000;
-        logger.warn(`Failed to fetch prices. Retrying in ${delay}ms... (Attempt ${retries}/${maxRetries})`);
+        logger.warn(
+          `Failed to fetch prices. Retrying in ${delay}ms... (Attempt ${retries}/${maxRetries})`,
+        );
         if (retries === maxRetries) {
-          logger.error('Max retries reached. Failed to fetch prices from Oracle.', error);
+          logger.error(
+            "Max retries reached. Failed to fetch prices from Oracle.",
+            error,
+          );
           throw error;
         }
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
     return [];
@@ -242,19 +306,20 @@ export class PriceOracleService {
   // Simulate API call for demonstration
   private async mockApiCall(
     flightIds: string[],
-    targetCurrency: SupportedCurrency = 'USD'
+    targetCurrency: SupportedCurrency = "USD",
   ): Promise<FlightPrice[]> {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     const basePrice = 100 + Math.random() * 50;
-    const conversion = this.convertCurrency(basePrice, 'USD', targetCurrency);
-    
-    return flightIds.map(id => ({
+    const conversion = this.convertCurrency(basePrice, "USD", targetCurrency);
+
+    return flightIds.map((id) => ({
       flightId: id,
       price: conversion.convertedAmount,
       currency: targetCurrency,
       timestamp: new Date(),
-      source: 'PriceOracle'
+      source: "PriceOracle",
+      confidenceScore: this.getConfidenceScore(),
     }));
   }
 
@@ -263,17 +328,17 @@ export class PriceOracleService {
    */
   public async getHistoricalPrices(
     _flightId: string,
-    days: number = 30
+    days: number = 30,
   ): Promise<{ date: Date; price: number }[]> {
     const prices: { date: Date; price: number }[] = [];
     const now = new Date();
-    
+
     for (let i = days; i >= 0; i--) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
       const basePrice = 100 + Math.random() * 50;
       prices.push({ date, price: basePrice });
     }
-    
+
     return prices;
   }
 }

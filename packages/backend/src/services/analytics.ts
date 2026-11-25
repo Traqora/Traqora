@@ -6,15 +6,17 @@
  * analytics) and services/user-analytics.ts (notification-delivery stats).
  */
 
-import { AppDataSource } from '../db/dataSource';
-import { SearchHistoryEntry } from '../db/entities/SearchHistoryEntry';
-import { SavedSearch } from '../db/entities/SavedSearch';
-import { Booking } from '../db/entities/Booking';
+import { AppDataSource } from "../db/dataSource";
+import { SearchHistoryEntry } from "../db/entities/SearchHistoryEntry";
+import { SavedSearch } from "../db/entities/SavedSearch";
+import { Booking } from "../db/entities/Booking";
 import {
   RecommendationEvent,
   RecommendationAction,
   RecommendationVariant,
-} from '../db/entities/RecommendationEvent';
+} from "../db/entities/RecommendationEvent";
+import { logger } from "../utils/logger";
+import { recommendationAnalyticsEventSchema } from "./analyticsEventSchema";
 
 const TRENDING_WINDOW_DAYS = 30;
 /** Bookings are a much stronger signal of destination interest than a search. */
@@ -72,13 +74,17 @@ function bumpFrequency(
  * A single user's own signal: destinations they've searched, saved, or
  * booked, ranked by frequency (bookings weighted heaviest) then recency.
  */
-export async function getUserDestinationFrequency(userId: string): Promise<DestinationFrequency[]> {
+export async function getUserDestinationFrequency(
+  userId: string,
+): Promise<DestinationFrequency[]> {
   const frequency = new Map<string, DestinationFrequency>();
 
   const [searches, savedSearches, bookings] = await Promise.all([
     AppDataSource.getRepository(SearchHistoryEntry).find({ where: { userId } }),
     AppDataSource.getRepository(SavedSearch).find({ where: { userId } }),
-    AppDataSource.getRepository(Booking).find({ where: { walletAddress: userId } }),
+    AppDataSource.getRepository(Booking).find({
+      where: { passenger: { id: userId } },
+    }),
   ]);
 
   for (const entry of searches) {
@@ -89,12 +95,18 @@ export async function getUserDestinationFrequency(userId: string): Promise<Desti
   }
   for (const booking of bookings) {
     if (booking.flight?.toAirport) {
-      bumpFrequency(frequency, booking.flight.toAirport, booking.createdAt, BOOKING_SIGNAL_WEIGHT);
+      bumpFrequency(
+        frequency,
+        booking.flight.toAirport,
+        booking.createdAt,
+        BOOKING_SIGNAL_WEIGHT,
+      );
     }
   }
 
   return Array.from(frequency.values()).sort(
-    (a, b) => b.count - a.count || b.lastSeenAt.getTime() - a.lastSeenAt.getTime(),
+    (a, b) =>
+      b.count - a.count || b.lastSeenAt.getTime() - a.lastSeenAt.getTime(),
   );
 }
 
@@ -111,13 +123,13 @@ export async function getTrendingDestinations(
 
   const [searches, bookings] = await Promise.all([
     AppDataSource.getRepository(SearchHistoryEntry)
-      .createQueryBuilder('search')
-      .where('search.createdAt >= :since', { since })
+      .createQueryBuilder("search")
+      .where("search.createdAt >= :since", { since })
       .getMany(),
     AppDataSource.getRepository(Booking)
-      .createQueryBuilder('booking')
-      .leftJoinAndSelect('booking.flight', 'flight')
-      .where('booking.createdAt >= :since', { since })
+      .createQueryBuilder("booking")
+      .leftJoinAndSelect("booking.flight", "flight")
+      .where("booking.createdAt >= :since", { since })
       .getMany(),
   ]);
 
@@ -147,20 +159,24 @@ export async function getCoOccurringDestinations(
   excludeCodes: Set<string>,
   limit = 10,
 ): Promise<CoOccurringDestination[]> {
-  const normalizedSeeds = Array.from(new Set(seedCodes.map((code) => code.toUpperCase())));
+  const normalizedSeeds = Array.from(
+    new Set(seedCodes.map((code) => code.toUpperCase())),
+  );
   if (normalizedSeeds.length === 0) return [];
 
   const seedSearches = await AppDataSource.getRepository(SearchHistoryEntry)
-    .createQueryBuilder('search')
-    .where('search.toAirport IN (:...codes)', { codes: normalizedSeeds })
+    .createQueryBuilder("search")
+    .where("search.toAirport IN (:...codes)", { codes: normalizedSeeds })
     .getMany();
 
-  const relatedUserIds = Array.from(new Set(seedSearches.map((entry) => entry.userId)));
+  const relatedUserIds = Array.from(
+    new Set(seedSearches.map((entry) => entry.userId)),
+  );
   if (relatedUserIds.length === 0) return [];
 
   const relatedSearches = await AppDataSource.getRepository(SearchHistoryEntry)
-    .createQueryBuilder('search')
-    .where('search.userId IN (:...userIds)', { userIds: relatedUserIds })
+    .createQueryBuilder("search")
+    .where("search.userId IN (:...userIds)", { userIds: relatedUserIds })
     .getMany();
 
   const coOccurrence = new Map<string, number>();
@@ -176,35 +192,59 @@ export async function getCoOccurringDestinations(
     .slice(0, limit);
 }
 
-export async function recordRecommendationEvent(input: RecordRecommendationEventInput): Promise<void> {
+export async function recordRecommendationEvent(
+  input: unknown,
+): Promise<boolean> {
+  const parsed = recommendationAnalyticsEventSchema.safeParse(input);
+  if (!parsed.success) {
+    logger.warn("analytics: dropping malformed recommendation event", {
+      issues: parsed.error.issues.map(({ path, code }) => ({ path, code })),
+    });
+    return false;
+  }
+
+  const validInput = parsed.data;
   const repo = AppDataSource.getRepository(RecommendationEvent);
   const event = repo.create({
-    userId: input.userId,
-    destinationCode: input.destinationCode.toUpperCase(),
-    variant: input.variant,
-    action: input.action,
-    reason: input.reason ?? null,
+    userId: validInput.userId,
+    destinationCode: validInput.destinationCode.toUpperCase(),
+    variant: validInput.variant,
+    action: validInput.action,
+    reason: validInput.reason ?? null,
   });
   await repo.save(event);
+  return true;
 }
 
 /**
  * Click-through performance per experiment variant, optionally scoped to a
  * single user — the measurement step for the recommendations A/B test.
  */
-export async function getEngagementSummary(userId?: string): Promise<EngagementSummary[]> {
-  const qb = AppDataSource.getRepository(RecommendationEvent).createQueryBuilder('event');
+export async function getEngagementSummary(
+  userId?: string,
+): Promise<EngagementSummary[]> {
+  const qb =
+    AppDataSource.getRepository(RecommendationEvent).createQueryBuilder(
+      "event",
+    );
   if (userId) {
-    qb.where('event.userId = :userId', { userId });
+    qb.where("event.userId = :userId", { userId });
   }
   const events = await qb.getMany();
 
-  const byVariant = new Map<RecommendationVariant, { views: number; clicks: number; dismissals: number }>();
+  const byVariant = new Map<
+    RecommendationVariant,
+    { views: number; clicks: number; dismissals: number }
+  >();
   for (const event of events) {
-    const bucket = byVariant.get(event.variant) || { views: 0, clicks: 0, dismissals: 0 };
-    if (event.action === 'view') bucket.views += 1;
-    else if (event.action === 'click') bucket.clicks += 1;
-    else if (event.action === 'dismiss') bucket.dismissals += 1;
+    const bucket = byVariant.get(event.variant) || {
+      views: 0,
+      clicks: 0,
+      dismissals: 0,
+    };
+    if (event.action === "view") bucket.views += 1;
+    else if (event.action === "click") bucket.clicks += 1;
+    else if (event.action === "dismiss") bucket.dismissals += 1;
     byVariant.set(event.variant, bucket);
   }
 

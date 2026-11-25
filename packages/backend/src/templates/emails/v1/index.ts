@@ -167,3 +167,20 @@ export const getBookingLifecycleTemplate = (
 // additive to the v1 booking lifecycle set above and keep their own modules.
 export { paymentTemplate } from "./payment";
 export { flightStatusTemplate } from "./flight_status";
+
+export const referralInviteTemplate = (data: {
+  inviterName: string;
+  referralCode: string;
+  inviteUrl: string;
+}): LifecycleEmail => ({
+  subject: `${escapeValue(data.inviterName)} invited you to Traqora`,
+  text: `${escapeValue(data.inviterName)} invited you to join Traqora. Use referral code ${escapeValue(data.referralCode)}: ${escapeValue(data.inviteUrl)}`,
+  html: `
+    <div style="font-family: Arial, sans-serif; padding: 20px;">
+      <h2>You're invited to Traqora</h2>
+      <p>${escapeValue(data.inviterName)} invited you to join Traqora.</p>
+      <p>Use referral code <strong>${escapeValue(data.referralCode)}</strong> when you sign up.</p>
+      <p><a href="${escapeValue(data.inviteUrl)}">Accept invitation</a></p>
+    </div>
+  `,
+});

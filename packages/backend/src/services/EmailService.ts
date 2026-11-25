@@ -25,6 +25,8 @@ function resolveTemplate(type: string, data: any) {
         refundAmount:
           data?.refundAmount ?? data?.amount ?? data?.approvedAmountCents ?? "pending",
       });
+    case "referral-invite":
+      return templatesV1.referralInviteTemplate(data);
     case "payment":
       return templatesV1.paymentTemplate(data);
     case "flight_status":
