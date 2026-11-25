@@ -40,6 +40,21 @@ strings, exception text, and passenger data are never appended to it. The view
 uses `role="status"` with `aria-live="polite"`, marks the loading skeleton with
 `aria-busy="true"`, and hides decorative icons from assistive technology.
 
+## Narrow viewports (issue #1147)
+
+Booking management stays usable when the viewport is too narrow for the desktop
+layout. This changes layout only: no new page, endpoint, field, or state is
+added, and the accessibility contract above is unchanged.
+
+- `BookingDetailStateView` stacks the icon above its copy (`flex-col`, moving to
+  `sm:flex-row`), constrains the text column with `min-w-0`, and lets long copy
+  wrap. Its actions live in a wrapping row and use full-width touch targets
+  below `sm`. The loading skeleton is width-bounded (`w-full max-w-56`).
+- `ScheduleChangeList` wraps its section heading and verification badge. The
+  original and revised departures use one column below `sm` and two columns
+  from `sm` upward; dates, reasons and supplier offer ids wrap instead of
+  forcing horizontal scrolling.
+
 ## Supplier schedule changes
 
 `packages/client/components/booking/schedule-change.ts` defines the
@@ -73,6 +88,9 @@ rendered values.
   rejected entries, the verification guard, and field bounds.
 - Component tests under `packages/client/tests/unit/` cover accessible roles
   and the absence of raw error text when the full client toolchain is present.
+- `packages/client/tests/unit/narrow-viewport.test.tsx` covers the narrow-width
+  structure of both components, including full-width actions, wrapping dates
+  and provider metadata, and the no-changes case.
 
 ## Related documentation
 
