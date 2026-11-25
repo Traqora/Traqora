@@ -19,7 +19,7 @@ export function ScheduleChangeList({ changes }: ScheduleChangeListProps) {
 
   return (
     <section aria-labelledby="schedule-changes-title" className="space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <CalendarClock className="h-5 w-5 text-primary" aria-hidden="true" />
         <h2 id="schedule-changes-title" className="text-lg font-serif">
           Supplier schedule changes
@@ -28,8 +28,8 @@ export function ScheduleChangeList({ changes }: ScheduleChangeListProps) {
 
       <div role="list" aria-live="polite" className="space-y-3">
         {changes.map((change) => (
-          <Card key={change.id} role="listitem" className="border-primary/30">
-            <CardHeader className="pb-3">
+          <Card key={change.id} role="listitem" className="min-w-0 border-primary/30">
+            <CardHeader className="pb-3 min-w-0">
               <CardTitle className="text-base flex flex-wrap items-center gap-2">
                 {change.flightNumber}
                 <Badge variant="secondary" className="gap-1 text-xs font-normal">
@@ -37,30 +37,30 @@ export function ScheduleChangeList({ changes }: ScheduleChangeListProps) {
                   Verified by supplier
                 </Badge>
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="break-words">
                 Published {new Date(change.verifiedAt).toLocaleString()}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">
                     Originally purchased
                   </p>
-                  <p className="font-medium">{change.originalDeparture}</p>
+                  <p className="font-medium break-words">{change.originalDeparture}</p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">
                     Revised departure
                   </p>
-                  <p className="font-medium text-primary">{change.revisedDeparture}</p>
+                  <p className="font-medium text-primary break-words">{change.revisedDeparture}</p>
                 </div>
               </div>
               {change.reason ? (
-                <p className="mt-3 text-xs text-muted-foreground">Reason: {change.reason}</p>
+                <p className="mt-3 text-xs text-muted-foreground break-words">Reason: {change.reason}</p>
               ) : null}
               {change.providerOfferId ? (
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 text-xs text-muted-foreground break-words">
                   Supplier offer: {change.providerOfferId}
                 </p>
               ) : null}
