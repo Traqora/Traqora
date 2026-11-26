@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
+import { passengerNameField as nameField, passengerSchema } from "../schemas";
 import { requireAuth } from "../../middleware/authMiddleware";
 import { requireAdmin } from "../../middleware/adminAuth";
 import { validateBody, validateParams, validateQuery } from "../../middleware/requestValidation";
@@ -41,31 +42,6 @@ const router = Router();
 // Per-tier booking rate limiting (#550), applied to every route on this
 // router except the Stripe webhook.
 router.use(asyncHandler(excludingPaths(bookingRateLimit, ["/webhook/stripe"])));
-
-// IATA name format: letters, spaces, hyphens, and apostrophes only
-const iatanameRegex = /^[A-Za-z\s'\-]+$/;
-const nameField = (label: string) =>
-  z
-    .string()
-    .min(1, `${label} is required`)
-    .max(100, `${label} must be 100 characters or fewer`)
-    .trim()
-    .regex(iatanameRegex, `${label} may only contain letters, spaces, hyphens, and apostrophes`);
-
-const passengerSchema = z
-  .object({
-    email: z.string().email().max(256),
-    firstName: nameField("First name"),
-    lastName: nameField("Last name"),
-    middleName: z.string().max(100).optional(),
-    title: z.string().max(32).optional(),
-    suffix: z.string().max(32).optional(),
-    dateOfBirth: z.string().max(32).optional(),
-    nationality: z.string().max(64).optional(),
-    phone: z.string().min(4).max(32).optional(),
-    sorobanAddress: z.string().min(1).max(128),
-  })
-  .strict();
 
 const passengerUpdateSchema = z
   .object({
@@ -121,7 +97,7 @@ const correctionRejectionSchema = z
 const createBookingSchema = z
   .object({
     flightId: z.string().uuid(),
-    passenger: passengerSchema,
+    passenger: passengerSchema.strict(),
     passengers: z
       .array(
         z

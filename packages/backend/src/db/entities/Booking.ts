@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { Flight } from './Flight';
 import { Passenger } from './Passenger';
+import { encryptionTransformer } from '../../utils/encryption';
 
 export type BookingStatus =
   | 'created'
@@ -99,6 +100,10 @@ export class Booking {
   @Index()
   @Column({ type: 'varchar', length: 256, nullable: true })
   providerOfferId?: string | null;
+
+  /** Private airline confirmation. Select explicitly in the reconciliation API. */
+  @Column({ type: 'text', nullable: true, select: false, transformer: encryptionTransformer })
+  supplierBookingReference?: string | null;
 
   @CreateDateColumn({ type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz' })
   createdAt!: Date;

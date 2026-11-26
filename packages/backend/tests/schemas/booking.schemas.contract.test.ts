@@ -19,6 +19,32 @@ describe('Booking Schema Contract Tests', () => {
       expect(result.success).toBe(true);
     });
 
+    it.each([
+      { firstName: '   ' },
+      { firstName: 'John2' },
+      { lastName: 'Doe\nSmith' },
+      { sorobanAddress: '   ' },
+      { dateOfBirth: '2025-02-29' },
+      { dateOfBirth: '02/28/2025' },
+    ])('rejects malformed booking identity values: %j', (invalid) => {
+      expect(passengerSchema.safeParse({ ...validPassenger, ...invalid }).success).toBe(false);
+    });
+
+    it('normalizes passenger names and accepts a calendar birth date', () => {
+      const result = passengerSchema.parse({
+        ...validPassenger,
+        firstName: '  Anne-Marie  ',
+        lastName: "O'Neil",
+        dateOfBirth: '2000-02-29',
+      });
+
+      expect(result).toMatchObject({
+        firstName: 'Anne-Marie',
+        lastName: "O'Neil",
+        dateOfBirth: '2000-02-29',
+      });
+    });
+
     it('should accept valid passenger without optional phone field', () => {
       const passengerWithoutPhone = { ...validPassenger, phone: undefined };
       const result = passengerSchema.safeParse(passengerWithoutPhone);
@@ -221,10 +247,10 @@ describe('Booking Schema Contract Tests', () => {
       });
     });
 
-    it('should reject UUID with uppercase letters in wrong positions', () => {
-      const invalidUuid = { ...validBooking, flightId: '550E8400-E29B-41D4-A716-446655440000' };
-      const result = createBookingSchema.safeParse(invalidUuid);
-      expect(result.success).toBe(false);
+    it('accepts uppercase hexadecimal digits in a flight UUID', () => {
+      const uppercaseUuid = { ...validBooking, flightId: '550E8400-E29B-41D4-A716-446655440000' };
+      const result = createBookingSchema.safeParse(uppercaseUuid);
+      expect(result.success).toBe(true);
     });
 
     it('should reject null flightId', () => {
