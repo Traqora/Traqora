@@ -4,20 +4,25 @@ export class CreateCarbonOffsetTables1755000000000 implements MigrationInterface
   name = 'CreateCarbonOffsetTables1755000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    const isPostgres = queryRunner.connection.options.type === 'postgres';
+    const uuidDefault = isPostgres ? 'gen_random_uuid()' : undefined;
+    const jsonType = isPostgres ? 'jsonb' : 'simple-json';
+    const jsonDefault = isPostgres ? "'[]'::jsonb" : "'[]'";
+    const timestampType = isPostgres ? 'timestamptz' : 'datetime';
     await queryRunner.createTable(
       new Table({
         name: 'offset_projects',
         columns: [
-          { name: 'id', type: 'uuid', isPrimary: true, generationStrategy: 'uuid', default: 'uuid_generate_v4()' },
+          { name: 'id', type: 'uuid', isPrimary: true, generationStrategy: 'uuid', default: uuidDefault },
           { name: 'name', type: 'varchar', length: '256' },
           { name: 'type', type: 'varchar', length: '32' },
           { name: 'pricePerTonCents', type: 'integer' },
           { name: 'description', type: 'text' },
-          { name: 'certifications', type: process.env.NODE_ENV === 'test' ? 'simple-json' : 'jsonb', default: "'[]'::jsonb" },
+          { name: 'certifications', type: jsonType, default: jsonDefault },
           { name: 'status', type: 'varchar', length: '128', default: "'active'" },
           { name: 'totalOffsetTons', type: 'integer', default: 0 },
-          { name: 'createdAt', type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', default: 'now()' },
+          { name: 'createdAt', type: timestampType, default: 'now()' },
+          { name: 'updatedAt', type: timestampType, default: 'now()' },
         ],
       }),
       true,
@@ -27,7 +32,7 @@ export class CreateCarbonOffsetTables1755000000000 implements MigrationInterface
       new Table({
         name: 'carbon_offsets',
         columns: [
-          { name: 'id', type: 'uuid', isPrimary: true, generationStrategy: 'uuid', default: 'uuid_generate_v4()' },
+          { name: 'id', type: 'uuid', isPrimary: true, generationStrategy: 'uuid', default: uuidDefault },
           { name: 'userId', type: 'varchar', length: '128' },
           { name: 'flightId', type: 'varchar', length: '128' },
           { name: 'projectId', type: 'varchar', length: '32' },
@@ -39,8 +44,8 @@ export class CreateCarbonOffsetTables1755000000000 implements MigrationInterface
           { name: 'certificateRef', type: 'varchar', length: '256', isNullable: true },
           { name: 'sorobanTxHash', type: 'varchar', length: '128', isNullable: true },
           { name: 'notes', type: 'text', isNullable: true },
-          { name: 'createdAt', type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', default: 'now()' },
-          { name: 'updatedAt', type: process.env.NODE_ENV === 'test' ? 'datetime' : 'timestamptz', default: 'now()' },
+          { name: 'createdAt', type: timestampType, default: 'now()' },
+          { name: 'updatedAt', type: timestampType, default: 'now()' },
         ],
       }),
       true,

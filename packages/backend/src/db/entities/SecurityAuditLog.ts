@@ -37,7 +37,11 @@ export type SecurityAction =
     | 'consent_revoked'
     | 'api_key_created'
     | 'api_key_revoked'
-    | 'suspicious_activity_detected';
+    | 'suspicious_activity_detected'
+    | 'support_booking_access'
+    | 'support_booking_change'
+    | 'support_access_denied'
+    | 'support_change_failed';
 
 export type ActorType = 'user' | 'admin' | 'system' | 'anonymous';
 
@@ -95,7 +99,11 @@ export class SecurityAuditLog {
         'consent_revoked',
         'api_key_created',
         'api_key_revoked',
-        'suspicious_activity_detected'
+        'suspicious_activity_detected',
+        'support_booking_access',
+        'support_booking_change',
+        'support_access_denied',
+        'support_change_failed'
     ] })
     action!: SecurityAction;
 

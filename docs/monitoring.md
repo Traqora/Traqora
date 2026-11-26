@@ -172,3 +172,10 @@ Key alerts include:
 - **LowWalletBalance**: Operational wallet drops below safe XLM thresholds.
 
 AlertManager routes these to configured Slack webhooks and PagerDuty.
+
+## Post-launch review cadence
+
+The signals above are reviewed under the [Post-Launch Monitoring and Review
+Cadence](./operations/POST_LAUNCH_REVIEW.md), which assigns an owner and a
+review interval to incidents, booking success, refunds, latency and support
+feedback.

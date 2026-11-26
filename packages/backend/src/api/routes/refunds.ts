@@ -1,19 +1,47 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../utils/errorHandler';
-import { RefundService } from '../../services/refundService';
+import { QuoteUnavailableError, RefundService } from '../../services/refundService';
 import { RefundAuditService } from '../../services/refundAuditService';
+import {
+  deriveRefundOutcome,
+  isBookingFullyRefunded,
+  REFUND_OUTCOME_LABELS,
+  toTravelerRefund,
+} from '../../services/refundPresentation';
 import { AppDataSource } from '../../db/dataSource';
 import { Booking } from '../../db/entities/Booking';
+import { Refund } from '../../db/entities/Refund';
 import { logger } from '../../utils/logger';
 import { requireAdmin } from '../../middleware/adminAuth';
-import { BadRequestError, NotFoundError } from '../../utils/errors';
+import { BadRequestError, NotFoundError, UnprocessableEntityError } from '../../utils/errors';
 import { validateBody, validateParams, validateQuery } from '../../middleware/requestValidation';
 import { requireAuth } from '../../middleware/authMiddleware';
+import { refundReconciliationService } from '../../services/refundReconciliationService';
 
 const router = Router();
 const refundService = RefundService.getInstance();
 const auditService = RefundAuditService.getInstance();
+
+/**
+ * Traveler-facing status payload. The derived outcome replaces raw
+ * `status === 'completed'` as the signal for "fully refunded" so partial,
+ * delayed, failed and unknown results are never reported as complete (#1155).
+ */
+function refundStatusPayload(refund: Refund) {
+  const outcome = deriveRefundOutcome(refund);
+  return {
+    refundStatus: refund.status,
+    outcome,
+    outcomeLabel: REFUND_OUTCOME_LABELS[outcome],
+    isFullyRefunded: isBookingFullyRefunded(refund),
+    stripeRefundId: refund.stripeRefundId,
+    sorobanTxHash: refund.sorobanTxHash,
+    approvedAmount: refund.approvedAmountCents,
+    requestedAmount: refund.requestedAmountCents,
+    isDelayed: Boolean(refund.isDelayed),
+  };
+}
 
 const refundIdParamSchema = z.object({ id: z.string().uuid() }).strict();
 const bookingIdParamSchema = z.object({ bookingId: z.string().uuid() }).strict();
@@ -25,6 +53,21 @@ const adminListQuerySchema = z
     offset: z.coerce.number().int().min(0).optional(),
   })
   .strict();
+
+const reconciliationQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  statuses: z.string().max(256).optional(),
+  dryRun: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((v) => (typeof v === 'string' ? v === 'true' : v)),
+});
+
+const operatorActionSchema = z.object({
+  action: z.enum(['investigated', 'escalated', 'resolved']),
+  notes: z.string().min(5).max(2000),
+  nextAction: z.string().max(500).optional(),
+});
 
 const createRefundSchema = z
   .object({
@@ -210,7 +253,34 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     await assertBookingOwnedByRequester(req.params.bookingId, req.user?.walletAddress);
     const refunds = await refundService.getRefundsByBooking(req.params.bookingId);
-    return res.json({ success: true, data: refunds });
+    // Traveler-facing history: project each refund so no internal notes leak.
+    return res.json({ success: true, data: refunds.map(toTravelerRefund) });
+  }),
+);
+
+/**
+ * GET /api/v1/refunds/quote/:bookingId
+ * Return a non-mutating cancellation quote before the traveller confirms.
+ * The estimate is valid for a short window and never past flight departure.
+ */
+router.get(
+  '/quote/:bookingId',
+  requireAuth,
+  validateParams(bookingIdParamSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const booking = await assertBookingOwnedByRequester(
+      req.params.bookingId,
+      req.user?.walletAddress,
+    );
+    try {
+      const quote = await refundService.getCancellationQuote(booking);
+      return res.json({ success: true, data: quote });
+    } catch (error) {
+      if (error instanceof QuoteUnavailableError) {
+        throw new UnprocessableEntityError(error.message, { code: error.code });
+      }
+      throw error;
+    }
   }),
 );
 
@@ -254,13 +324,40 @@ router.get(
   }),
 );
 
+/**
+ * GET /api/v1/refunds/admin/reconciliation (admin only)
+ * Bounded Stripe/Soroban/internal refund reconciliation with audited findings.
+ */
+router.get(
+  '/admin/reconciliation',
+  requireAdmin,
+  validateQuery(reconciliationQuerySchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const statuses =
+      typeof req.query.statuses === 'string' && req.query.statuses.trim().length
+        ? req.query.statuses
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined;
+    const result = await refundReconciliationService.reconcile({
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+      statuses,
+      dryRun: req.query.dryRun === true,
+    });
+    return res.json({ success: true, data: result });
+  }),
+);
+
 router.get(
   '/:id',
   requireAuth,
   validateParams(refundIdParamSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const refund = await assertRefundOwnedByRequester(req.params.id, req.user?.walletAddress);
-    return res.json({ success: true, data: refund });
+    // Traveler-facing: expose the derived outcome but never internal operator
+    // notes, reviewer identity, error strings or signing material (#1155/#1156).
+    return res.json({ success: true, data: toTravelerRefund(refund) });
   }),
 );
 
@@ -274,24 +371,14 @@ router.get(
       const refund = await refundService.checkOnchainStatus(req.params.id);
       return res.json({
         success: true,
-        data: {
-          refundStatus: refund.status,
-          stripeRefundId: refund.stripeRefundId,
-          sorobanTxHash: refund.sorobanTxHash,
-          approvedAmount: refund.approvedAmountCents,
-        },
+        data: refundStatusPayload(refund),
       });
     } catch {
       const refund = await refundService.getRefund(req.params.id);
       if (!refund) throw new NotFoundError('Refund not found');
       return res.json({
         success: true,
-        data: {
-          refundStatus: refund.status,
-          stripeRefundId: refund.stripeRefundId,
-          sorobanTxHash: refund.sorobanTxHash,
-          approvedAmount: refund.approvedAmountCents,
-        },
+        data: refundStatusPayload(refund),
       });
     }
   }),
@@ -425,6 +512,34 @@ router.post(
       `Dispute for refund ${req.params.id} resolved as ${req.body.resolution} by ${req.body.resolvedBy}`,
     );
     return res.json({ success: true, data: refund });
+  }),
+);
+
+/**
+ * POST /api/v1/refunds/:id/reconciliation-action (admin only)
+ * Record audited operator investigation/escalation/resolution for reconciliation findings.
+ */
+router.post(
+  '/:id/reconciliation-action',
+  validateParams(refundIdParamSchema),
+  requireAdmin,
+  validateBody(operatorActionSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    await refundReconciliationService.recordOperatorAction({
+      refundId: req.params.id,
+      action: req.body.action,
+      actor: req.admin?.email || req.admin?.adminId || 'admin',
+      notes: req.body.notes,
+      nextAction: req.body.nextAction,
+    });
+
+    logger.info('Refund reconciliation operator action recorded', {
+      refundId: req.params.id,
+      action: req.body.action,
+      actor: req.admin?.email || req.admin?.adminId,
+    });
+
+    return res.json({ success: true });
   }),
 );
 

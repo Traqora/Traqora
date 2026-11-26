@@ -4,6 +4,7 @@ import { FlightFollower } from '../db/entities/FlightFollower';
 import { FlightStatusEvent, FlightEventType } from '../db/entities/FlightStatusEvent';
 import { flightsNamespace } from '../websockets/server';
 import { scheduleNotification, NotificationPayload } from '../jobs/notificationQueue';
+import { buildLifecycleIdempotencyKey } from '../notifications/v1Catalog';
 import { logger } from '../utils/logger';
 import { MoreThanOrEqual } from 'typeorm';
 import { FlightStatusValue } from '../models/FlightStatusAlert';
@@ -438,10 +439,30 @@ export class FlightStatusService {
             };
         }
 
+        const lifecycleEvent =
+          event.eventType === 'CANCELLED'
+            ? 'booking_cancelled'
+            : event.eventType === 'DELAYED' ||
+                event.eventType === 'GATE_CHANGED' ||
+                event.eventType === 'BOARDING' ||
+                event.eventType === 'SCHEDULED' ||
+                event.eventType === 'LANDED'
+              ? 'schedule_change'
+              : 'schedule_change';
+
+        const idempotencyKey = buildLifecycleIdempotencyKey([
+          lifecycleEvent,
+          flight.id,
+          notificationType,
+          event.id,
+          follower.userId,
+        ]);
+
         await scheduleNotification(
           {
             userId: follower.userId,
             type: notificationType,
+            idempotencyKey,
             data: notificationData,
             channels: ['email', 'push'],
           },
@@ -469,6 +490,13 @@ export class FlightStatusService {
           {
             userId: follower.userId,
             type: 'flight_delayed_significant',
+            idempotencyKey: buildLifecycleIdempotencyKey([
+              'schedule_change',
+              flight.id,
+              'flight_delayed_significant',
+              delayMinutes,
+              follower.userId,
+            ]),
             data: {
               flightNumber: flight.flightNumber,
               airline: flight.airlineCode,
@@ -602,6 +630,14 @@ export class FlightStatusService {
       {
         userId, // The sharer
         type: 'flight_status_shared',
+        idempotencyKey: buildLifecycleIdempotencyKey([
+          'schedule_change',
+          flightId,
+          'flight_status_shared',
+          userId,
+          recipientEmail,
+          latestEvent?.createdAt ? new Date(latestEvent.createdAt).toISOString() : flight.status,
+        ]),
         data: {
           ...shareData,
           recipientEmail,
@@ -671,12 +707,22 @@ export class FlightStatusService {
         {
           userId: follower.userId,
           type: 'refund_initiated',
+          idempotencyKey: buildLifecycleIdempotencyKey([
+            'refund_status',
+            flightId,
+            follower.userId,
+            'initiated',
+          ]),
           data: {
             flightNumber: flight.flightNumber,
             airline: flight.airlineCode,
             cancellationReason: flight.cancellationReason,
             from: flight.fromAirport,
             to: flight.toAirport,
+            refundId: flightId,
+            bookingId: flightId,
+            bookingReference: flight.flightNumber,
+            status: 'initiated',
           },
           channels: ['email', 'push'],
         },

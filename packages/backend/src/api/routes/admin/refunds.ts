@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { asyncHandler } from '../../../utils/errorHandler';
 import { AppDataSource } from '../../../db/dataSource';
 import { Booking, BookingStatus } from '../../../db/entities/Booking';
-import { requireAdmin } from '../../../middleware/adminAuth';
+import { adminGuard } from '../../../middleware/adminAuth';
 import { auditLog } from '../../../middleware/adminAudit';
 import { paginationSchema } from '../../schemas/common';
 import { BadRequestError, NotFoundError, ConflictError } from '../../../utils/errors';
@@ -19,7 +19,7 @@ const rejectSchema = z.object({
 const REFUNDABLE_STATUSES: BookingStatus[] = ['confirmed', 'failed'];
 
 // GET /api/v1/admin/refunds/overview — aggregated refund overview
-router.get('/overview', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+router.get('/overview', ...adminGuard('analytics:read'), asyncHandler(async (req: Request, res: Response) => {
     const { getRefundDisputeRepository } = await import('../../../repositories/refundDisputeRepository');
     const recentLimit = req.query.recentLimit ? Math.min(50, Math.max(1, parseInt(String(req.query.recentLimit), 10))) : 5;
     const startDate = req.query.startDate ? new Date(String(req.query.startDate)) : undefined;
@@ -36,7 +36,7 @@ router.get('/overview', requireAdmin, asyncHandler(async (req: Request, res: Res
 }));
 
 // GET /api/v1/admin/refunds — list refund-eligible bookings
-router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', ...adminGuard('booking:read'), asyncHandler(async (req: Request, res: Response) => {
 
     const parsed = paginationSchema.safeParse(req.query);
     if (!parsed.success) {
@@ -60,7 +60,7 @@ router.get('/', requireAdmin, asyncHandler(async (req: Request, res: Response) =
 // POST /api/v1/admin/refunds/:id/approve
 router.post(
     '/:id/approve',
-    requireAdmin,
+    ...adminGuard('booking:cancel'),
     auditLog('REFUND_APPROVED', 'bookings'),
     asyncHandler(async (req: Request, res: Response) => {
 
@@ -82,7 +82,7 @@ router.post(
 // POST /api/v1/admin/refunds/:id/reject
 router.post(
     '/:id/reject',
-    requireAdmin,
+    ...adminGuard('booking:cancel'),
     auditLog('REFUND_REJECTED', 'bookings'),
     asyncHandler(async (req: Request, res: Response) => {
         const parsed = rejectSchema.safeParse(req.body);

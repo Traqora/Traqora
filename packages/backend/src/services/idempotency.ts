@@ -29,9 +29,16 @@ interface IdempotencyParams {
   requestHash: string;
 }
 
+/**
+ * Minimal surface required by the idempotency helpers. Both DataSource and a
+ * transaction EntityManager satisfy it, so the claim can be made atomically
+ * with the state change it protects.
+ */
+export type IdempotencyDataSource = Pick<DataSource, 'getRepository'>;
+
 export const getOrCreateIdempotencyKey = async (
   params: IdempotencyParams,
-  dataSource: DataSource = AppDataSource,
+  dataSource: IdempotencyDataSource = AppDataSource,
 ): Promise<IdempotencyKey> => {
   const repo = dataSource.getRepository(IdempotencyKey);
   const existing = await repo.findOne({ where: { key: params.key } });

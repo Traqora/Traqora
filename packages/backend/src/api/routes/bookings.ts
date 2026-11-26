@@ -13,6 +13,12 @@ import {
   getOrCreateIdempotencyKey,
   hashObject,
 } from "../../services/idempotency";
+import {
+  assertCancellationConfirmation,
+  CANCELLATION_TERMS_VERSION,
+} from "../../services/cancellationConfirmation";
+import { runOnceByIdempotencyKey } from "../../services/cancellationIdempotency";
+import { checkoutRateLimiter } from "../../middleware/highRiskRateLimit";
 import { BookingOrchestrationService } from "../../services/bookingOrchestrationService";
 import { getStripe, stripeWebhookSecret } from "../../services/stripe";
 import { submitSignedSorobanXdr } from "../../services/soroban";
@@ -133,6 +139,11 @@ const createBookingSchema = z
     lastTicketingDate: z.string().min(1).max(64).optional(),
     lastTicketingDateTime: z.string().min(1).max(64).optional(),
     providerOfferId: z.string().min(1).max(256).optional(),
+    // Checkout reprice gate (#1189): the confirmed provider total and the
+    // traveler's explicit acceptance are passed through to the orchestrator so
+    // a changed price stops before payment capture.
+    confirmedProviderPriceCents: z.number().int().positive().optional(),
+    repriceAccepted: z.boolean().optional(),
   })
   .strict();
 
@@ -147,6 +158,7 @@ const emptyBodySchema = z.object({}).strict();
 
 router.post(
   "/",
+  checkoutRateLimiter,
   requireAuth,
   validateBody(createBookingSchema),
   asyncHandler(async (req: Request, res: Response) => {
@@ -168,6 +180,12 @@ router.post(
       ...(body.lastTicketingDate ? { lastTicketingDate: body.lastTicketingDate } : {}),
       ...(body.lastTicketingDateTime ? { lastTicketingDateTime: body.lastTicketingDateTime } : {}),
       providerOfferId: body.providerOfferId,
+      ...(body.confirmedProviderPriceCents !== undefined
+        ? { confirmedProviderPriceCents: body.confirmedProviderPriceCents }
+        : {}),
+      ...(body.repriceAccepted !== undefined
+        ? { repriceAccepted: body.repriceAccepted }
+        : {}),
     });
 
     const bookingRepo = AppDataSource.getRepository(Booking);
@@ -222,6 +240,8 @@ router.post(
         lastTicketingDate: body.lastTicketingDate,
         lastTicketingDateTime: body.lastTicketingDateTime,
         providerOfferId: body.providerOfferId,
+        confirmedProviderPriceCents: body.confirmedProviderPriceCents,
+        repriceAccepted: body.repriceAccepted,
       });
 
       idem.resourceId = booking.id;
@@ -628,16 +648,50 @@ router.get(
   }),
 );
 
+const cancelBookingSchema = z.object({
+  confirm: z.literal(true, {
+    errorMap: () => ({ message: "Explicit cancellation confirmation is required" }),
+  }),
+  termsVersion: z.literal(CANCELLATION_TERMS_VERSION),
+  expectedNetRefundCents: z.number().int().nonnegative(),
+});
+
 router.post(
   "/:id/cancel",
   requireAuth,
   validateParams(bookingIdParamSchema),
-  validateBody(emptyBodySchema),
   asyncHandler(async (req: Request, res: Response) => {
     await getBookingForRequester(req.params.id, req, ["passenger", "flight"]);
+    const parsed = cancelBookingSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new BadRequestError("Validation error", parsed.error.flatten());
+    }
+
+    const idempotencyKey = req.header("Idempotency-Key");
+    if (!idempotencyKey) {
+      throw new BadRequestError("Missing Idempotency-Key header");
+    }
+
     const orchestrationService = new BookingOrchestrationService();
-    const result = await orchestrationService.processCancellation(req.params.id);
-    return res.json({ success: true, data: result });
+    const quote = await orchestrationService.calculateBookingCancellationRefund(
+      req.params.id,
+    );
+    assertCancellationConfirmation(quote, parsed.data);
+
+    const requestHash = hashObject({ bookingId: req.params.id, ...parsed.data });
+    const idempotencyRepo = AppDataSource.getRepository(IdempotencyKey);
+    const { result, idempotent } = await runOnceByIdempotencyKey(
+      idempotencyRepo,
+      {
+        key: idempotencyKey,
+        method: req.method,
+        path: req.baseUrl + req.path,
+        requestHash,
+      },
+      () => orchestrationService.processCancellation(req.params.id),
+    );
+
+    return res.json({ success: true, data: result, idempotent });
   }),
 );
 
