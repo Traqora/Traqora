@@ -65,6 +65,7 @@ impl FlightBookingContract {
             created_at,
         };
 
+        // Ensure atomic persistence of booking record and seat reservation index
         env.storage()
             .persistent()
             .set(&DataKey::Booking(booking_id), &booking);
@@ -98,5 +99,15 @@ impl FlightBookingContract {
 
     pub fn init_upgrade_owner(env: Env, owner: Address) {
         access::UpgradeTimelock::init_upgrade_owner(&env, &owner);
+    }
+
+    pub fn create_booking(
+        env: Env,
+        passenger: Address,
+        flight_id: Symbol,
+        seat: Symbol,
+        amount: i128,
+    ) -> u64 {
+        Self::reserve_seat(env, passenger, flight_id, seat, amount)
     }
 }

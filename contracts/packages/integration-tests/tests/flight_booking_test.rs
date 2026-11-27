@@ -330,11 +330,38 @@ fn test_flight_booking_reconcile_reference_timeout_recovery() {
     let seat = Symbol::new(&env, "15A");
     let request_ref = Symbol::new(&env, "timeout_ref_999");
 
-    let id1 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let id1 =
+        client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     let booking1 = client.get_booking(&id1).unwrap();
     assert_eq!(booking1.seat, seat);
 
     // Retry with same request ref after timeout should return the exact same booking id without duplicate reservation error
-    let id2 = client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let id2 =
+        client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     assert_eq!(id1, id2);
+}
+
+#[test]
+fn test_atomic_persistence_no_orphaned_traveler_data_on_failure() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FLATOMIC");
+    let seat = Symbol::new(&env, "20A");
+
+    // Attempt reserve with invalid amount (0) to trigger atomic failure
+    let res = client.try_reserve_seat(&passenger, &flight_id, &seat, &0);
+    assert!(res.is_err());
+
+    // Verify no booking was persisted and no seat index was orphaned
+    assert!(client.get_booking(&1).is_none());
+
+    // Verify the seat can now be successfully reserved with valid parameters (no lock/orphan block)
+    let valid_id = client.reserve_seat(&passenger, &flight_id, &seat, &1_000);
+    let booking = client.get_booking(&valid_id).unwrap();
+    assert_eq!(booking.seat, seat);
+    assert_eq!(booking.escrowed_amount, 1_000);
 }
