@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import BookingConfirmationScreen from '../BookingConfirmationScreen';
+import BookingConfirmationScreen, { areBookingPrerequisitesSatisfied } from '../BookingConfirmationScreen';
 
 describe('BookingConfirmationScreen', () => {
   const sampleItinerary = [
@@ -12,7 +12,7 @@ describe('BookingConfirmationScreen', () => {
     },
   ];
 
-  it('renders booking confirmation details correctly', () => {
+  it('renders booking confirmation details correctly when prerequisites are met', () => {
     render(
       <BookingConfirmationScreen
         bookingId="12345"
@@ -30,6 +30,14 @@ describe('BookingConfirmationScreen', () => {
     expect(screen.getByText('Flight TRQ101')).toBeInTheDocument();
     expect(screen.getByText('JFK → LAX')).toBeInTheDocument();
     expect(screen.getByText('abc123def456')).toBeInTheDocument();
+  });
+it('validates prerequisites helper correctly for normal and failure paths', () => {
+    expect(areBookingPrerequisitesSatisfied('confirmed', sampleItinerary, 'txhash123')).toBe(true);
+    expect(areBookingPrerequisitesSatisfied('paid', sampleItinerary, 'txhash123')).toBe(true);
+    expect(areBookingPrerequisitesSatisfied('pending', sampleItinerary, 'txhash123')).toBe(false);
+    expect(areBookingPrerequisitesSatisfied('failed', sampleItinerary, 'txhash123')).toBe(false);
+    expect(areBookingPrerequisitesSatisfied('confirmed', [], 'txhash123')).toBe(false);
+    expect(areBookingPrerequisitesSatisfied('confirmed', sampleItinerary, undefined)).toBe(false);
   });
 
   it('renders download confirmation button and handles download action', () => {

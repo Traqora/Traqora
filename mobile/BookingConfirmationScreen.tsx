@@ -40,6 +40,17 @@ interface BookingConfirmationProps {
   selfTransferExplanation?: string;
 }
 
+export function areBookingPrerequisitesSatisfied(
+  paymentStatus: 'paid' | 'pending' | 'failed' | 'confirmed',
+  itinerary: ItinerarySegment[],
+  transactionHash?: string
+): boolean {
+  const isPaidOrConfirmed = paymentStatus === 'paid' || paymentStatus === 'confirmed';
+  const hasValidItinerary = Array.isArray(itinerary) && itinerary.length > 0 && itinerary.every((seg) => Boolean(seg.flightNumber && seg.fromAirport && seg.toAirport));
+  const hasTxHash = Boolean(transactionHash && transactionHash.trim().length > 0);
+  return isPaidOrConfirmed && hasValidItinerary && hasTxHash;
+}
+
 export default function BookingConfirmationScreen({
   bookingId,
   itinerary,
