@@ -116,6 +116,7 @@ const SENSITIVE_KEY_FRAGMENTS = [
   'last[_-]?name',
   'full[_-]?name',
   'passenger[_-]?name',
+  'supplier[_-]?booking[_-]?reference',
   // Contact details
   'email',
   'phone',

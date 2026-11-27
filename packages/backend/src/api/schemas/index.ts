@@ -17,12 +17,28 @@ export const refreshSchema = z.object({
 });
 
 // Booking schemas
+export const passengerNameField = (label: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `${label} is required`)
+    .max(100, `${label} must be 100 characters or fewer`)
+    .regex(
+      /^[A-Za-z '-]+$/,
+      `${label} may only contain letters, spaces, hyphens, and apostrophes`,
+    );
+
 export const passengerSchema = z.object({
-  email: z.string().email(),
-  firstName: z.string().min(1),
-  lastName: z.string().min(1),
-  phone: z.string().min(4).optional(),
-  sorobanAddress: z.string().min(1),
+  email: z.string().email().max(256),
+  firstName: passengerNameField('First name'),
+  lastName: passengerNameField('Last name'),
+  middleName: z.string().max(100).optional(),
+  title: z.string().max(32).optional(),
+  suffix: z.string().max(32).optional(),
+  dateOfBirth: z.string().date().optional(),
+  nationality: z.string().max(64).optional(),
+  phone: z.string().min(4).max(32).optional(),
+  sorobanAddress: z.string().trim().min(1).max(128),
 });
 
 export const createBookingSchema = z.object({
