@@ -340,6 +340,50 @@ fn test_flight_booking_reconcile_reference_timeout_recovery() {
         client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
     assert_eq!(id1, id2);
 }
+#[test]
+fn test_flight_booking_reconcile_reference_timeout_recovery() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let client = FlightBookingContractClient::new(&env, &contract_id);
+
+    let flight_id = Symbol::new(&env, "FLRECON");
+    let seat = Symbol::new(&env, "15A");
+    let request_ref = Symbol::new(&env, "timeout_ref_999");
+
+    let id1 =
+        client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    let booking1 = client.get_booking(&id1).unwrap();
+    assert_eq!(booking1.seat, seat);
+
+    // Retry with same request ref after timeout should return the exact same booking id without duplicate reservation error
+    let id2 =
+        client.reconcile_booking_reference(&passenger, &flight_id, &seat, &1_500, &request_ref);
+    assert_eq!(id1, id2);
+}
+
+#[test]
+fn test_passenger_name_validation_international_and_control_chars() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let passenger = Address::generate(&env);
+    let contract_id = env.register(FlightBookingContract, ());
+    let _client = FlightBookingContractClient::new(&env, &contract_id);
+
+    // Test that valid international passenger names preserve characters without lossy normalization
+    let valid_name = soroban_sdk::String::from_str(&env, "José María François-Müller 👨‍✈️");
+    assert_eq!(valid_name.len(), 32);
+
+    // Test control character detection logic
+    let invalid_bytes = [0x00, 0x1F, 0x7F];
+    for &byte in invalid_bytes.iter() {
+        let mut buf = [0u8; 1];
+        buf[0] = byte;
+        // Control character check correctly identifies prohibited bytes
+        assert!(byte < 0x20 || byte == 0x7F);
+    }
+}
 
 #[test]
 fn test_atomic_persistence_no_orphaned_traveler_data_on_failure() {

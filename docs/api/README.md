@@ -4,6 +4,9 @@
 
 This document describes the OpenAPI (Swagger) specification integration for the Traqora backend API.
 
+### Passenger Names and International Character Support
+Traqora supports valid international passenger names (including Unicode, diacritics, and emojis) without lossy normalization while strictly rejecting ASCII control characters (0x00-0x1F and 0x7F) for security and data integrity.
+
 ## OpenAPI Specification
 
 The OpenAPI specification is automatically generated from zod validation schemas and serves as the single source of truth for API contracts.
