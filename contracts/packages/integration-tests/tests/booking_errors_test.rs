@@ -196,6 +196,28 @@ fn test_refund_passenger_window_closed_should_panic() {
 }
 
 #[test]
+fn test_atomic_booking_and_passenger_persistence_failure() {
+    let env = new_env();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let price = 100_0000000i128;
+    let booking_id = contracts.booking.create_booking(
+        &actors.passenger,
+        &actors.airline,
+        &Symbol::new(&env, "FL555"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &price,
+        &contracts.token.address,
+    );
+    let booking = contracts.booking.get_booking(&booking_id).unwrap();
+    assert_eq!(booking.status, Symbol::new(&env, "pending"));
+}
+
+#[test]
 fn test_cancel_and_complete_wrappers() {
     let env = new_env();
     let actors = generate_actors(&env);
