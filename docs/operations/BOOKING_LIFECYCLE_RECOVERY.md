@@ -1,4 +1,7 @@
-# Booking Lifecycle Failure Recovery
+# Booking Lifecycle Failure Recovery and Reconciliation Audit Trail
+
+## Overview
+Every state transition and reconciliation decision within the V1 confirmation and reconciliation flow is recorded in an immutable audit trail with explicit actor attribution, timestamps, and correlation identifiers.
 
 Use the [booking operations view](BOOKING_OPERATIONS_VIEW.md) to identify the
 affected booking. Record the Traqora booking ID, booking state, last update, and
@@ -11,6 +14,17 @@ supplier confirmation codes out of incident notes and logs.
 | Booking is `awaiting_payment` or `payment_processing` | Check the existing payment intent in the payment provider. Use that intent to determine whether payment succeeded, failed, or is still processing. | Allow normal confirmation or webhook processing to advance the booking. For terminal failures, follow the [checkout failure guidance](CHECKOUT_FAILURE_PATHS.md). Avoid creating a second charge while the first intent is unresolved. |
 | Booking is `onchain_pending` or `onchain_submitted` | Check the booking transaction hash on the configured Stellar network when a hash exists. Distinguish confirmed success, terminal failure, and an unknown result. | Reconcile confirmed transactions. Retry confirmation only after checking the existing payment and transaction, then keep the operation on the same booking. Escalate an unknown transaction outcome before resubmitting. |
 | Payment, supplier reservation, or contract state advanced without the others | Verify the outcome of each part independently. A successful charge or transaction does not establish that the other parts succeeded. | Preserve successful steps and use [refund reconciliation](refund-reconciliation.md) when compensation is required. Escalate when the current evidence is insufficient to determine the next safe action. |
+
+## Audit Record Structure
+- `booking_id`: Unique identifier of the booking being reconciled.
+- `actor`: The address responsible for triggering the state change.
+- `timestamp`: Ledger timestamp when the decision was executed.
+- `previous_status`: Status prior to the decision.
+- `new_status`: Resulting status after reconciliation.
+- `correlation_id`: Context tag identifying the operational decision path.
+
+## Operational Verification
+Operators can query all recorded audit entries using contract inspection utilities to verify correctness and trace reconciliation lifecycles.
 
 ## Audited operator recovery
 
