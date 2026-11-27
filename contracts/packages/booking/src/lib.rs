@@ -3,6 +3,18 @@
 // soroban macro-generated clients re-declare these signatures.
 #![allow(clippy::too_many_arguments)]
 use contract_events::{Action, Domain};
+
+fn validate_passenger_name(name: &String) {
+    let len = name.len();
+    assert!(len > 0, "Passenger name cannot be empty");
+    let bytes = name.to_xdr();
+    for byte in bytes.iter() {
+        // Reject ASCII control characters (0x00 - 0x1F and 0x7F)
+        if byte < 0x20 || byte == 0x7F {
+            panic!("Passenger name contains invalid control characters");
+        }
+    }
+}
 use soroban_sdk::{
     contract, contractclient, contractimpl, contracttype, symbol_short, token, Address, Env,
     String, Symbol, Vec,

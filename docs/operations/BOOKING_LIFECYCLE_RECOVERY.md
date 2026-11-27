@@ -1,4 +1,6 @@
-# Booking Lifecycle Failure Recovery
+# Booking Lifecycle Failure Recovery and Contact Updates
+
+During checkout and passenger details collection, at least one traveler contact channel (email or phone) must be provided and validated to receive booking updates and recovery notifications.
 
 Use the [booking operations view](BOOKING_OPERATIONS_VIEW.md) to identify the
 affected booking. Record the Traqora booking ID, booking state, last update, and
