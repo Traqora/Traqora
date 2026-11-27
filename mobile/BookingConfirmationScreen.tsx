@@ -34,6 +34,8 @@ interface BookingConfirmationProps {
   totalAmount: string;
   transactionHash?: string;
   onViewDashboard?: () => void;
+  /** Optional handler to download/export booking confirmation document. */
+  onDownloadConfirmation?: () => void;
   /** Optional human-readable separate-ticket risk explanation. */
   selfTransferExplanation?: string;
 }
@@ -45,6 +47,7 @@ export default function BookingConfirmationScreen({
   totalAmount,
   transactionHash,
   onViewDashboard,
+  onDownloadConfirmation,
   selfTransferExplanation,
 }: BookingConfirmationProps) {
   const hasSelfTransfer = itinerary.some((seg) => seg.separateTicket === true);
@@ -118,9 +121,16 @@ export default function BookingConfirmationScreen({
           )}
         </div>
 
+        <div className="action-buttons">
+          {onDownloadConfirmation && (
+            <button className="button secondary-button" onClick={onDownloadConfirmation}>
+              Download Confirmation
+            </button>
+          )}
         <button className="button" onClick={onViewDashboard}>
           Go to Dashboard
         </button>
+        </div>
       </div>
     </div>
   );
