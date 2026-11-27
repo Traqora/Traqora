@@ -26,6 +26,17 @@ pub trait BookingReceiptInterface {
 
 #[contracttype]
 #[derive(Clone)]
+pub struct ReconciliationAudit {
+    pub booking_id: u64,
+    pub actor: Address,
+    pub timestamp: u64,
+    pub previous_status: Symbol,
+    pub new_status: Symbol,
+    pub correlation_id: Symbol,
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct Booking {
     pub booking_id: u64,
     pub passenger: Address,
@@ -139,6 +150,52 @@ impl BookingStorage {
             .set(&symbol_short!("next_id"), &(id + 1));
         id
     }
+
+    pub fn record_audit(
+        env: &Env,
+        booking_id: u64,
+        actor: Address,
+        previous_status: Symbol,
+        new_status: Symbol,
+        correlation_id: Symbol,
+    ) {
+        let audit = ReconciliationAudit {
+            booking_id,
+            actor,
+            timestamp: env.ledger().timestamp(),
+            previous_status,
+            new_status,
+            correlation_id,
+        };
+        let count: u32 = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("aud_cnt"))
+            .unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&(symbol_short!("audit"), count), &audit);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("aud_cnt"), &(count + 1));
+    }
+
+    pub fn get_audits(env: &Env) -> Vec<ReconciliationAudit> {
+        let count: u32 = env
+            .storage()
+            .persistent()
+            .get(&symbol_short!("aud_cnt"))
+            .unwrap_or(0);
+        let mut list = Vec::new(env);
+        let mut i = 0;
+        while i < count {
+            if let Some(audit) = env.storage().persistent().get(&(symbol_short!("audit"), i)) {
+                list.push_back(audit);
+            }
+            i += 1;
+        }
+        list
+    }
 }
 
 #[contract]
@@ -246,12 +303,23 @@ impl BookingContract {
 
         booking.passenger.require_auth();
 
+        let prev_status = booking.status;
+
         let token_client = token::Client::new(&env, &booking.token);
 
         booking.amount_escrowed = booking.price;
         booking.status = symbol_short!("confirmed");
 
         BookingStorage::set(&env, booking_id, &booking);
+
+        BookingStorage::record_audit(
+            &env,
+            booking_id,
+            booking.passenger.clone(),
+            prev_status,
+            booking.status,
+            symbol_short!("pay_pass"),
+        );
 
         if let Some(receipt_contract) = BookingStorage::get_receipt_contract(&env) {
             let client = BookingReceiptClient::new(&env, &receipt_contract);
@@ -285,6 +353,8 @@ impl BookingContract {
 
         booking.airline.require_auth();
 
+        let prev_status = booking.status;
+
         assert!(
             booking.status == symbol_short!("confirmed"),
             "Invalid booking status"
@@ -304,6 +374,15 @@ impl BookingContract {
         booking.status = symbol_short!("completed");
 
         BookingStorage::set(&env, booking_id, &booking);
+
+        BookingStorage::record_audit(
+            &env,
+            booking_id,
+            booking.airline.clone(),
+            prev_status,
+            booking.status,
+            symbol_short!("rel_air"),
+        );
 
         contract_events::emit(
             &env,
@@ -349,10 +428,17 @@ impl BookingContract {
 
         let refunded_amount = booking.amount_escrowed;
         booking.amount_escrowed = 0;
+        let prev_status = booking.status;
         booking.status = symbol_short!("refunded");
 
-        BookingStorage::set(&env, booking_id, &booking);
-
+        BookingStorage::record_audit(
+            &env,
+            booking_id,
+            booking.passenger.clone(),
+            prev_status,
+            booking.status,
+            symbol_short!("refund_pass"),
+        );
         contract_events::emit(
             &env,
             Domain::Booking,
@@ -386,7 +472,7 @@ impl BookingContract {
         BookingStorage::get(&env, booking_id)
     }
 
-    /// Associates an off-chain booking reference with an on-chain booking record
+/// Associates an off-chain booking reference with an on-chain booking record
     /// without exposing passenger personal data.
     pub fn set_offchain_booking_reference(env: Env, booking_id: u64, offchain_ref: Symbol) {
         let booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
@@ -446,6 +532,9 @@ impl BookingContract {
         BookingStorage::get_booking_by_offchain_ref(&env, &offchain_ref)
     }
 
+    pub fn get_audits(env: Env) -> Vec<ReconciliationAudit> {
+        BookingStorage::get_audits(&env)
+    }
     // Original API wrappers for backward compatibility
     pub fn cancel_booking(env: Env, passenger: Address, booking_id: u64) {
         let booking = BookingStorage::get(&env, booking_id).expect("Booking not found");

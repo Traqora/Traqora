@@ -126,6 +126,19 @@ fn test_refund_flow() {
     let booking = contracts.booking.get_booking(&booking_id).unwrap();
     assert_eq!(booking.status, Symbol::new(&env, "refunded"));
     assert_eq!(booking.amount_escrowed, 0);
+
+    let audits = contracts.booking.get_audits();
+    assert_eq!(audits.len(), 2); // pay and refund
+    assert_eq!(audits.get(1).unwrap().booking_id, booking_id);
+    assert_eq!(audits.get(1).unwrap().actor, actors.passenger);
+    assert_eq!(
+        audits.get(1).unwrap().previous_status,
+        Symbol::new(&env, "confirmed")
+    );
+    assert_eq!(
+        audits.get(1).unwrap().new_status,
+        Symbol::new(&env, "refunded")
+    );
 }
 
 #[test]

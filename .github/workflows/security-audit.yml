@@ -17,7 +17,7 @@ jobs:
 
             - uses: actions/setup-node@v4
               with:
-                  node-version: 20
+                  node-version: 22
 
             - name: Audit runner self-test (exit-code contract)
               run: bash scripts/audit/audit-deps.sh --self-test
