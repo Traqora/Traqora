@@ -27,6 +27,8 @@ function formatSegmentTime(localTime: string | undefined, isoTime: string, timeZ
   return timeZone ? `${base} (${timeZone})` : base;
 }
 
+export type NotificationChannel = 'push' | 'email' | 'sms';
+
 interface BookingConfirmationProps {
   bookingId: string;
   itinerary: ItinerarySegment[];
@@ -36,6 +38,10 @@ interface BookingConfirmationProps {
   onViewDashboard?: () => void;
   /** Optional human-readable separate-ticket risk explanation. */
   selfTransferExplanation?: string;
+  /** Supported booking update channels chosen by the traveler. Essential service notices are never suppressed. */
+  notificationPreferences?: NotificationChannel[];
+  /** Callback when notification preferences are updated. */
+  onUpdateNotificationPreferences?: (channels: NotificationChannel[]) => void;
 }
 
 export default function BookingConfirmationScreen({
@@ -46,6 +52,8 @@ export default function BookingConfirmationScreen({
   transactionHash,
   onViewDashboard,
   selfTransferExplanation,
+  notificationPreferences = ['push', 'email'],
+  onUpdateNotificationPreferences,
 }: BookingConfirmationProps) {
   const hasSelfTransfer = itinerary.some((seg) => seg.separateTicket === true);
 
@@ -55,6 +63,25 @@ export default function BookingConfirmationScreen({
         <div className="header-container">
           <h1 className="success-title">Booking Confirmed!</h1>
           <p className="booking-ref">Reference: TRAQ-{bookingId}</p>
+        </div>
+
+        <div className="card">
+          <h2 className="section-title">Booking Update Notification Preferences</h2>
+          <p className="notice-hint">
+            Choose how you wish to receive non-essential booking and itinerary updates. Essential safety and flight operation notices are always delivered.
+          </p>
+          <div className="status-row">
+            <span className="label">Channels:</span>
+            <span className="value">{notificationPreferences.join(', ')}</span>
+          </div>
+          {onUpdateNotificationPreferences && (
+            <button
+              className="button"
+              onClick={() => onUpdateNotificationPreferences(['push', 'email', 'sms'])}
+            >
+              Enable All Channels
+            </button>
+          )}
         </div>
 
         <div className="card">
