@@ -22,12 +22,28 @@ const bookingRow = {
   bookingState: 'confirmed',
   supplierState: 'DELAYED',
   paymentReference: 'pi_123',
+  contractState: 'refunded',
   reconciliationStatus: 'needs_review',
   reconciliationDetail: 'Ledger mismatch',
+  mismatches: [
+    {
+      type: 'contract_backend_mismatch',
+      severity: 'high',
+      detail: 'Contract expects refunded but backend is confirmed',
+    },
+  ],
   flightNumber: 'TQ204',
   departureTime: '2026-12-01T10:00:00.000Z',
   amountCents: 42000,
   updatedAt: '2026-11-19T09:00:00.000Z',
+};
+
+const summary = {
+  scannedBookings: 1,
+  mismatchedBookings: 1,
+  mismatchCount: 1,
+  byType: { contract_backend_mismatch: 1 },
+  bySeverity: { high: 1, medium: 0, low: 0 },
 };
 
 describe('OperationsPage', () => {
@@ -37,7 +53,7 @@ describe('OperationsPage', () => {
 
   it('shows booking, supplier, payment and reconciliation state for operators', async () => {
     const fetchMock = jest.fn().mockResolvedValue(
-      jsonResponse({ success: true, data: [bookingRow] })
+      jsonResponse({ success: true, data: [bookingRow], summary })
     );
     global.fetch = fetchMock as jest.Mock;
 
@@ -48,8 +64,13 @@ describe('OperationsPage', () => {
     expect(screen.getByText('TQ-ABC123')).toBeInTheDocument();
     expect(screen.getByText('delayed')).toBeInTheDocument();
     expect(screen.getByText('pi_123')).toBeInTheDocument();
+    expect(screen.getByText('refunded')).toBeInTheDocument();
     expect(screen.getByText('needs review')).toBeInTheDocument();
     expect(screen.getByText('Ledger mismatch')).toBeInTheDocument();
+    expect(screen.getByText('contract backend mismatch')).toBeInTheDocument();
+    expect(screen.getByText(/contract expects refunded but backend is confirmed/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /reconciliation summary/i })).toBeInTheDocument();
+    expect(screen.getByText(/counts cover the current page/i)).toBeInTheDocument();
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3001/api/v1/admin/operations/bookings',
@@ -68,10 +89,12 @@ describe('OperationsPage', () => {
           {
             ...bookingRow,
             supplierState: 'unavailable',
+            contractState: 'unavailable',
             flightNumber: 'unavailable',
             paymentReference: null,
             reconciliationStatus: 'not_attempted',
             reconciliationDetail: null,
+            mismatches: [],
           },
         ],
       })

@@ -1,17 +1,13 @@
-640 Idempotent booking create/confirm API
+#1135 Add booking reconciliation dashboard data
 Repo Avatar
 Traqora/Traqora
-Problem / opportunity
-Scoped task: Idempotent booking create/confirm API.
-Relevant area: packages/backend booking orchestration.
+V1 area: Confirmation and reconciliation
 
-Why it matters
-Correctness, security, UX, or velocity for Traqora travel booking on Stellar.
+Goal
+Expose mismatches between supplier, payment, contract, and backend status to authorized operators.
 
 Acceptance criteria
- Reproduce/measure current behavior
- Minimal scoped fix
- Regression test added/updated
- Docs updated where applicable
-Testing
-Relevant suite green (npm run test, soroban test, or workspace lint/test).
+ The stated v1 outcome is implemented without expanding the documented v1 scope.
+ Automated tests cover the normal path and relevant validation or failure paths.
+ Security, privacy, and accessibility requirements for the touched surface are preserved.
+ User-facing or operational documentation is updated where behavior changes.

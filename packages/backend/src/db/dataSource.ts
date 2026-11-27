@@ -10,6 +10,7 @@ import { Passenger } from "./entities/Passenger";
 import { IdempotencyKey } from "./entities/IdempotencyKey";
 import { AdminUser } from "./entities/AdminUser";
 import { AdminAuditLog } from "./entities/AdminAuditLog";
+import { BookingDeadLetter } from "./entities/BookingDeadLetter";
 import { Refund } from "./entities/Refund";
 import { User } from "./entities/User";
 import { ContractEventLog } from "./entities/ContractEventLog";
@@ -34,6 +35,7 @@ export const AppDataSource = new DataSource(
         NotificationLog,
         AdminUser,
         AdminAuditLog,
+        BookingDeadLetter,
         Refund,
         User,
         ContractEventLog,
@@ -56,6 +58,7 @@ export const AppDataSource = new DataSource(
         NotificationLog,
         AdminUser,
         AdminAuditLog,
+        BookingDeadLetter,
         Refund,
         User,
         ContractEventLog,

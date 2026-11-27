@@ -31,6 +31,26 @@ Regression coverage: `packages/backend/tests/idempotency.concurrency.test.ts`,
 `packages/backend/tests/bookings.integration.test.ts`, and
 `packages/backend/src/services/__tests__/bookingConfirmRetry.test.ts`.
 
+## 0.1 Stable traveler booking reference (#1134)
+
+Every new booking receives a human-readable reference of the form
+`TRQ-XXXXXXXXXXXXXXXX`, where the body is 16 Crockford base32 characters. The
+value is derived with HMAC-SHA256 from a stable booking seed and
+`BOOKING_MEMO_SECRET` (falling back to `JWT_SECRET`, then
+`STELLAR_SECRET_KEY`). It is deterministic for retries and fee-bump rebuilds,
+and the seed is a booking/group identifier, never a passenger name, email,
+phone number, or other personal data.
+
+The reference is stored on `bookings.bookingReference` under a unique index and
+is published as the Stellar `MEMO_TEXT` when the booking is submitted on-chain.
+Group bookings receive one reference per member booking. Existing bookings
+created before this field was introduced may have a null reference; the internal
+booking UUID remains the fallback identifier for those records.
+
+Implementation: `packages/backend/src/services/bookingReference.ts`,
+`bookingOrchestrationService.createBooking`, and
+`groupBooking.confirmGroupBooking`.
+
 ---
 
 ## 1. Booking cancel policy engine (#785)
@@ -137,3 +157,108 @@ the single owner of the transition and is unit-tested for idempotent replay in
 both directions (confirmed + failed).
 
 Regression tests: `packages/backend/src/services/__tests__/bookingConfirmRetry.test.ts`.
+
+---
+
+## 3. Bounded confirmation retry worker (#1131)
+
+Implementation: `packages/backend/src/services/confirmationRetry.ts`
+(`decideConfirmationRetry`, `ConfirmationRetryService`) and
+`packages/backend/src/jobs/confirmationRetryJob.ts`, started from
+`packages/backend/src/index.ts`.
+
+The post-submission poll (`BookingOrchestrationService.pollTransactionStatus`)
+now delegates to `retryUntilSettled`. A periodic sweep
+(`CONFIRMATION_RETRY_CRON`, default `*/1 * * * *`) is the durable safety net for
+bookings whose in-process poll was lost on restart.
+
+### Inputs
+
+Bookings in `onchain_pending` or `onchain_submitted` with a `sorobanTxHash`,
+whose `confirmationNextAttemptAt` is null or in the past. The batch is bounded
+by `CONFIRMATION_RETRY_BATCH_SIZE` (default 50).
+
+### Policy
+
+| Env var                             | Default | Meaning                                      |
+| ----------------------------------- | ------- | -------------------------------------------- |
+| `CONFIRMATION_RETRY_MAX_ATTEMPTS`   | 8       | Total attempts before terminal failure       |
+| `CONFIRMATION_RETRY_BASE_DELAY_MS`  | 5000    | First backoff delay                          |
+| `CONFIRMATION_RETRY_MAX_DELAY_MS`   | 60000   | Backoff ceiling (exponential, +20% jitter)   |
+| `CONFIRMATION_RETRY_BATCH_SIZE`     | 50      | Bookings processed per sweep                 |
+| `CONFIRMATION_RETRY_CRON`           | `*/1 * * * *` | Sweep schedule                        |
+
+### Outcomes
+
+| Result                         | Persisted state                                              |
+| ------------------------------ | ------------------------------------------------------------ |
+| `confirmed` / `already_confirmed` | `confirmed`, attempts reset to 0, next attempt cleared    |
+| On-chain `failed`              | `failed`, `lastError` from the chain, seat released once      |
+| `pending` / `not_found` / error below budget | unchanged status, attempts +1, `confirmationNextAttemptAt` set |
+| Attempt budget exhausted       | `failed` with `lastError = "Confirmation retries exhausted after N attempts…"` and no further retries |
+
+The exhausted/failed row is the visible terminal state: it is returned by the
+booking and transaction APIs and fires the normal failed-booking operational
+signals. Attempts are serialized per booking in-process, and a new transaction
+submission or an admin `retry_confirmation` resets the retry budget.
+
+Regression tests: `packages/backend/src/services/__tests__/confirmationRetry.test.ts`.
+
+---
+
+## 4. Booking dead-letter recovery path (#1132)
+
+Implementation: `packages/backend/src/db/entities/BookingDeadLetter.ts`,
+`packages/backend/src/services/bookingDeadLetterService.ts`, and the admin routes
+in `packages/backend/src/api/routes/admin/bookings.ts`.
+
+When a booking's on-chain confirmation reaches a terminal `failed` state the
+bounded retry worker (#1131) captures a dead-letter entry. Both exhausted retry
+budgets and definitive on-chain failures are captured; the entry keeps the
+failure context even after an operator recovers the booking.
+
+### Captured context
+
+Entries are stored in `booking_dead_letters` with only privacy-safe fields:
+
+| Field | Meaning |
+| --- | --- |
+| `bookingId` | Booking being quarantined. |
+| `operation` | Closed set; currently `CONFIRM_TRANSACTION`. |
+| `bookingStatus` | Booking status after the terminal transition. |
+| `attempts` | Attempts spent before quarantine. |
+| `reason` | Terminal `lastError`, truncated to 1000 characters. |
+| `context` | `previousStatus`, `outcome`, privacy-safe `bookingReference`, `flightId`, `sorobanTxHash`, `amountCents`. |
+
+Passenger identity, contact details, passport data, payment intent/client
+secrets, and wallet addresses are never copied into the entry. Re-capturing an
+open entry for the same booking and operation updates it in place rather than
+creating duplicates.
+
+### Operator endpoints
+
+| Method and path | Permission | Purpose |
+| --- | --- | --- |
+| `GET /api/v1/admin/bookings/dead-letters` | `booking:read` | Paginated list; filters `state=open|resolved` and `bookingId`. |
+| `GET /api/v1/admin/bookings/dead-letters/:id` | `booking:read` | Inspect one entry. |
+| `POST /api/v1/admin/bookings/dead-letters/:id/recover` | `booking:reconcile` | Recover the underlying booking with an audited action. |
+
+The recovery body is the same as the booking recovery endpoint:
+
+```json
+{ "action": "retry_confirmation" | "mark_failed", "reason": "..." }
+```
+
+`Idempotency-Key` is required. Recovery delegates to the booking recovery
+service, so the status correction and `AdminAuditLog` row are written in one
+transaction. Every open dead-letter entry for that booking is then marked
+`resolved` with `resolvedBy`, `resolutionAction`, `resolutionReason`, and the
+`auditLogId`. Resolved entries are retained for investigation.
+
+Reusing the same `Idempotency-Key` returns the original audit reference without
+repeating the state change. Recovering an already-resolved dead-letter id also
+returns the current booking and original audit reference with
+`idempotentReplay: true`.
+
+Regression tests: `packages/backend/src/services/__tests__/bookingDeadLetter.test.ts`
+and `packages/backend/tests/booking-recovery.integration.test.ts`.

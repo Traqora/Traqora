@@ -302,6 +302,8 @@ router.post(
     booking.sorobanIsFeeBump = result.isFeeBump;
     booking.status = "onchain_submitted";
     booking.contractSubmitAttempts = (booking.contractSubmitAttempts || 0) + 1;
+    booking.confirmationAttempts = 0;
+    booking.confirmationNextAttemptAt = null;
     await bookingRepo.save(booking);
 
     return res.status(202).json({ success: true, data: booking, soroban: result });

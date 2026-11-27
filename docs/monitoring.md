@@ -97,14 +97,21 @@ Latency targets (keep in sync with `SLO_TARGETS` in
 | Operation | Target | Instrumented at |
 | --- | --- | --- |
 | `search` | 2s (95% of events) | `services/flightSearchService.ts` (whole search, including cache hits) |
-| `booking` | 300s (95% of events) | `BookingOrchestrationService.pollTransactionStatus()` (confirmation polling through terminal confirmation or failure) |
+| `booking` | 300s (95% of events) | `ConfirmationRetryService.retryUntilSettled()` (confirmation polling through terminal confirmation or failure) |
 | `refund` | 3600s (95% of events) | `RefundService.processRefund()` (processing through completion or rejection) |
 
 Contract: `sloMeasure(operation, fn)` accepts a configured operation and an
 async function, returns the function's value on success, and records one event
 with the elapsed seconds. It records an event as `bad` and rethrows the same
-error when the function rejects. Booking's asynchronous poll records once at
-confirmation, terminal transaction failure, or exhausted polling retries.
+error when the function rejects. Booking's asynchronous confirmation poll records
+once at confirmation, terminal transaction failure, or exhausted retries. The
+bounded retry worker (`jobs/confirmationRetryJob.ts`) uses the same policy for
+bookings whose in-process poll was lost; exhausted retries surface as `failed`
+bookings with a `Confirmation retries exhausted…` `lastError`. Terminal
+confirmation failures are also quarantined in `booking_dead_letters` (#1132)
+with privacy-safe context; list them via
+`GET /api/v1/admin/bookings/dead-letters?state=open`. Quarantine adds no
+per-booking Prometheus labels, so metric cardinality stays bounded.
 
 Recording rules and burn-rate alerts live in
 `monitoring/prometheus/slo-rules.yml` (loaded via `prometheus.yml`):
