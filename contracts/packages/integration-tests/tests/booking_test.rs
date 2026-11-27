@@ -2,6 +2,46 @@ use integration_tests::{generate_actors, initialize_token, new_env, register_con
 use soroban_sdk::{testutils::Ledger, Symbol};
 
 #[test]
+fn test_payment_transaction_finality_validation() {
+    let env = new_env();
+    env.mock_all_auths();
+    let actors = generate_actors(&env);
+    let contracts = register_contracts(&env);
+    initialize_token(&env, &contracts.token, &actors.admin);
+
+    let client = booking::Client::new(&env, &contracts.booking);
+    let booking_id = client.create_booking(
+        &actors.traveler,
+        &actors.airline,
+        &Symbol::new(&env, "FL123"),
+        &Symbol::new(&env, "JFK"),
+        &Symbol::new(&env, "LAX"),
+        &1704067200,
+        &1000000000,
+        &contracts.token,
+    );
+
+    let token_client = token::Client::new(&env, &contracts.token);
+    token_client.mint(&actors.admin, &actors.traveler, &1000000000);
+
+    // Attempt payment before transferring tokens to escrow (verifying finality failure path)
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.pay_for_booking(&booking_id);
+    }));
+    assert!(
+        result.is_err(),
+        "Payment without transferred funds should fail finality verification"
+    );
+
+    // Now transfer funds properly for normal path
+    token_client.transfer(&actors.traveler, &contracts.booking, &1000000000);
+    client.pay_for_booking(&booking_id);
+
+    let b = client.get_booking(&booking_id);
+    assert_eq!(b.status, BookingStatus::Confirmed);
+}
+
+#[test]
 fn test_payment_escrow_flow() {
     let env = new_env();
     let actors = generate_actors(&env);

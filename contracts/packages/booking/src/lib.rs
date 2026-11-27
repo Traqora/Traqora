@@ -185,6 +185,23 @@ impl BookingContract {
     pub fn pay_for_booking(env: Env, booking_id: u64) {
         let mut booking = BookingStorage::get(&env, booking_id).expect("Booking not found");
 
+        // Verify payment transaction finality on the configured network (ensuring balance was successfully transferred)
+        let token_client_verify = token::Client::new(&env, &booking.token);
+        let contract_balance_before = token_client_verify.balance(&env.current_contract_address());
+
+        // Transfer tokens from passenger to this contract
+        token_client_verify.transfer(
+            &booking.passenger,
+            &env.current_contract_address(),
+            &booking.price,
+        );
+
+        let contract_balance_after = token_client_verify.balance(&env.current_contract_address());
+        assert!(
+            contract_balance_after >= contract_balance_before + booking.price,
+            "Transaction finality verification failed: insufficient network balance transfer"
+        );
+
         assert!(
             booking.status == symbol_short!("pending"),
             "Already paid or cancelled"
@@ -193,13 +210,6 @@ impl BookingContract {
         booking.passenger.require_auth();
 
         let token_client = token::Client::new(&env, &booking.token);
-
-        // Transfer tokens from passenger to this contract
-        token_client.transfer(
-            &booking.passenger,
-            &env.current_contract_address(),
-            &booking.price,
-        );
 
         booking.amount_escrowed = booking.price;
         booking.status = symbol_short!("confirmed");
