@@ -26,6 +26,15 @@ pub trait BookingReceiptInterface {
 
 #[contracttype]
 #[derive(Clone)]
+pub struct PassengerRecord {
+    pub passenger: Address,
+    pub name: String,
+    pub passport_hash: Symbol,
+    pub created_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct Booking {
     pub booking_id: u64,
     pub passenger: Address,
@@ -84,6 +93,22 @@ impl BookingStorage {
 
     pub fn set(env: &Env, booking_id: u64, booking: &Booking) {
         env.storage().persistent().set(&booking_id, booking);
+    }
+
+    pub fn remove(env: &Env, booking_id: u64) {
+        env.storage().persistent().remove(&booking_id);
+    }
+
+    pub fn get_passenger(env: &Env, passenger: &Address) -> Option<PassengerRecord> {
+        env.storage().persistent().get(passenger)
+    }
+
+    pub fn set_passenger(env: &Env, passenger: &Address, record: &PassengerRecord) {
+        env.storage().persistent().set(passenger, record);
+    }
+
+    pub fn remove_passenger(env: &Env, passenger: &Address) {
+        env.storage().persistent().remove(passenger);
     }
 
     pub fn get_trusted_oracle(env: &Env) -> Option<Address> {
@@ -164,7 +189,78 @@ impl BookingContract {
         BookingStorage::set_receipt_contract(&env, &receipt_contract);
     }
 
-    // Initialize booking - starts in "pending" status until paid
+    // Initialize booking - starts in "pending" status until paid with atomic record persistence
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_booking_with_passenger(
+        env: Env,
+        passenger: Address,
+        passenger_name: String,
+        passport_hash: Symbol,
+        airline: Address,
+        flight_number: Symbol,
+        from_airport: Symbol,
+        to_airport: Symbol,
+        departure_time: u64,
+        price: i128,
+        token: Address,
+    ) -> u64 {
+        passenger.require_auth();
+        assert!(price >= 0, "Invalid price");
+
+        let timestamp = env.ledger().timestamp();
+
+        // Ensure atomic persistence: validate all inputs first, then persist passenger and booking together in a single atomic sequence
+        let passenger_exists = BookingStorage::get_passenger(&env, &passenger).is_some();
+        let booking_id = BookingStorage::next_id(&env);
+
+        let record = if !passenger_exists {
+            Some(PassengerRecord {
+                passenger: passenger.clone(),
+                name: passenger_name,
+                passport_hash,
+                created_at: timestamp,
+            })
+        } else {
+            None
+            };
+
+        let booking = Booking {
+            booking_id,
+            passenger: passenger.clone(),
+            airline,
+            flight_number,
+            from_airport,
+            to_airport,
+            departure_time,
+            price,
+            token,
+            amount_escrowed: 0,
+            status: symbol_short!("pending"),
+            created_at: timestamp,
+        };
+
+        if let Some(r) = record {
+            BookingStorage::set_passenger(&env, &passenger, &r);
+        }
+        BookingStorage::set(&env, booking_id, &booking);
+
+        contract_events::emit(
+            &env,
+            Domain::Booking,
+            Action::Created,
+            (
+                booking.passenger.clone(),
+                env.ledger().timestamp(),
+                booking_id,
+                booking.airline.clone(),
+                booking.flight_number.clone(),
+                booking.price,
+            ),
+        );
+
+        booking_id
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn create_booking(
         env: Env,
@@ -197,7 +293,7 @@ impl BookingContract {
             created_at: env.ledger().timestamp(),
         };
 
-        // Atomic storage write with validation guard
+// Ensure atomic persistence of booking and any related state with validation guard
         BookingStorage::set(&env, booking_id, &booking);
 
         // Canonical schema: (actor, timestamp, primary_id, ...payload)
@@ -733,5 +829,45 @@ impl BookingContract {
                 refunded_amount,
             ),
         );
+    }
+}
+
+#[cfg(test)]mod test {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env};
+
+    #[test]
+    fn test_atomic_booking_and_passenger_creation() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(BookingContract, ());
+        let client = BookingContractClient::new(&env, &contract_id);
+
+        let passenger = Address::generate(&env);
+        let airline = Address::generate(&env);
+        let token_address = Address::generate(&env);
+
+        let booking_id = client.create_booking_with_passenger(
+            &passenger,
+            &String::from_str(&env, "Alice Smith"),
+            &symbol_short!("PASS123"),
+            &airline,
+            &symbol_short!("FL123"),
+            &symbol_short!("JFK"),
+            &symbol_short!("LAX"),
+            &1000u64,
+            &500i128,
+            &token_address,
+        );
+
+        assert_eq!(booking_id, 1);
+        let booking = client.get_booking(&booking_id).unwrap();
+        assert_eq!(booking.booking_id, 1);
+        assert_eq!(booking.passenger, passenger);
+        assert_eq!(booking.status, symbol_short!("pending"));
+
+        let stored_passenger = BookingStorage::get_passenger(&env, &passenger).unwrap();
+        assert_eq!(stored_passenger.name, String::from_str(&env, "Alice Smith"));
     }
 }

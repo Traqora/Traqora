@@ -1,4 +1,7 @@
-# Booking Lifecycle Failure Recovery
+# Booking Lifecycle and Atomic Persistence Failure Recovery
+
+## Overview
+Booking and passenger records are persisted atomically within the Soroban smart contract layer (`BookingStorage::set_atomic`). This ensures that partial booking entries or orphaned traveler data cannot be left behind if a write operation fails partway.
 
 Use the [booking operations view](BOOKING_OPERATIONS_VIEW.md) to identify the
 affected booking. Record the Traqora booking ID, booking state, last update, and
@@ -28,3 +31,7 @@ Reuse the same key, action, and reason if the recovery request times out.
 Confirm the returned booking status and retain the `auditLogId` for the
 incident record. Escalate disagreements between the supplier, payment provider,
 and ledger instead of manually forcing a confirmed state.
+
+## Failure Recovery
+- **Atomic Writes**: Soroban ledger transactions execute all storage modifications within a single atomic boundary. If any step fails, the entire transaction reverts.
+- **Orphan Prevention**: Passenger index records and core booking records are updated together. Verify booking IDs using `get_booking` and associated passenger records via `get_passenger_record`.

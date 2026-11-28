@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
   RUST_TOOLCHAIN: "1.94.1"
   SOROBAN_CLI_VERSION: "26.1.0"
   # Shared Cargo cache paths — referenced in every Rust job.
